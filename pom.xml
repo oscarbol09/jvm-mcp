@@ -31,7 +31,7 @@
         <jacoco.version>0.8.12</jacoco.version>
         <maven-surefire-plugin.version>3.5.2</maven-surefire-plugin.version>
         <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
-        <pitest.version>1.17.4</pitest.version>
+        <pitest.version>1.30.0</pitest.version>
         <pitest-junit5.version>1.2.1</pitest-junit5.version>
     </properties>
 
