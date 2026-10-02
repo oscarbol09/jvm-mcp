@@ -25,6 +25,29 @@ class BeansCommandTest {
         assertThat(out.toString()).contains("--filter");
         assertThat(out.toString()).contains("--detail");
         assertThat(out.toString()).contains("--actuator");
+        assertThat(out.toString()).contains("--actuator-user");
+        assertThat(out.toString()).contains("--actuator-password");
+        assertThat(out.toString()).contains("--actuator-token");
+        assertThat(out.toString()).contains("--insecure");
+    }
+
+    @Test
+    @DisplayName("beans command should reject Basic and Bearer credentials used together")
+    void shouldRejectBasicAndBearerTogether() {
+        CommandLine cmd = new CommandLine(new JvmMcp());
+        int exitCode = cmd.execute("beans", "--actuator", "http://localhost:1",
+            "--actuator-user", "admin", "--actuator-password", "pw", "--actuator-token", "tok");
+
+        assertThat(exitCode).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("beans command should reject a username without a password")
+    void shouldRejectUserWithoutPassword() {
+        CommandLine cmd = new CommandLine(new JvmMcp());
+        int exitCode = cmd.execute("beans", "--actuator", "http://localhost:1", "--actuator-user", "admin");
+
+        assertThat(exitCode).isEqualTo(1);
     }
 
     @Test

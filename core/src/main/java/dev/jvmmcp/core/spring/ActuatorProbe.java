@@ -2,10 +2,17 @@ package dev.jvmmcp.core.spring;
 
 import com.sun.tools.attach.VirtualMachine;
 
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLEngine;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509ExtendedTrustManager;
+import java.net.Socket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.security.GeneralSecurityException;
+import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.*;
 
@@ -15,15 +22,69 @@ import java.util.*;
 public class ActuatorProbe {
 
     private final HttpClient httpClient;
+    private final ActuatorAuth auth;
 
     public ActuatorProbe() {
-        this.httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofMillis(1500))
-            .build();
+        this(ActuatorAuth.NONE);
+    }
+
+    public ActuatorProbe(ActuatorAuth auth) {
+        this.auth = auth == null ? ActuatorAuth.NONE : auth;
+        this.httpClient = buildHttpClient(this.auth);
     }
 
     public ActuatorProbe(HttpClient httpClient) {
+        this(httpClient, ActuatorAuth.NONE);
+    }
+
+    public ActuatorProbe(HttpClient httpClient, ActuatorAuth auth) {
         this.httpClient = httpClient;
+        this.auth = auth == null ? ActuatorAuth.NONE : auth;
+    }
+
+    private static HttpClient buildHttpClient(ActuatorAuth auth) {
+        HttpClient.Builder builder = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofMillis(1500));
+        if (auth.insecure()) {
+            builder.sslContext(trustAllSslContext());
+        }
+        return builder.build();
+    }
+
+    /**
+     * Creates an SSL context that accepts any certificate and hostname. Only used when the user
+     * explicitly passes --insecure, e.g. to test against self-signed certificates.
+     */
+    private static SSLContext trustAllSslContext() {
+        try {
+            SSLContext context = SSLContext.getInstance("TLS");
+            context.init(null, new TrustManager[] {new TrustAllManager()}, null);
+            return context;
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("Unable to initialise insecure TLS context", e);
+        }
+    }
+
+    /**
+     * Extends X509ExtendedTrustManager so the JDK also skips hostname verification.
+     */
+    private static final class TrustAllManager extends X509ExtendedTrustManager {
+        @Override public void checkClientTrusted(X509Certificate[] chain, String authType) {}
+        @Override public void checkServerTrusted(X509Certificate[] chain, String authType) {}
+        @Override public void checkClientTrusted(X509Certificate[] chain, String authType, Socket socket) {}
+        @Override public void checkServerTrusted(X509Certificate[] chain, String authType, Socket socket) {}
+        @Override public void checkClientTrusted(X509Certificate[] chain, String authType, SSLEngine engine) {}
+        @Override public void checkServerTrusted(X509Certificate[] chain, String authType, SSLEngine engine) {}
+        @Override public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+    }
+
+    private HttpRequest.Builder newRequest(String url, Duration timeout) {
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+            .uri(URI.create(url))
+            .timeout(timeout)
+            .header("Accept", "application/json");
+        auth.authorizationHeader().ifPresent(value -> builder.header("Authorization", value));
+        return builder;
     }
 
     public Optional<ProbeResult> probe(VirtualMachine vm) {
@@ -51,12 +112,7 @@ public class ActuatorProbe {
         for (String path : candidatePaths) {
             String url = "http://localhost:" + port + path;
             try {
-                HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .timeout(Duration.ofMillis(1500))
-                    .header("Accept", "application/json")
-                    .GET()
-                    .build();
+                HttpRequest request = newRequest(url, Duration.ofMillis(1500)).GET().build();
 
                 HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() == 200 && response.body() != null && response.body().contains("beans")) {
@@ -70,26 +126,33 @@ public class ActuatorProbe {
         return Optional.empty();
     }
 
+    /**
+     * Fetches the beans endpoint from a user-supplied URL. Accepts http or https, and either a full
+     * beans URL (e.g. https://host/management/beans) or a base URL, in which case both
+     * {@code /actuator/beans} and {@code /beans} (custom management base path) are tried.
+     */
     public Optional<String> fetchFromUrl(String baseUrl) {
-        String targetUrl = baseUrl.endsWith("/actuator/beans") || baseUrl.endsWith("/beans") 
-            ? baseUrl 
-            : (baseUrl.endsWith("/") ? baseUrl + "actuator/beans" : baseUrl + "/actuator/beans");
-
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(targetUrl))
-                .timeout(Duration.ofSeconds(3))
-                .header("Accept", "application/json")
-                .GET()
-                .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() == 200 && response.body() != null) {
-                return Optional.of(response.body());
+        for (String targetUrl : candidateBeansUrls(baseUrl)) {
+            try {
+                HttpRequest request = newRequest(targetUrl, Duration.ofSeconds(3)).GET().build();
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() == 200 && response.body() != null) {
+                    return Optional.of(response.body());
+                }
+            } catch (Exception ignored) {
+                // Try the next candidate path
             }
-        } catch (Exception ignored) {}
-
+        }
         return Optional.empty();
+    }
+
+    static List<String> candidateBeansUrls(String baseUrl) {
+        String trimmed = baseUrl.trim();
+        if (trimmed.endsWith("/beans")) {
+            return List.of(trimmed);
+        }
+        String base = trimmed.endsWith("/") ? trimmed.substring(0, trimmed.length() - 1) : trimmed;
+        return List.of(base + "/actuator/beans", base + "/beans");
     }
 
     private Set<Integer> extractCandidatePorts(VirtualMachine vm) {

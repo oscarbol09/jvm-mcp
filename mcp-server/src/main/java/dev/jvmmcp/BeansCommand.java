@@ -6,7 +6,10 @@ import dev.jvmmcp.core.jmx.JmxConnectionManager;
 import dev.jvmmcp.core.model.SpringBeanDetail;
 import dev.jvmmcp.core.model.SpringBeansReport;
 import dev.jvmmcp.core.model.SpringContextBeans;
+import dev.jvmmcp.core.spring.ActuatorAuth;
+import dev.jvmmcp.core.spring.ActuatorProbe;
 import dev.jvmmcp.core.spring.SpringBeansClient;
+import dev.jvmmcp.core.spring.SpringBeansParser;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -34,9 +37,34 @@ public class BeansCommand implements Callable<Integer> {
     @Option(names = {"--actuator", "-a"}, description = "Direct Actuator Base URL (e.g. 'http://localhost:8080')")
     String actuatorUrl;
 
+    @Option(names = "--actuator-user", description = "Username for Actuator Basic authentication")
+    String actuatorUser;
+
+    @Option(names = "--actuator-password", description = "Password for Actuator Basic authentication")
+    String actuatorPassword;
+
+    @Option(names = "--actuator-token", description = "Bearer token sent as 'Authorization: Bearer <token>'")
+    String actuatorToken;
+
+    @Option(names = {"--insecure", "-k"}, description = "Trust any TLS certificate (for self-signed HTTPS endpoints). Not recommended for production.")
+    boolean insecure;
+
     @Override
     public Integer call() {
-        SpringBeansClient client = new SpringBeansClient();
+        ActuatorAuth auth = new ActuatorAuth(actuatorUser, actuatorPassword, actuatorToken, insecure);
+        Optional<String> authError = auth.validate();
+        if (authError.isPresent()) {
+            System.err.println("[jvm-mcp] Error: " + authError.get());
+            return 1;
+        }
+        if (insecure) {
+            System.err.println("[jvm-mcp] Warning: --insecure disables TLS certificate and hostname verification.");
+        }
+        if (auth.hasCredentials() && actuatorUrl != null && actuatorUrl.trim().toLowerCase().startsWith("http://")) {
+            System.err.println("[jvm-mcp] Warning: credentials are sent over plain HTTP. Use an https:// URL where possible.");
+        }
+
+        SpringBeansClient client = new SpringBeansClient(new ActuatorProbe(auth), new SpringBeansParser());
         SpringBeansReport report;
 
         if (actuatorUrl != null && !actuatorUrl.isBlank()) {
