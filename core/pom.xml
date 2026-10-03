@@ -41,5 +41,18 @@
             <artifactId>jqwik</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- HikariCP Dependency -->
+        <dependency>
+          <groupId>com.zaxxer</groupId>
+          <artifactId>HikariCP</artifactId>
+         <scope>test</scope>
+        </dependency>
+        <!-- H2 Database Dependency -->
+        <dependency>
+             <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>
