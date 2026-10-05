@@ -33,6 +33,9 @@
         <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
         <pitest.version>1.30.0</pitest.version>
         <pitest-junit5.version>1.2.3</pitest-junit5.version>
+        <hikaricp.version>6.3.3</hikaricp.version>
+        <h2.version>2.4.240</h2.version>
+
     </properties>
 
     <dependencyManagement>
@@ -56,6 +59,7 @@
                 <version>${awaitility.version}</version>
                 <scope>test</scope>
             </dependency>
+            
             <dependency>
                 <groupId>com.tngtech.archunit</groupId>
                 <artifactId>archunit-junit5</artifactId>
@@ -67,6 +71,18 @@
                 <artifactId>jqwik</artifactId>
                 <version>${jqwik.version}</version>
                 <scope>test</scope>
+            </dependency>
+            <!-- HikariCP Dependency -->
+            <dependency>
+              <groupId>com.zaxxer</groupId>
+              <artifactId>HikariCP</artifactId>
+              <version>${hikaricp.version}</version>
+            </dependency>
+            <!-- H2 Database Dependency -->
+            <dependency>
+                <groupId>com.h2database</groupId>
+                <artifactId>h2</artifactId>
+             <version>${h2.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
