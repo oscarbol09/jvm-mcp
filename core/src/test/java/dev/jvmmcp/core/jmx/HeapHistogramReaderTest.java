@@ -27,7 +27,7 @@ class HeapHistogramReaderTest {
     @DisplayName("readHistogram throws IllegalArgumentException when VirtualMachine is null")
     void shouldThrowWhenVmIsNull() {
         HeapHistogramReader reader = new HeapHistogramReader();
-        assertThatThrownBy(() -> reader.readHistogram(null, 123L, 10))
+        assertThatThrownBy(() -> reader.readHistogram((com.sun.tools.attach.VirtualMachine) null, 123L, 10))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("VirtualMachine cannot be null");
     }
@@ -149,5 +149,60 @@ class HeapHistogramReaderTest {
 
         assertThat(histogram).isNotNull();
         assertThat(histogram.topClasses()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("readHistogram propagates NoSuchMethodException when executeJCmd is unavailable so callers can fall back")
+    void shouldPropagateMissingExecuteJCmd() {
+        HeapHistogramReader reader = new HeapHistogramReader();
+        com.sun.tools.attach.VirtualMachine vmWithoutJCmd = new NoExecuteJCmdVirtualMachine();
+
+        assertThatThrownBy(() -> reader.readHistogram(vmWithoutJCmd, 123L, 2))
+            .isInstanceOf(NoSuchMethodException.class);
+    }
+
+    @Test
+    @DisplayName("readHistogram parses the histogram returned by the DiagnosticCommand MBean")
+    void shouldReadHistogramViaDiagnosticCommandMBean() throws Exception {
+        javax.management.MBeanServerConnection mbsc = org.mockito.Mockito.mock(javax.management.MBeanServerConnection.class);
+        org.mockito.Mockito.when(mbsc.invoke(
+                org.mockito.ArgumentMatchers.any(javax.management.ObjectName.class),
+                org.mockito.ArgumentMatchers.eq("gcClassHistogram"),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()))
+            .thenReturn(SAMPLE_HISTOGRAM);
+
+        HeapHistogramReader reader = new HeapHistogramReader();
+        HeapHistogram histogram = reader.readHistogram(mbsc, 123L, 2);
+
+        assertThat(histogram).isNotNull();
+        assertThat(histogram.pid()).isEqualTo(123L);
+        assertThat(histogram.topClasses()).hasSize(2);
+        assertThat(histogram.topClasses().get(0).className()).contains("java.lang.String");
+        assertThat(histogram.topClasses().get(0).instances()).isEqualTo(45231L);
+    }
+
+    @Test
+    @DisplayName("readHistogram throws IllegalArgumentException when MBeanServerConnection is null")
+    void shouldThrowWhenMbscIsNull() {
+        HeapHistogramReader reader = new HeapHistogramReader();
+        assertThatThrownBy(() -> reader.readHistogram((javax.management.MBeanServerConnection) null, 123L, 10))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("MBeanServerConnection cannot be null");
+    }
+
+    public static class NoExecuteJCmdVirtualMachine extends com.sun.tools.attach.VirtualMachine {
+        protected NoExecuteJCmdVirtualMachine() {
+            super(new DummyProvider(), "123");
+        }
+
+        @Override public void detach() {}
+        @Override public void loadAgentLibrary(String agentLibrary, String options) {}
+        @Override public void loadAgentPath(String agentPath, String options) {}
+        @Override public void loadAgent(String agent, String options) {}
+        @Override public java.util.Properties getSystemProperties() { return new java.util.Properties(); }
+        @Override public java.util.Properties getAgentProperties() { return new java.util.Properties(); }
+        @Override public void startManagementAgent(java.util.Properties agentProperties) {}
+        @Override public String startLocalManagementAgent() { return null; }
     }
 }

@@ -90,7 +90,7 @@ public class MemoryCommand implements Callable<Integer> {
                     );
                 }
 
-                if (histogram && attachResult.virtualMachine().isPresent()) {
+                if (histogram) {
                     System.out.println("-".repeat(80));
                     System.out.printf("HEAP HISTOGRAM (TOP %d CLASSES)%n", topN);
                     System.out.printf("%-6s %-14s %-14s %s%n", "RANK", "INSTANCES", "BYTES (MB)", "CLASS NAME");
@@ -98,7 +98,20 @@ public class MemoryCommand implements Callable<Integer> {
 
                     try {
                         HeapHistogramReader reader = new HeapHistogramReader();
-                        HeapHistogram hist = reader.readHistogram(attachResult.virtualMachine().get(), pid, topN);
+                        HeapHistogram hist;
+                        if (attachResult.virtualMachine().isPresent()) {
+                            try {
+                                hist = reader.readHistogram(attachResult.virtualMachine().get(), pid, topN);
+                            } catch (NoSuchMethodException | IllegalAccessException
+                                    | java.lang.reflect.InaccessibleObjectException e) {
+                                // executeJCmd is HotSpot-specific and needs --add-opens on modular
+                                // runtimes; fall back to the DiagnosticCommand MBean over JMX
+                                hist = reader.readHistogram(jmxManager.getMBeanServerConnection(), pid, topN);
+                            }
+                        } else {
+                            // Self-inspection has no VM handle; read the histogram over JMX
+                            hist = reader.readHistogram(jmxManager.getMBeanServerConnection(), pid, topN);
+                        }
                         for (ClassHistogramItem item : hist.topClasses()) {
                             System.out.printf("%-6d %-14d %-14.2f %s%n",
                                 item.rank(),
