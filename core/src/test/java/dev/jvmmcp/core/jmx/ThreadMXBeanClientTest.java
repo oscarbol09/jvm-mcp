@@ -219,4 +219,72 @@ class ThreadMXBeanClientTest {
             assertThat(report.status()).isEqualTo("NONE");
         }
     }
+
+    @Test
+    @DisplayName("findBlockedThreads enables contention monitoring when supported")
+    void shouldEnableContentionMonitoringWhenSupported() throws Exception {
+        java.lang.management.ThreadMXBean mockBean = org.mockito.Mockito.mock(java.lang.management.ThreadMXBean.class);
+        org.mockito.Mockito.when(mockBean.isThreadContentionMonitoringSupported()).thenReturn(true);
+        org.mockito.Mockito.when(mockBean.isThreadContentionMonitoringEnabled()).thenReturn(false);
+        org.mockito.Mockito.when(mockBean.dumpAllThreads(true, true)).thenReturn(new java.lang.management.ThreadInfo[0]);
+
+        try (org.mockito.MockedStatic<ManagementFactory> mfStatic = org.mockito.Mockito.mockStatic(ManagementFactory.class)) {
+            mfStatic.when(() -> ManagementFactory.newPlatformMXBeanProxy(
+                    org.mockito.ArgumentMatchers.any(),
+                    org.mockito.ArgumentMatchers.anyString(),
+                    org.mockito.ArgumentMatchers.eq(java.lang.management.ThreadMXBean.class)))
+                .thenReturn(mockBean);
+
+            assertThat(threadClient.findBlockedThreads(0)).isEmpty();
+            org.mockito.Mockito.verify(mockBean).setThreadContentionMonitoringEnabled(true);
+        }
+    }
+
+    @Test
+    @DisplayName("findBlockedThreads reports unmonitored contention when monitoring is unsupported")
+    void shouldReportUnmonitoredContentionWhenUnsupported() throws Exception {
+        java.lang.management.ThreadMXBean mockBean = org.mockito.Mockito.mock(java.lang.management.ThreadMXBean.class);
+        org.mockito.Mockito.when(mockBean.isThreadContentionMonitoringSupported()).thenReturn(false);
+
+        java.lang.management.ThreadInfo blockedInfo = org.mockito.Mockito.mock(java.lang.management.ThreadInfo.class);
+        org.mockito.Mockito.when(blockedInfo.getThreadState()).thenReturn(java.lang.Thread.State.BLOCKED);
+        org.mockito.Mockito.when(blockedInfo.getBlockedTime()).thenReturn(-1L);
+        org.mockito.Mockito.when(blockedInfo.getThreadId()).thenReturn(7L);
+        org.mockito.Mockito.when(blockedInfo.getThreadName()).thenReturn("blocked-worker");
+        org.mockito.Mockito.when(blockedInfo.getBlockedCount()).thenReturn(3L);
+        org.mockito.Mockito.when(blockedInfo.getLockName()).thenReturn("lock@0x1");
+        org.mockito.Mockito.when(blockedInfo.getLockOwnerId()).thenReturn(-1L);
+        org.mockito.Mockito.when(blockedInfo.getLockOwnerName()).thenReturn(null);
+        org.mockito.Mockito.when(blockedInfo.getStackTrace()).thenReturn(new java.lang.StackTraceElement[0]);
+        org.mockito.Mockito.when(mockBean.dumpAllThreads(true, true)).thenReturn(new java.lang.management.ThreadInfo[]{blockedInfo});
+
+        try (org.mockito.MockedStatic<ManagementFactory> mfStatic = org.mockito.Mockito.mockStatic(ManagementFactory.class)) {
+            mfStatic.when(() -> ManagementFactory.newPlatformMXBeanProxy(
+                    org.mockito.ArgumentMatchers.any(),
+                    org.mockito.ArgumentMatchers.anyString(),
+                    org.mockito.ArgumentMatchers.eq(java.lang.management.ThreadMXBean.class)))
+                .thenReturn(mockBean);
+
+            java.util.List<BlockedThreadDetail> blocked = threadClient.findBlockedThreads(0);
+
+            assertThat(blocked).hasSize(1);
+            assertThat(blocked.get(0).blockedTimeMs()).isNull();
+            assertThat(blocked.get(0).blockedCount()).isEqualTo(3L);
+            org.mockito.Mockito.verify(mockBean, org.mockito.Mockito.never()).setThreadContentionMonitoringEnabled(true);
+        }
+    }
+
+    @Test
+    @DisplayName("findBlockedThreads enables contention monitoring on the live JVM when supported")
+    void shouldEnableContentionMonitoringOnLiveJvm() throws Exception {
+        java.lang.management.ThreadMXBean mxBean = ManagementFactory.getThreadMXBean();
+        org.junit.jupiter.api.Assumptions.assumeTrue(mxBean.isThreadContentionMonitoringSupported());
+        mxBean.setThreadContentionMonitoringEnabled(false);
+        try {
+            threadClient.findBlockedThreads(0);
+            assertThat(mxBean.isThreadContentionMonitoringEnabled()).isTrue();
+        } finally {
+            mxBean.setThreadContentionMonitoringEnabled(false);
+        }
+    }
 }

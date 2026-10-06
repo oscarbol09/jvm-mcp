@@ -136,8 +136,11 @@ public class ThreadsCommand implements Callable<Integer> {
 
         for (BlockedThreadDetail b : blocked) {
             System.out.printf("Thread #%d [%s]%n", b.threadId(), b.threadName());
-            System.out.printf("  Waiting on lock: %s (Held by: %s)%n", b.lockName(), 
+            System.out.printf("  Waiting on lock: %s (Held by: %s)%n", b.lockName(),
                 b.lockOwnerName() != null ? b.lockOwnerName() + " [ID " + b.lockOwnerId() + "]" : "None");
+            System.out.printf("  Blocked: %s (count: %d)%n",
+                b.blockedTimeMs() != null ? b.blockedTimeMs() + " ms" : "Contention timing not monitored",
+                b.blockedCount());
             System.out.println("  Stack:");
             for (ThreadStackFrame f : b.stackTrace()) {
                 System.out.println("    at " + f);
