@@ -35,6 +35,9 @@ public class AgentExtractor {
             String resourceChecksum = calculateChecksum(resourceBytes);
 
             if (Files.exists(targetPath)) {
+                if (Files.isSymbolicLink(targetPath)) {
+                    throw new IOException("Security Error: Target path is a symbolic link, preventing potential arbitrary file overwrite: " + targetPath);
+                }
                 String existingChecksum = calculateChecksum(Files.readAllBytes(targetPath));
                 if (resourceChecksum.equals(existingChecksum)) {
                     return targetPath;
