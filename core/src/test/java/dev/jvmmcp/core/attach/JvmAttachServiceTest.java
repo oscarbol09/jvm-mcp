@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.io.IOException;
@@ -16,6 +17,8 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -151,6 +154,37 @@ class JvmAttachServiceTest {
             assertThat(attachService.extractMainClass("-jar target/demo.jar")).isEqualTo("demo.jar");
             assertThat(attachService.extractMainClass("-jar C:\\apps\\demo.jar")).isEqualTo("demo.jar");
             assertThat(attachService.extractMainClass("org.example.Application --spring.profiles.active=dev")).isEqualTo("org.example.Application");
+        }
+    }
+
+    @Nested
+    @DisplayName("When attaching to the current process")
+    class AttachingToSelf {
+
+        @Test
+        @DisplayName("attach should succeed via local self-inspection without invoking the Attach API")
+        void shouldReturnSelfAttachResultForCurrentPid() {
+            String currentPid = String.valueOf(ProcessHandle.current().pid());
+
+            AttachResult result = attachService.attach(currentPid);
+
+            assertThat(result.isSuccessful()).isTrue();
+            assertThat(result.pid()).isEqualTo(currentPid);
+            assertThat(result.virtualMachine()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("attach should still use the Attach API for other processes")
+        void shouldUseAttachApiForOtherPids() {
+            try (MockedStatic<VirtualMachine> vmStatic = mockStatic(VirtualMachine.class)) {
+                VirtualMachine targetVm = mock(VirtualMachine.class);
+                vmStatic.when(() -> VirtualMachine.attach("999999")).thenReturn(targetVm);
+
+                AttachResult result = attachService.attach("999999");
+
+                assertThat(result.isSuccessful()).isTrue();
+                assertThat(result.virtualMachine()).contains(targetVm);
+            }
         }
     }
 }
