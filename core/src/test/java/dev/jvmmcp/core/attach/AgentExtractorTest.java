@@ -140,4 +140,30 @@ class AgentExtractorTest {
                 .hasMessageContaining("SHA-256 algorithm missing");
         }
     }
+
+    @Test
+    @DisplayName("extractAgentJar throws IOException if target path is a symbolic link")
+    void shouldThrowIfTargetIsSymlink(@TempDir Path tempCache, @TempDir Path otherDir) throws IOException {
+        Path targetPath = tempCache.resolve("jvm-mcp-agent.jar");
+        Path maliciousTarget = otherDir.resolve("shadow_file.txt");
+        Files.writeString(maliciousTarget, "secret data");
+
+        try {
+            Files.createSymbolicLink(targetPath, maliciousTarget);
+        } catch (UnsupportedOperationException | java.nio.file.FileSystemException e) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false, "Symlinks not supported or permitted in test environment");
+        }
+
+        AgentExtractor customExtractor = new AgentExtractor() {
+            @Override
+            public Path resolveCacheDir() {
+                return tempCache;
+            }
+        };
+
+        assertThatThrownBy(() -> customExtractor.extractAgentJar())
+            .isInstanceOf(IOException.class)
+            .hasMessageContaining("symbolic link")
+            .hasMessageContaining("preventing potential arbitrary file overwrite");
+    }
 }

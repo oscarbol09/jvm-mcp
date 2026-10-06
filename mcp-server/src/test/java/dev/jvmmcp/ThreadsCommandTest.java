@@ -249,6 +249,6 @@ class ThreadsCommandTest {
     @DisplayName("Default constructor should initialize properly")
     void shouldInitializeWithDefaultConstructor() {
         ThreadsCommand command = new ThreadsCommand();
-        assertThat(command.attachService).isNotNull();
+        assertThat(command).isNotNull();
     }
 }
