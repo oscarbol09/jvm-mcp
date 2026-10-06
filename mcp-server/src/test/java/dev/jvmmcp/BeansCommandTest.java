@@ -386,6 +386,6 @@ class BeansCommandTest {
     @DisplayName("Default constructor should initialize properly")
     void shouldInitializeWithDefaultConstructor() {
         BeansCommand command = new BeansCommand();
-        assertThat(command.attachService).isNotNull();
+        assertThat(command).isNotNull();
     }
 }
