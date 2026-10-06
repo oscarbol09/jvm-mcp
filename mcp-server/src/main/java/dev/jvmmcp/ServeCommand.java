@@ -45,6 +45,7 @@ public class ServeCommand implements Callable<Integer> {
 
     // Visible for testing
     static java.io.InputStream testInStream = null;
+    static boolean exitImmediatelyForTest = false;
 
     @Override
     public Integer call() {
@@ -78,6 +79,10 @@ public class ServeCommand implements Callable<Integer> {
                 }
             }
         }));
+
+        if (exitImmediatelyForTest) {
+            return 0;
+        }
 
         java.io.InputStream in = testInStream != null ? testInStream : System.in;
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(in))) {
