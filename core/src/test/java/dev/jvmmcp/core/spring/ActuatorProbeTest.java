@@ -202,4 +202,71 @@ class ActuatorProbeTest {
         assertThat(none.hasCredentials()).isFalse();
         assertThat(none.insecure()).isFalse();
     }
+
+    @Test
+    @DisplayName("ActuatorAuth handles empty/null strings gracefully")
+    void shouldHandleEmptyAuthStrings() {
+        ActuatorAuth nullPass = ActuatorAuth.basic("admin", null, false);
+        assertThat(nullPass.hasCredentials()).isFalse();
+
+        ActuatorAuth emptyPass = ActuatorAuth.basic("admin", "", false);
+        assertThat(emptyPass.hasCredentials()).isFalse();
+
+        ActuatorAuth blankUser = ActuatorAuth.basic("   ", "pass", false);
+        assertThat(blankUser.hasCredentials()).isFalse();
+
+        ActuatorAuth blankToken = ActuatorAuth.bearer("   ", false);
+        assertThat(blankToken.hasCredentials()).isFalse();
+    }
+
+    @Test
+    @DisplayName("probe returns empty on 200 but body does not contain beans")
+    void shouldReturnEmptyOn200WithoutBeans() throws Exception {
+        server.createContext("/actuator/beans", exchange -> {
+            byte[] body = NON_BEANS_PAYLOAD.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+
+        Properties agentProps = new Properties();
+        agentProps.setProperty("server.port", String.valueOf(port));
+        when(virtualMachine.getAgentProperties()).thenReturn(agentProps);
+
+        ActuatorProbe probe = new ActuatorProbe();
+
+        Optional<ActuatorProbe.ProbeResult> result = probe.probe(virtualMachine);
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("probe returns empty on 200 but null body")
+    void shouldReturnEmptyOn200NullBody() throws Exception {
+        server.createContext("/actuator/beans", exchange -> {
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+
+        Properties agentProps = new Properties();
+        agentProps.setProperty("server.port", String.valueOf(port));
+        when(virtualMachine.getAgentProperties()).thenReturn(agentProps);
+
+        ActuatorProbe probe = new ActuatorProbe();
+
+        Optional<ActuatorProbe.ProbeResult> result = probe.probe(virtualMachine);
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("probe throws on GeneralSecurityException")
+    void shouldThrowOnGeneralSecurityException() {
+        try (org.mockito.MockedStatic<javax.net.ssl.SSLContext> sslStatic = org.mockito.Mockito.mockStatic(javax.net.ssl.SSLContext.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
+            sslStatic.when(() -> javax.net.ssl.SSLContext.getInstance("TLS"))
+                     .thenThrow(new java.security.NoSuchAlgorithmException("Simulated"));
+            
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> new ActuatorProbe(ActuatorAuth.basic("a", "b", true)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Unable to initialise insecure TLS context");
+        }
+    }
 }

@@ -66,6 +66,44 @@ class SpringBeansParserTest {
     }
 
     @Test
+    @DisplayName("parse ignores non-map beans property")
+    void shouldIgnoreNonMapBeans() {
+        String actuatorPayload = """
+            {
+              "contexts": {
+                "application": {
+                  "beans": "not-a-map"
+                }
+              }
+            }
+            """;
+
+        SpringBeansReport report = parser.parse(45231L, "TEST", actuatorPayload);
+        assertThat(report.totalBeans()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("parse ignores bad bean types")
+    void shouldIgnoreBadBeanTypes() {
+        String actuatorPayload = """
+            {
+              "contexts": {
+                "application": {
+                  "beans": {
+                    "goodStringBean": "com.example.StringBean",
+                    "badIntBean": 123
+                  }
+                }
+              }
+            }
+            """;
+
+        SpringBeansReport report = parser.parse(45231L, "TEST", actuatorPayload);
+        assertThat(report.totalBeans()).isEqualTo(1);
+        assertThat(report.getAllBeans().get(0).type()).isEqualTo("com.example.StringBean");
+    }
+
+    @Test
     @DisplayName("parse handles direct beans object and flat key-value map structures")
     void shouldParseDirectBeansAndFlatMaps() {
         // Direct "beans" top-level key

@@ -90,8 +90,20 @@ class AgentExtractorTest {
         Path winWithoutAppData = agentExtractor.resolveCacheDir("Windows 10", null, "C:\\Users\\test");
         assertThat(winWithoutAppData).isEqualTo(Path.of("C:\\Users\\test", ".jvm-mcp"));
 
+        Path winWithBlankAppData = agentExtractor.resolveCacheDir("Windows 10", "   ", "C:\\Users\\test");
+        assertThat(winWithBlankAppData).isEqualTo(Path.of("C:\\Users\\test", ".jvm-mcp"));
+
         Path unixPath = agentExtractor.resolveCacheDir("Linux", null, "/home/test");
         assertThat(unixPath).isEqualTo(Path.of("/home/test", ".cache", "jvm-mcp"));
+
+        Path nullOs = agentExtractor.resolveCacheDir(null, null, "/home/test");
+        assertThat(nullOs).isEqualTo(Path.of("/home/test", ".cache", "jvm-mcp"));
+
+        Path nullUserHomeUnix = agentExtractor.resolveCacheDir("Linux", null, null);
+        assertThat(nullUserHomeUnix).isEqualTo(Path.of("", ".cache", "jvm-mcp"));
+
+        Path nullUserHomeWin = agentExtractor.resolveCacheDir("Windows", null, null);
+        assertThat(nullUserHomeWin).isEqualTo(Path.of("", ".jvm-mcp"));
 
         Path current = agentExtractor.resolveCacheDir();
         assertThat(current).isNotNull();
@@ -114,5 +126,18 @@ class AgentExtractorTest {
             .isNotNull()
             .isEqualTo(checksum2)
             .hasSize(64);
+    }
+
+    @Test
+    @DisplayName("calculateChecksum throws IllegalStateException on missing algorithm")
+    void shouldThrowWhenAlgorithmMissing() {
+        try (org.mockito.MockedStatic<java.security.MessageDigest> mdStatic = org.mockito.Mockito.mockStatic(java.security.MessageDigest.class)) {
+            mdStatic.when(() -> java.security.MessageDigest.getInstance("SHA-256"))
+                    .thenThrow(new java.security.NoSuchAlgorithmException("Simulated missing algo"));
+
+            assertThatThrownBy(() -> agentExtractor.calculateChecksum(new byte[0]))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("SHA-256 algorithm missing");
+        }
     }
 }

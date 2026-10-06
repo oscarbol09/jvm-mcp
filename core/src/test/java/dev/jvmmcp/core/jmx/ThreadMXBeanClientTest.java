@@ -152,4 +152,71 @@ class ThreadMXBeanClientTest {
             blockedThread.join(2000);
         }
     }
+
+    @Test
+    @DisplayName("getThreadSummary covers all thread states")
+    void shouldReturnThreadSummaryWithAllStates() throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        Object lock = new Object();
+
+        Thread timed = new Thread(() -> {
+            try { Thread.sleep(10000); } catch (InterruptedException e) {}
+        });
+        timed.start();
+
+        Thread waiting = new Thread(() -> {
+            synchronized (lock) {
+                try { lock.wait(); } catch (InterruptedException e) {}
+            }
+        });
+        waiting.start();
+
+        Thread owner = new Thread(() -> {
+            synchronized (lock) {
+                latch.countDown();
+                try { Thread.sleep(10000); } catch (InterruptedException e) {}
+            }
+        });
+        owner.start();
+
+        latch.await();
+        Thread blocked = new Thread(() -> {
+            synchronized (lock) {
+               // blocks
+            }
+        });
+        blocked.start();
+
+        Thread.sleep(100);
+
+        try {
+            ThreadSummary summary = threadClient.getThreadSummary(0L);
+            assertThat(summary.timedWaitingCount()).isGreaterThanOrEqualTo(1);
+            assertThat(summary.waitingCount()).isGreaterThanOrEqualTo(1);
+            assertThat(summary.blockedCount()).isGreaterThanOrEqualTo(1);
+        } finally {
+            timed.interrupt();
+            waiting.interrupt();
+            owner.interrupt();
+            blocked.interrupt();
+        }
+    }
+
+    @Test
+    @DisplayName("detectDeadlocks handles null return gracefully")
+    void shouldHandleNullDeadlockedThreads() throws Exception {
+        java.lang.management.ThreadMXBean mockBean = org.mockito.Mockito.mock(java.lang.management.ThreadMXBean.class);
+        org.mockito.Mockito.when(mockBean.findDeadlockedThreads()).thenReturn(null);
+
+        try (org.mockito.MockedStatic<ManagementFactory> mfStatic = org.mockito.Mockito.mockStatic(ManagementFactory.class)) {
+            mfStatic.when(() -> ManagementFactory.newPlatformMXBeanProxy(
+                    org.mockito.ArgumentMatchers.any(),
+                    org.mockito.ArgumentMatchers.anyString(),
+                    org.mockito.ArgumentMatchers.eq(java.lang.management.ThreadMXBean.class)))
+                .thenReturn(mockBean);
+
+            DeadlockReport report = threadClient.detectDeadlocks();
+            assertThat(report.status()).isEqualTo("NONE");
+        }
+    }
 }

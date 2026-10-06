@@ -59,6 +59,30 @@ class JvmAttachServiceTest {
     }
 
     @Test
+    @DisplayName("attach should successfully return AttachResult on valid PID")
+    void shouldAttachSuccessfully() {
+        try (org.mockito.MockedStatic<VirtualMachine> vmStatic = org.mockito.Mockito.mockStatic(VirtualMachine.class)) {
+            vmStatic.when(() -> VirtualMachine.attach("123")).thenReturn(mockVm);
+            AttachResult result = attachService.attach("123");
+            assertThat(result.isSuccessful()).isTrue();
+            assertThat(result.virtualMachine()).isPresent();
+        }
+    }
+
+    @Test
+    @DisplayName("listJvms should ignore non-numeric PIDs safely")
+    void shouldIgnoreNonNumericPids() {
+        com.sun.tools.attach.VirtualMachineDescriptor mockDesc = org.mockito.Mockito.mock(com.sun.tools.attach.VirtualMachineDescriptor.class);
+        org.mockito.Mockito.when(mockDesc.id()).thenReturn("not-a-number");
+
+        try (org.mockito.MockedStatic<VirtualMachine> vmStatic = org.mockito.Mockito.mockStatic(VirtualMachine.class)) {
+            vmStatic.when(VirtualMachine::list).thenReturn(java.util.List.of(mockDesc));
+            java.util.List<JvmProcess> jvms = attachService.listJvms();
+            assertThat(jvms).isEmpty();
+        }
+    }
+
+    @Test
     @DisplayName("attach with null or blank PID should return generic error")
     void shouldHandleBlankPidGracefully() {
         AttachResult nullResult = attachService.attach(null);
@@ -90,6 +114,13 @@ class JvmAttachServiceTest {
 
         AttachResult unexpectedResult = attachService.mapAttachException("105", new RuntimeException("Unexpected panic"));
         assertThat(unexpectedResult.status()).isEqualTo(AttachStatus.GENERIC_ERROR);
+
+        // Test with null messages
+        AttachResult nullMsgAttach = attachService.mapAttachException("106", new AttachNotSupportedException((String) null));
+        assertThat(nullMsgAttach.status()).isEqualTo(AttachStatus.GENERIC_ERROR);
+
+        AttachResult nullMsgIo = attachService.mapAttachException("107", new IOException((String) null));
+        assertThat(nullMsgIo.status()).isEqualTo(AttachStatus.GENERIC_ERROR);
     }
 
     @Test
