@@ -47,16 +47,17 @@ public class MemoryCommand implements Callable<Integer> {
             return 1;
         }
 
-        AttachResult attachResult = attachService.attach(String.valueOf(pid));
+        try {
+            AttachResult attachResult = attachService.attach(String.valueOf(pid));
 
-        if (!attachResult.isSuccessful()) {
-            System.err.println("[jvm-mcp] " + attachResult.message());
-            return 1;
-        }
+            if (!attachResult.isSuccessful()) {
+                System.err.println("[jvm-mcp] " + attachResult.message());
+                return 1;
+            }
 
-        try (JmxConnectionManager jmxManager = attachResult.virtualMachine().isPresent() 
-                ? JmxConnectionManager.connect(attachResult.virtualMachine().get(), pid) 
-                : JmxConnectionManager.connectLocal()) {
+            try (JmxConnectionManager jmxManager = attachResult.virtualMachine().isPresent() 
+                    ? JmxConnectionManager.connect(attachResult.virtualMachine().get(), pid) 
+                    : JmxConnectionManager.connectLocal()) {
 
             MemoryMXBeanClient client = new MemoryMXBeanClient(jmxManager.getMBeanServerConnection());
             HeapSummary summary = client.getHeapSummary(pid);

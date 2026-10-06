@@ -59,7 +59,7 @@ class ThreadsCommandTest {
             Integer exitCode = command.call();
 
             assertThat(exitCode).isEqualTo(1);
-            assertThat(err.toString()).contains("[jvm-mcp] Target JVM process 999999999 not found.");
+            assertThat(err.toString()).contains("Process with PID 999999999 was not found");
         } finally {
             System.setErr(originalErr);
         }

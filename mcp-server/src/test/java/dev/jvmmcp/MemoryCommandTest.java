@@ -1,6 +1,8 @@
 package dev.jvmmcp;
 
 import com.sun.tools.attach.VirtualMachine;
+import com.sun.tools.attach.VirtualMachineDescriptor;
+import com.sun.tools.attach.spi.AttachProvider;
 import dev.jvmmcp.core.attach.AttachResult;
 import dev.jvmmcp.core.attach.JvmAttachService;
 import org.junit.jupiter.api.DisplayName;
@@ -15,6 +17,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -26,18 +29,25 @@ class MemoryCommandTest {
     @Mock
     private JvmAttachService mockAttachService;
 
+    static class DummyAttachProvider extends AttachProvider {
+        @Override public String name() { return "dummy"; }
+        @Override public String type() { return "dummy"; }
+        @Override public VirtualMachine attachVirtualMachine(String id) { return null; }
+        @Override public List<VirtualMachineDescriptor> listVirtualMachines() { return List.of(); }
+    }
+
     static class StubVirtualMachine extends VirtualMachine {
         private final InputStream stream;
         private final boolean shouldThrow;
 
         StubVirtualMachine(InputStream stream) {
-            super(null, "100");
+            super(new DummyAttachProvider(), "100");
             this.stream = stream;
             this.shouldThrow = false;
         }
 
         StubVirtualMachine(boolean shouldThrow) {
-            super(null, "100");
+            super(new DummyAttachProvider(), "100");
             this.stream = null;
             this.shouldThrow = shouldThrow;
         }
@@ -118,7 +128,7 @@ class MemoryCommandTest {
             Integer exitCode = command.call();
 
             assertThat(exitCode).isEqualTo(1);
-            assertThat(err.toString()).contains("[jvm-mcp] Target JVM process 999999999 not found.");
+            assertThat(err.toString()).contains("Process with PID 999999999 was not found");
         } finally {
             System.setErr(originalErr);
         }

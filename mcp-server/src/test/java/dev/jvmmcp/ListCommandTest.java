@@ -74,7 +74,7 @@ class ListCommandTest {
             assertThat(exitCode).isZero();
             String output = out.toString();
             assertThat(output).contains("PID        FRAMEWORK        MAIN CLASS                     DISPLAY NAME");
-            assertThat(output).contains("101        Spring Boot      org.example.service.ve...      LongApp");
+            assertThat(output).contains("101        Spring Boot      org.example.service.very...    LongApp");
             assertThat(output).contains("102        Quarkus          App                            ShortApp");
         } finally {
             System.setOut(originalOut);

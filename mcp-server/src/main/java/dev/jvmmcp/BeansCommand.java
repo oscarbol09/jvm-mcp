@@ -83,23 +83,25 @@ public class BeansCommand implements Callable<Integer> {
                 return 1;
             }
 
-            AttachResult attachResult = attachService.attach(String.valueOf(pid));
+            try {
+                AttachResult attachResult = attachService.attach(String.valueOf(pid));
 
-            if (!attachResult.isSuccessful()) {
-                System.err.println("[jvm-mcp] " + attachResult.message());
-                return 1;
-            }
+                if (!attachResult.isSuccessful()) {
+                    System.err.println("[jvm-mcp] " + attachResult.message());
+                    return 1;
+                }
 
-            try (JmxConnectionManager jmxManager = attachResult.virtualMachine().isPresent()
-                    ? JmxConnectionManager.connect(attachResult.virtualMachine().get(), pid)
-                    : JmxConnectionManager.connectLocal()) {
+                try (JmxConnectionManager jmxManager = attachResult.virtualMachine().isPresent()
+                        ? JmxConnectionManager.connect(attachResult.virtualMachine().get(), pid)
+                        : JmxConnectionManager.connectLocal()) {
 
-                report = client.inspectBeans(
-                    pid,
-                    attachResult.virtualMachine().orElse(null),
-                    jmxManager.getMBeanServerConnection(),
-                    filter
-                );
+                    report = client.inspectBeans(
+                        pid,
+                        attachResult.virtualMachine().orElse(null),
+                        jmxManager.getMBeanServerConnection(),
+                        filter
+                    );
+                }
             } catch (Exception e) {
                 System.err.println("[jvm-mcp] Error inspecting Spring beans: " + e.getMessage());
                 return 1;
