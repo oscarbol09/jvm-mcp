@@ -36,6 +36,7 @@
         <mockito.version>5.16.0</mockito.version>
         <hikaricp.version>6.3.3</hikaricp.version>
         <h2.version>2.4.240</h2.version>
+        <testcontainers.version>1.21.3</testcontainers.version>
 
     </properties>
 
@@ -96,6 +97,17 @@
                 <groupId>com.h2database</groupId>
                 <artifactId>h2</artifactId>
              <version>${h2.version}</version>
+            </dependency>
+            <!-- Testcontainers Dependencies -->
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>junit-jupiter</artifactId>
+                <version>${testcontainers.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>postgresql</artifactId>
+                <version>${testcontainers.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
