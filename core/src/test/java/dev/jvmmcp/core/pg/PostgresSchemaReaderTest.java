@@ -14,7 +14,7 @@ import java.sql.Statement;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class PostgresSchemaReaderTest {
 
     @Container
@@ -24,8 +24,6 @@ class PostgresSchemaReaderTest {
 
     @BeforeAll
     static void setUp() throws Exception {
-        postgres.start();
-        
         try (Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
              Statement stmt = conn.createStatement()) {
              
@@ -46,7 +44,7 @@ class PostgresSchemaReaderTest {
 
     @AfterAll
     static void tearDown() {
-        postgres.stop();
+        // Container is stopped automatically by Testcontainers
     }
 
     @Test
