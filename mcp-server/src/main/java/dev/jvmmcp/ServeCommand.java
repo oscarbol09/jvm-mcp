@@ -43,6 +43,9 @@ public class ServeCommand implements Callable<Integer> {
         this.attachService = attachService;
     }
 
+    // Visible for testing
+    static java.io.InputStream testInStream = null;
+
     @Override
     public Integer call() {
         if ("sse".equalsIgnoreCase(transport) || useSpring) {
@@ -76,7 +79,8 @@ public class ServeCommand implements Callable<Integer> {
             }
         }));
 
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
+        java.io.InputStream in = testInStream != null ? testInStream : System.in;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(in))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 if (line.trim().isEmpty()) continue;
