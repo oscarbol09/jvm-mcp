@@ -165,7 +165,7 @@ class MemoryCommandTest {
     @Test
     @DisplayName("memory command with --histogram and VM attached should print histogram table")
     void shouldPrintHeapHistogramWhenVmPresent() {
-        long targetPid = 100L;
+        long targetPid = ProcessHandle.current().pid();
         String rawHistogram = """
              num     #instances         #bytes  class name (module)
             -------------------------------------------------------
@@ -200,7 +200,7 @@ class MemoryCommandTest {
     @Test
     @DisplayName("memory command should handle histogram extraction errors gracefully")
     void shouldHandleHistogramExtractionError() {
-        long targetPid = 100L;
+        long targetPid = ProcessHandle.current().pid();
         VirtualMachine stubVm = new StubVirtualMachine(true);
         when(mockAttachService.attach(String.valueOf(targetPid))).thenReturn(AttachResult.success(String.valueOf(targetPid), stubVm));
 
