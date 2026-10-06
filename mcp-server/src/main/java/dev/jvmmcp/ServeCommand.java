@@ -6,6 +6,7 @@ import dev.jvmmcp.core.jmx.JmxConnectionManager;
 import dev.jvmmcp.core.jmx.MemoryMXBeanClient;
 import dev.jvmmcp.core.jmx.ThreadMXBeanClient;
 import dev.jvmmcp.core.util.SimpleJson;
+import com.sun.tools.attach.VirtualMachine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
@@ -49,22 +50,25 @@ public class ServeCommand implements Callable<Integer> {
             return 1;
         }
 
+        VirtualMachine attachedVm = null;
         if (targetPid != null) {
             AttachResult result = attachService.attach(String.valueOf(targetPid));
             if (!result.isSuccessful()) {
                 System.err.println("[jvm-mcp] Error attaching to target PID " + targetPid + ": " + result.message());
                 return 1;
             }
+            attachedVm = result.virtualMachine().orElse(null);
             System.err.println("[jvm-mcp] Successfully attached to target PID " + targetPid);
         }
 
         System.err.println("[jvm-mcp] Starting server via transport: " + transport + "...");
 
+        final VirtualMachine finalVm = attachedVm;
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.err.println("[jvm-mcp] Received shutdown signal. Detaching and cleaning up...");
-            if (targetPid != null) {
+            if (finalVm != null) {
                 try {
-                    attachService.detach(String.valueOf(targetPid));
+                    attachService.detach(finalVm);
                     System.err.println("[jvm-mcp] Detached from PID " + targetPid);
                 } catch (Exception e) {
                     System.err.println("[jvm-mcp] Error detaching during shutdown: " + e.getMessage());
