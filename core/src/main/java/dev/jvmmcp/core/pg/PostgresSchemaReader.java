@@ -2,17 +2,22 @@ package dev.jvmmcp.core.pg;
 
 import dev.jvmmcp.core.pg.PostgresModels.*;
 
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
+
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Properties;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class PostgresSchemaReader {
+
+    private static final Map<String, HikariDataSource> DATA_SOURCES = new ConcurrentHashMap<>();
 
     private final String jdbcUrl;
     private final String username;
@@ -25,16 +30,24 @@ public class PostgresSchemaReader {
     }
 
     private Connection getConnection() throws SQLException {
-        Properties props = new Properties();
-        if (username != null && !username.isBlank()) {
-            props.setProperty("user", username);
-        }
-        if (password != null && !password.isBlank()) {
-            props.setProperty("password", password);
-        }
-        props.setProperty("loginTimeout", "5");
-        props.setProperty("connectTimeout", "5");
-        return DriverManager.getConnection(jdbcUrl, props);
+        String cacheKey = jdbcUrl + "|" + (username != null ? username : "");
+        
+        HikariDataSource ds = DATA_SOURCES.computeIfAbsent(cacheKey, key -> {
+            HikariConfig config = new HikariConfig();
+            config.setJdbcUrl(jdbcUrl);
+            if (username != null && !username.isBlank()) {
+                config.setUsername(username);
+            }
+            if (password != null && !password.isBlank()) {
+                config.setPassword(password);
+            }
+            config.setMaximumPoolSize(3);
+            config.setConnectionTimeout(5000);
+            config.setIdleTimeout(600000);
+            return new HikariDataSource(config);
+        });
+        
+        return ds.getConnection();
     }
 
     public SchemaInfo inspectSchema(String schemaName) throws SQLException {

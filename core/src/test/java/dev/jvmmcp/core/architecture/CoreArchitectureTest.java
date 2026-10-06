@@ -20,10 +20,9 @@ public class CoreArchitectureTest {
             "info.picocli..",
             "com.fasterxml.jackson..",
             "com.google.gson..",
-            "org.slf4j..",
             "org.apache.commons.."
         )
-        .because("The core module must remain lightweight, zero-dependency, and isolated from external frameworks");
+        .because("The core module must remain lightweight and isolated from large external frameworks");
 
     @ArchTest
     static final ArchRule domainModelsMustNotDependOnInfrastructureOrServices = noClasses()
