@@ -5,6 +5,7 @@ import dev.jvmmcp.core.model.ClassHistogramItem;
 import dev.jvmmcp.core.model.HeapHistogram;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.lang.reflect.Method;
@@ -12,10 +13,16 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+import javax.management.MBeanServerConnection;
+import javax.management.ObjectName;
+
 /**
- * Executes and parses live JVM class histograms (`GC.class_histogram`) over the Attach API.
+ * Executes and parses live JVM class histograms ({@code GC.class_histogram}) over the Attach API,
+ * with a JMX DiagnosticCommand fallback for runtimes where {@code executeJCmd} is unavailable.
  */
 public class HeapHistogramReader {
+
+    private static final String DIAGNOSTIC_COMMAND_MBEAN = "com.sun.management:type=DiagnosticCommand";
 
     public HeapHistogram readHistogram(VirtualMachine vm, long pid, int topN) throws Exception {
         if (vm == null) {
@@ -26,6 +33,31 @@ public class HeapHistogramReader {
         try (InputStream in = (InputStream) executeJCmdMethod.invoke(vm, "GC.class_histogram")) {
             return parseHistogramStream(in, pid, topN);
         }
+    }
+
+    /**
+     * Reads the live heap histogram through the platform
+     * {@code com.sun.management:type=DiagnosticCommand} MBean, as a fallback for non-HotSpot
+     * JVMs, modular runtimes without {@code --add-opens jdk.attach/sun.tools.attach}, and
+     * self-inspection without a {@link VirtualMachine} handle.
+     */
+    public HeapHistogram readHistogram(MBeanServerConnection mbsc, long pid, int topN) throws Exception {
+        if (mbsc == null) {
+            throw new IllegalArgumentException("MBeanServerConnection cannot be null to read live heap histogram.");
+        }
+
+        Object result = mbsc.invoke(
+            new ObjectName(DIAGNOSTIC_COMMAND_MBEAN),
+            "gcClassHistogram",
+            new Object[]{new String[0]},
+            new String[]{String[].class.getName()});
+
+        if (result == null) {
+            return new HeapHistogram(pid, 0, 0, 0.0, List.of());
+        }
+
+        return parseHistogramStream(
+            new ByteArrayInputStream(result.toString().getBytes(StandardCharsets.UTF_8)), pid, topN);
     }
 
     public HeapHistogram parseHistogramStream(InputStream in, long pid, int topN) throws Exception {
