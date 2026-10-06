@@ -179,5 +179,9 @@ public class ThreadMXBeanClient implements ThreadDiagnosticPort {
 
         return blockedList;
     }
-}
 
+    @Override
+    public void close() throws Exception {
+        // Client itself holds no native resources; JmxConnectionManager manages the transport.
+    }
+}

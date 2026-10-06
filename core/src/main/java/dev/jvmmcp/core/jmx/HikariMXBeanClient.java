@@ -106,4 +106,14 @@ public class HikariMXBeanClient implements HikariDiagnosticPort {
         return value;
     }
 
+
+    @Override
+    public void close() throws Exception {
+        // Client itself holds no native resources; JmxConnectionManager manages the transport.
+    }
+
+    @Override
+    public void close() throws Exception {
+        // Client itself holds no native resources; JmxConnectionManager manages the transport.
+    }
 }

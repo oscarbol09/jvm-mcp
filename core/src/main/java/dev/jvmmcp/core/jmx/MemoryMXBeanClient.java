@@ -100,5 +100,9 @@ public class MemoryMXBeanClient implements MemoryDiagnosticPort {
 
         return new MemoryPressure(level, Math.round(ratio * 100.0) / 100.0, totalGcTime, totalGcCount, recommendation);
     }
-}
 
+    @Override
+    public void close() throws Exception {
+        // Client itself holds no native resources; JmxConnectionManager manages the transport.
+    }
+}
