@@ -197,6 +197,30 @@ public class ServeCommand implements Callable<Integer> {
         );
     }
 
+    private String getStringArg(Map<String, Object> args, String key, boolean required) {
+        if (args == null || !args.containsKey(key)) {
+            if (required) throw new IllegalArgumentException("Missing required argument: " + key);
+            return null;
+        }
+        Object val = args.get(key);
+        if (val != null && !(val instanceof String)) {
+            throw new IllegalArgumentException("Argument '" + key + "' must be a string");
+        }
+        return (String) val;
+    }
+
+    private long getLongArg(Map<String, Object> args, String key, boolean required) {
+        if (args == null || !args.containsKey(key)) {
+            if (required) throw new IllegalArgumentException("Missing required argument: " + key);
+            return 0L;
+        }
+        Object val = args.get(key);
+        if (!(val instanceof Number)) {
+            throw new IllegalArgumentException("Argument '" + key + "' must be a number");
+        }
+        return ((Number) val).longValue();
+    }
+
     private Map<String, Object> executeTool(String toolName, Map<String, Object> args) {
         List<Map<String, Object>> content = new ArrayList<>();
         boolean isError = false;
@@ -205,10 +229,7 @@ public class ServeCommand implements Callable<Integer> {
             if ("list_jvms".equals(toolName)) {
                 content.add(Map.of("type", "text", "text", SimpleJson.toJson(attachService.listJvms())));
             } else if ("get_memory_summary".equals(toolName) || "get_thread_diagnostics".equals(toolName)) {
-                if (args == null || !args.containsKey("pid")) {
-                    throw new IllegalArgumentException("Missing required argument: pid");
-                }
-                long pid = ((Number) args.get("pid")).longValue();
+                long pid = getLongArg(args, "pid", true);
                 AttachResult attachResult = attachService.attach(String.valueOf(pid));
                 
                 if (!attachResult.isSuccessful()) {
@@ -229,16 +250,14 @@ public class ServeCommand implements Callable<Integer> {
                     }
                 }
             } else if ("inspect_pg_schema".equals(toolName) || "find_missing_indexes".equals(toolName) || "find_slow_queries".equals(toolName)) {
-                if (args == null || !args.containsKey("url")) {
-                    throw new IllegalArgumentException("Missing required argument: url");
-                }
-                String url = (String) args.get("url");
-                String user = (String) args.get("user");
-                String password = (String) args.get("password");
+                String url = getStringArg(args, "url", true);
+                String user = getStringArg(args, "user", false);
+                String password = getStringArg(args, "password", false);
                 PostgresSchemaReader reader = new PostgresSchemaReader(url, user, password);
 
                 if ("inspect_pg_schema".equals(toolName)) {
-                    String schema = args.containsKey("schema") ? (String) args.get("schema") : "public";
+                    String schema = getStringArg(args, "schema", false);
+                    if (schema == null) schema = "public";
                     content.add(Map.of("type", "text", "text", SimpleJson.toJson(reader.inspectSchema(schema))));
                 } else if ("find_missing_indexes".equals(toolName)) {
                     content.add(Map.of("type", "text", "text", SimpleJson.toJson(reader.findMissingIndexes())));
