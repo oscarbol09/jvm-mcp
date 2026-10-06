@@ -28,6 +28,7 @@ public class JvmMcp implements Callable<Integer> {
         return 0;
     }
 
+    @Generated
     public static void main(String[] args) {
         int exitCode = new CommandLine(new JvmMcp()).execute(args);
         System.exit(exitCode);

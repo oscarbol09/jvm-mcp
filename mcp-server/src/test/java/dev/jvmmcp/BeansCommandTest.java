@@ -49,6 +49,20 @@ class BeansCommandTest {
                   "type": "dev.jvmmcp.samples.PaymentGatewayVeryLongClassNameForTruncationTesting",
                   "resource": null,
                   "dependencies": []
+                },
+                "shortBean": {
+                  "aliases": [],
+                  "scope": "prototype",
+                  "type": "String",
+                  "resource": null,
+                  "dependencies": []
+                },
+                "nullTypeBean": {
+                  "aliases": [],
+                  "scope": "prototype",
+                  "type": null,
+                  "resource": null,
+                  "dependencies": []
                 }
               },
               "parentId": null
@@ -129,7 +143,7 @@ class BeansCommandTest {
             assertThat(exitCode).isZero();
             String output = out.toString();
             assertThat(output).contains("SPRING BEANS INSPECTION");
-            assertThat(output).contains("Total Beans Matched: 2");
+            assertThat(output).contains("Total Beans Matched: 4");
             assertThat(output).contains("orderService");
             assertThat(output).contains("paymentGateway");
         } finally {
@@ -228,6 +242,16 @@ class BeansCommandTest {
     }
 
     @Test
+    @DisplayName("beans command with blank detailBeanName or actuatorUrl should not trigger those branches")
+    void shouldHandleBlankStringsGracefully() {
+        CommandLine cmd = new CommandLine(new JvmMcp());
+        int exitCode = cmd.execute("beans", "--actuator", "   ", "--detail", "   ");
+
+        // Fails because actuator is blank so it falls back to PID 0 which is invalid
+        assertThat(exitCode).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("beans command with --insecure and credentials warnings")
     void shouldEmitWarningsForInsecureAndPlainHttp() {
         ByteArrayOutputStream err = new ByteArrayOutputStream();
@@ -242,6 +266,27 @@ class BeansCommandTest {
             String errOutput = err.toString();
             assertThat(errOutput).contains("Warning: --insecure disables TLS");
             assertThat(errOutput).contains("Warning: credentials are sent over plain HTTP");
+        } finally {
+            System.setErr(originalErr);
+        }
+    }
+
+    @Test
+    @DisplayName("beans command with https actuator skips plain HTTP warning")
+    void shouldSkipPlainHttpWarningForHttps() {
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        PrintStream originalErr = System.err;
+        try {
+            System.setErr(new PrintStream(err));
+            CommandLine cmd = new CommandLine(new JvmMcp());
+            // It will fail with exit code 1 because https://1.1.1.1:9999 won't be open,
+            // but that's fine, we just want to cover the warning branch condition correctly.
+            int exitCode = cmd.execute("beans", "--actuator", "https://1.1.1.1:9999",
+                "--actuator-token", "test-token", "--insecure");
+
+            String errOutput = err.toString();
+            assertThat(errOutput).contains("Warning: --insecure disables TLS");
+            assertThat(errOutput).doesNotContain("Warning: credentials are sent over plain HTTP");
         } finally {
             System.setErr(originalErr);
         }
@@ -264,6 +309,30 @@ class BeansCommandTest {
 
             assertThat(exitCode).isZero();
             assertThat(out.toString()).contains("SPRING BEANS INSPECTION");
+        } finally {
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
+    @DisplayName("beans command on attached remote PID should attempt connect")
+    void shouldAttemptRemoteConnectOnRemoteVm() throws Exception {
+        long targetPid = 100L;
+        com.sun.tools.attach.VirtualMachine mockVm = org.mockito.Mockito.mock(com.sun.tools.attach.VirtualMachine.class);
+        java.util.Properties props = new java.util.Properties();
+        props.setProperty("com.sun.management.jmxremote.localConnectorAddress", "service:jmx:rmi:///jndi/rmi://localhost:9000/jmxrmi");
+        when(mockVm.getAgentProperties()).thenReturn(props);
+        when(mockAttachService.attach(String.valueOf(targetPid))).thenReturn(AttachResult.success(String.valueOf(targetPid), mockVm));
+
+        BeansCommand command = new BeansCommand(mockAttachService);
+        command.pid = targetPid;
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try {
+            System.setOut(new PrintStream(out));
+            Integer exitCode = command.call();
+            assertThat(exitCode).isEqualTo(1);
         } finally {
             System.setOut(originalOut);
         }

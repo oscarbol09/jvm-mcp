@@ -8,6 +8,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import picocli.CommandLine;
+import dev.jvmmcp.core.jmx.ThreadMXBeanClient;
+import dev.jvmmcp.core.model.DeadlockReport;
+import dev.jvmmcp.core.model.ThreadDump;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -93,13 +96,20 @@ class ThreadsCommandTest {
 
     @Test
     @DisplayName("threads command with deadlocksOnly flag should report deadlock status exclusively")
-    void shouldReportDeadlocksExclusively() {
+    void shouldReportDeadlocksExclusively() throws Exception {
         long targetPid = 100L;
         when(mockAttachService.attach(String.valueOf(targetPid))).thenReturn(AttachResult.success(String.valueOf(targetPid), null));
 
-        ThreadsCommand command = new ThreadsCommand(mockAttachService);
+        ThreadMXBeanClient mockClient = org.mockito.Mockito.mock(ThreadMXBeanClient.class);
+        DeadlockReport report = new DeadlockReport("DETECTED", 1, java.util.List.of(
+            new dev.jvmmcp.core.model.DeadlockedThreadDetail(1L, "Thread-1", "BLOCKED", "Lock-A", 2L, "Thread-2", "Class.method(Class.java:10)")
+        ), "Fix it");
+        when(mockClient.detectDeadlocks()).thenReturn(report);
+
+        ThreadsCommand command = org.mockito.Mockito.spy(new ThreadsCommand(mockAttachService));
         command.pid = targetPid;
         command.deadlocksOnly = true;
+        org.mockito.Mockito.doReturn(mockClient).when(command).createThreadMXBeanClient(org.mockito.ArgumentMatchers.any());
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         PrintStream originalOut = System.out;
@@ -109,7 +119,9 @@ class ThreadsCommandTest {
 
             assertThat(exitCode).isZero();
             String output = out.toString();
-            assertThat(output).contains("DEADLOCK STATUS");
+            assertThat(output).contains("DEADLOCK STATUS: DETECTED");
+            assertThat(output).contains("Thread-1");
+            assertThat(output).contains("Lock-A");
             assertThat(output).doesNotContain("JVM THREAD DIAGNOSTICS FOR PID");
         } finally {
             System.setOut(originalOut);
@@ -118,13 +130,23 @@ class ThreadsCommandTest {
 
     @Test
     @DisplayName("threads command with dump flag should display thread dump")
-    void shouldDisplayThreadDump() {
+    void shouldDisplayThreadDump() throws Exception {
         long targetPid = 100L;
         when(mockAttachService.attach(String.valueOf(targetPid))).thenReturn(AttachResult.success(String.valueOf(targetPid), null));
 
-        ThreadsCommand command = new ThreadsCommand(mockAttachService);
+        ThreadMXBeanClient mockClient = org.mockito.Mockito.mock(ThreadMXBeanClient.class);
+        ThreadDump dump = new ThreadDump(targetPid, java.time.Instant.now(), 2, java.util.List.of(
+            new dev.jvmmcp.core.model.ThreadDetail(2L, "Worker", "WAITING", null, null, null, 0L, 0L, 0L, 0L, false, false, java.util.List.of(
+                new dev.jvmmcp.core.model.ThreadStackFrame("Class", "method", "Class.java", 10, false)
+            )),
+            new dev.jvmmcp.core.model.ThreadDetail(3L, "Worker2", "WAITING", "Lock-B", 3L, "Owner", 0L, 0L, 0L, 0L, false, false, java.util.List.of())
+        ));
+        when(mockClient.getThreadDump(targetPid)).thenReturn(dump);
+
+        ThreadsCommand command = org.mockito.Mockito.spy(new ThreadsCommand(mockAttachService));
         command.pid = targetPid;
         command.dump = true;
+        org.mockito.Mockito.doReturn(mockClient).when(command).createThreadMXBeanClient(org.mockito.ArgumentMatchers.any());
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         PrintStream originalOut = System.out;
@@ -135,6 +157,31 @@ class ThreadsCommandTest {
             assertThat(exitCode).isZero();
             String output = out.toString();
             assertThat(output).contains("THREAD DUMP FOR PID " + targetPid);
+            assertThat(output).contains("waiting on Lock-B held by Owner (ID 3)");
+        } finally {
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
+    @DisplayName("threads command on attached remote PID should attempt connect")
+    void shouldAttemptRemoteConnectOnRemoteVm() throws Exception {
+        long targetPid = 100L;
+        com.sun.tools.attach.VirtualMachine mockVm = org.mockito.Mockito.mock(com.sun.tools.attach.VirtualMachine.class);
+        java.util.Properties props = new java.util.Properties();
+        props.setProperty("com.sun.management.jmxremote.localConnectorAddress", "service:jmx:rmi:///jndi/rmi://localhost:9000/jmxrmi");
+        when(mockVm.getAgentProperties()).thenReturn(props);
+        when(mockAttachService.attach(String.valueOf(targetPid))).thenReturn(AttachResult.success(String.valueOf(targetPid), mockVm));
+
+        ThreadsCommand command = new ThreadsCommand(mockAttachService);
+        command.pid = targetPid;
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try {
+            System.setOut(new PrintStream(out));
+            Integer exitCode = command.call();
+            assertThat(exitCode).isEqualTo(1);
         } finally {
             System.setOut(originalOut);
         }
@@ -142,13 +189,23 @@ class ThreadsCommandTest {
 
     @Test
     @DisplayName("threads command with blockedOnly flag should list blocked threads")
-    void shouldListBlockedThreads() {
+    void shouldListBlockedThreads() throws Exception {
         long targetPid = 100L;
         when(mockAttachService.attach(String.valueOf(targetPid))).thenReturn(AttachResult.success(String.valueOf(targetPid), null));
 
-        ThreadsCommand command = new ThreadsCommand(mockAttachService);
+        ThreadMXBeanClient mockClient = org.mockito.Mockito.mock(ThreadMXBeanClient.class);
+        java.util.List<dev.jvmmcp.core.model.BlockedThreadDetail> blocked = java.util.List.of(
+            new dev.jvmmcp.core.model.BlockedThreadDetail(4L, "BlockedThread", 0L, 0L, "Lock-C", 5L, "OtherOwner", java.util.List.of(
+                new dev.jvmmcp.core.model.ThreadStackFrame("Class", "method", "Class.java", 20, false)
+            )),
+            new dev.jvmmcp.core.model.BlockedThreadDetail(5L, "BlockedThread2", 0L, 0L, "Lock-D", null, null, java.util.List.of())
+        );
+        when(mockClient.findBlockedThreads(0)).thenReturn(blocked);
+
+        ThreadsCommand command = org.mockito.Mockito.spy(new ThreadsCommand(mockAttachService));
         command.pid = targetPid;
         command.blockedOnly = true;
+        org.mockito.Mockito.doReturn(mockClient).when(command).createThreadMXBeanClient(org.mockito.ArgumentMatchers.any());
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         PrintStream originalOut = System.out;
@@ -159,6 +216,8 @@ class ThreadsCommandTest {
             assertThat(exitCode).isZero();
             String output = out.toString();
             assertThat(output).contains("BLOCKED THREADS FOR PID " + targetPid);
+            assertThat(output).contains("BlockedThread");
+            assertThat(output).contains("Lock-C");
         } finally {
             System.setOut(originalOut);
         }

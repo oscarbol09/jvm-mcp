@@ -59,7 +59,7 @@ public class ThreadsCommand implements Callable<Integer> {
                     ? JmxConnectionManager.connect(attachResult.virtualMachine().get(), pid) 
                     : JmxConnectionManager.connectLocal()) {
 
-                ThreadMXBeanClient client = new ThreadMXBeanClient(jmxManager.getMBeanServerConnection());
+                ThreadMXBeanClient client = createThreadMXBeanClient(jmxManager);
 
                 if (deadlocksOnly) {
                     printDeadlocks(client);
@@ -163,5 +163,9 @@ public class ThreadsCommand implements Callable<Integer> {
             }
             System.out.println();
         }
+    }
+
+    protected ThreadMXBeanClient createThreadMXBeanClient(JmxConnectionManager jmxManager) {
+        return new ThreadMXBeanClient(jmxManager.getMBeanServerConnection());
     }
 }

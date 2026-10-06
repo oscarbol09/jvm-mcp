@@ -139,7 +139,7 @@ public class BeansCommand implements Callable<Integer> {
             System.out.println("-".repeat(90));
 
             for (SpringBeanDetail bean : context.beans()) {
-                String typeShort = bean.type();
+                String typeShort = bean.type() != null ? bean.type() : "unknown";
                 if (typeShort.length() > 30) {
                     typeShort = typeShort.substring(typeShort.lastIndexOf('.') + 1);
                 }
