@@ -6,7 +6,7 @@ This roadmap outlines current development milestones, architectural priorities, 
 
 ---
 
-## Current Status: Phase 1 (Completed)
+## Current Status: Phase 5 (Completed)
 
 - [x] **Phase 0: Architecture Scaffolding**
   - Maven multi-module architecture (`core`, `agent`, `mcp-server`, `native`).
@@ -39,27 +39,31 @@ This roadmap outlines current development milestones, architectural priorities, 
 
 ---
 
-## Active Milestone: Phase 4 — HikariCP Connection Pool Inspector (In Progress)
-
-- [ ] **Database Connection Pool Diagnostics (`dev.jvmmcp.core.hikari.HikariMXBeanClient`)**
+- [x] **Phase 4: Database Connection Pool Diagnostics (HikariCP)**
   - Query `com.zaxxer.hikari:type=Pool (*)` MBeans across single and multi-datasource architectures.
   - Live metric extraction: active, idle, pending connections, max pool size, acquire latency.
   - Saturation ratio calculation and automated leak/exhaustion diagnostics.
 
 ---
 
+- [x] **Phase 5: PostgreSQL Schema & Stat Inspector**
+  - Pure JDBC metadata reader (`PostgresSchemaReader`) for tables, indexes, and foreign keys.
+  - Query `pg_stat_user_tables` to identify sequential scan bottlenecks and missing indexes.
+  - Query `pg_stat_statements` for slow query execution profiling.
+  - Dedicated CLI (`jvm-mcp pg`) and MCP endpoints (`inspect_pg_schema`, `find_missing_indexes`, `find_slow_queries`).
+
+---
+
+## Active Milestone: Phase 6 — Remote Spring Boot Actuator Client (In Progress)
+
+- [ ] Lightweight `java.net.http.HttpClient` client for `/actuator/health`, `/actuator/metrics`, and `/actuator/startup`.
+- [ ] Basic Auth and Bearer token header propagation.
+
+---
+
 ## Upcoming Community Milestones (Open for Contributions)
 
 The following areas are ideal for external contributors looking to claim an issue:
-
-### 1. PostgreSQL Schema & Stat Inspector (Phase 5) — `help wanted`
-- [ ] Pure JDBC metadata reader for table sizes, column definitions, and foreign keys.
-- [ ] Query `pg_stat_user_tables` to identify sequential scan bottlenecks.
-- [ ] Query `pg_stat_statements` for slow execution queries.
-
-### 4. Remote Spring Boot Actuator Client (Phase 6) — `good first issue`
-- [ ] Lightweight `java.net.http.HttpClient` client for `/actuator/health`, `/actuator/metrics`, and `/actuator/startup`.
-- [ ] Basic Auth and Bearer token header propagation.
 
 ### 5. Packaging & Distribution (Phase 7 & 8)
 - [ ] GraalVM Native Image tracing agent automation on Linux/macOS.
