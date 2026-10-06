@@ -146,6 +146,8 @@ public class ThreadMXBeanClient implements ThreadDiagnosticPort {
             ThreadMXBean.class
         );
 
+        boolean contentionMonitored = ensureContentionMonitoring(threadMXBean);
+
         ThreadInfo[] threadInfos = threadMXBean.dumpAllThreads(true, true);
         List<BlockedThreadDetail> blockedList = new ArrayList<>();
 
@@ -154,8 +156,10 @@ public class ThreadMXBeanClient implements ThreadDiagnosticPort {
                 continue;
             }
 
+            // Without contention monitoring, getBlockedTime() always reports -1
             long blockedTime = info.getBlockedTime();
-            if (thresholdMs > 0 && blockedTime >= 0 && blockedTime < thresholdMs) {
+            Long blockedTimeMs = contentionMonitored && blockedTime >= 0 ? blockedTime : null;
+            if (thresholdMs > 0 && blockedTimeMs != null && blockedTimeMs < thresholdMs) {
                 continue;
             }
 
@@ -168,7 +172,7 @@ public class ThreadMXBeanClient implements ThreadDiagnosticPort {
             blockedList.add(new BlockedThreadDetail(
                 info.getThreadId(),
                 info.getThreadName(),
-                blockedTime,
+                blockedTimeMs,
                 info.getBlockedCount(),
                 info.getLockName(),
                 ownerId,
@@ -178,6 +182,22 @@ public class ThreadMXBeanClient implements ThreadDiagnosticPort {
         }
 
         return blockedList;
+    }
+
+    /**
+     * Enables thread contention monitoring on the target JVM when supported, so blocked
+     * threads report real contention durations instead of -1.
+     *
+     * @return true if contention timings are monitored after the call
+     */
+    private boolean ensureContentionMonitoring(ThreadMXBean threadMXBean) throws IOException {
+        if (!threadMXBean.isThreadContentionMonitoringSupported()) {
+            return false;
+        }
+        if (!threadMXBean.isThreadContentionMonitoringEnabled()) {
+            threadMXBean.setThreadContentionMonitoringEnabled(true);
+        }
+        return threadMXBean.isThreadContentionMonitoringEnabled();
     }
 
     @Override
