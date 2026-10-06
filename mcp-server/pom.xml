@@ -65,6 +65,13 @@
     <build>
         <plugins>
             <plugin>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-maven</artifactId>
+                <configuration>
+                    <mutationThreshold>40</mutationThreshold>
+                </configuration>
+            </plugin>
+            <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <executions>
@@ -126,6 +133,7 @@
         </plugins>
     </build>
 </project>
+
 
 
 
