@@ -49,12 +49,12 @@ public class ServeCommand implements Callable<Integer> {
             return 1;
         }
 
-        if (targetPid != null) {
-            AttachResult result = attachService.attach(String.valueOf(targetPid));
-            if (!result.isSuccessful()) {
-                System.err.println("[jvm-mcp] Error attaching to target PID " + targetPid + ": " + result.message());
-                return 1;
-            }
+        AttachResult attachResult = targetPid == null ? null : attachService.attach(String.valueOf(targetPid));
+        if (attachResult != null && !attachResult.isSuccessful()) {
+            System.err.println("[jvm-mcp] Error attaching to target PID " + targetPid + ": " + attachResult.message());
+            return 1;
+        }
+        if (attachResult != null) {
             System.err.println("[jvm-mcp] Successfully attached to target PID " + targetPid);
         }
 
@@ -62,13 +62,15 @@ public class ServeCommand implements Callable<Integer> {
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.err.println("[jvm-mcp] Received shutdown signal. Detaching and cleaning up...");
-            if (targetPid != null) {
-                try {
-                    attachService.detach(String.valueOf(targetPid));
-                    System.err.println("[jvm-mcp] Detached from PID " + targetPid);
-                } catch (Exception e) {
-                    System.err.println("[jvm-mcp] Error detaching during shutdown: " + e.getMessage());
-                }
+            if (attachResult != null) {
+                attachResult.virtualMachine().ifPresent(vm -> {
+                    try {
+                        attachService.detach(vm);
+                        System.err.println("[jvm-mcp] Detached from PID " + targetPid);
+                    } catch (Exception e) {
+                        System.err.println("[jvm-mcp] Error detaching during shutdown: " + e.getMessage());
+                    }
+                });
             }
         }));
 
