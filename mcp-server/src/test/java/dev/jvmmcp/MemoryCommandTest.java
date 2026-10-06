@@ -10,15 +10,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import picocli.CommandLine;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
-import java.io.ByteArrayInputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -27,8 +25,32 @@ class MemoryCommandTest {
     @Mock
     private JvmAttachService mockAttachService;
 
-    @Mock
-    private VirtualMachine mockVm;
+    static class StubVirtualMachine extends VirtualMachine {
+        private final InputStream stream;
+        private final boolean shouldThrow;
+
+        StubVirtualMachine(InputStream stream) {
+            super(null, "100");
+            this.stream = stream;
+            this.shouldThrow = false;
+        }
+
+        StubVirtualMachine(boolean shouldThrow) {
+            super(null, "100");
+            this.stream = null;
+            this.shouldThrow = shouldThrow;
+        }
+
+        public InputStream executeJCmd(String command) throws Exception {
+            if (shouldThrow) {
+                throw new RuntimeException("jcmd error");
+            }
+            return stream;
+        }
+
+        @Override
+        public void detach() {}
+    }
 
     @Test
     @DisplayName("memory command with --help should display options and return exit code 0")
@@ -104,7 +126,7 @@ class MemoryCommandTest {
 
     @Test
     @DisplayName("memory command with --histogram and VM attached should print histogram table")
-    void shouldPrintHeapHistogramWhenVmPresent() throws Exception {
+    void shouldPrintHeapHistogramWhenVmPresent() {
         long targetPid = 100L;
         String rawHistogram = """
              num     #instances         #bytes  class name (module)
@@ -114,8 +136,8 @@ class MemoryCommandTest {
             Total         15000        3600000
             """;
         InputStream stream = new ByteArrayInputStream(rawHistogram.getBytes(StandardCharsets.UTF_8));
-        when(mockVm.dumpHeapHistogram(any())).thenReturn(stream);
-        when(mockAttachService.attach(String.valueOf(targetPid))).thenReturn(AttachResult.success(String.valueOf(targetPid), mockVm));
+        VirtualMachine stubVm = new StubVirtualMachine(stream);
+        when(mockAttachService.attach(String.valueOf(targetPid))).thenReturn(AttachResult.success(String.valueOf(targetPid), stubVm));
 
         MemoryCommand command = new MemoryCommand(mockAttachService);
         command.pid = targetPid;
@@ -139,10 +161,10 @@ class MemoryCommandTest {
 
     @Test
     @DisplayName("memory command should handle histogram extraction errors gracefully")
-    void shouldHandleHistogramExtractionError() throws Exception {
+    void shouldHandleHistogramExtractionError() {
         long targetPid = 100L;
-        when(mockVm.dumpHeapHistogram(any())).thenThrow(new RuntimeException("jcmd error"));
-        when(mockAttachService.attach(String.valueOf(targetPid))).thenReturn(AttachResult.success(String.valueOf(targetPid), mockVm));
+        VirtualMachine stubVm = new StubVirtualMachine(true);
+        when(mockAttachService.attach(String.valueOf(targetPid))).thenReturn(AttachResult.success(String.valueOf(targetPid), stubVm));
 
         MemoryCommand command = new MemoryCommand(mockAttachService);
         command.pid = targetPid;
