@@ -123,6 +123,13 @@ class HeapHistogramReaderTest {
         }
 
         @Override public void detach() {}
+        @Override public void loadAgentLibrary(String agentLibrary, String options) {}
+        @Override public void loadAgentPath(String agentPath, String options) {}
+        @Override public void loadAgent(String agent, String options) {}
+        @Override public java.util.Properties getSystemProperties() { return new java.util.Properties(); }
+        @Override public java.util.Properties getAgentProperties() { return new java.util.Properties(); }
+        @Override public void startManagementAgent(java.util.Properties agentProperties) {}
+        @Override public String startLocalManagementAgent() { return null; }
     }
 
     @Test

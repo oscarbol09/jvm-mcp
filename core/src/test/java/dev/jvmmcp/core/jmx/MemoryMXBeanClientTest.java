@@ -60,7 +60,7 @@ class MemoryMXBeanClientTest {
         List<MemoryPoolInfo> pools = memoryClient.getMemoryPools();
 
         assertThat(pools).isNotEmpty();
-        assertThat(pools.get(0).poolName()).isNotBlank();
+        assertThat(pools.get(0).name()).isNotBlank();
         assertThat(pools.get(0).type()).isIn("HEAP", "NON_HEAP");
     }
 
@@ -70,7 +70,7 @@ class MemoryMXBeanClientTest {
         List<GarbageCollectorInfo> gcs = memoryClient.getGarbageCollectors();
 
         assertThat(gcs).isNotEmpty();
-        assertThat(gcs.get(0).gcName()).isNotBlank();
+        assertThat(gcs.get(0).name()).isNotBlank();
         assertThat(gcs.get(0).memoryPoolNames()).isNotNull();
     }
 
