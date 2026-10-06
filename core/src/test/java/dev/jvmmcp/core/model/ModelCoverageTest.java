@@ -32,6 +32,10 @@ class ModelCoverageTest {
         assertThat(success.status()).isEqualTo(AttachStatus.SUCCESS);
         assertThat(success.virtualMachine()).contains(mockVm);
 
+        AttachResult successNullVm = AttachResult.success("123", null);
+        assertThat(successNullVm.isSuccessful()).isTrue();
+        assertThat(successNullVm.virtualMachine()).isEmpty();
+
         AttachResult notFound = AttachResult.processNotFound("123");
         assertThat(notFound.isSuccessful()).isFalse();
         assertThat(notFound.status()).isEqualTo(AttachStatus.PROCESS_NOT_FOUND);

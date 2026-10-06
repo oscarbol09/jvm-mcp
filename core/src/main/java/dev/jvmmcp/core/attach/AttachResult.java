@@ -13,7 +13,7 @@ public record AttachResult(
     Optional<VirtualMachine> virtualMachine
 ) {
     public static AttachResult success(String pid, VirtualMachine vm) {
-        return new AttachResult(AttachStatus.SUCCESS, pid, "Attached successfully to PID " + pid, Optional.of(vm));
+        return new AttachResult(AttachStatus.SUCCESS, pid, "Attached successfully to PID " + pid, Optional.ofNullable(vm));
     }
 
     public static AttachResult processNotFound(String pid) {
@@ -48,6 +48,6 @@ public record AttachResult(
     }
 
     public boolean isSuccessful() {
-        return status == AttachStatus.SUCCESS && virtualMachine.isPresent();
+        return status == AttachStatus.SUCCESS;
     }
 }
