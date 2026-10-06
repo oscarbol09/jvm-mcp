@@ -5,6 +5,7 @@ import dev.jvmmcp.core.attach.JvmAttachService;
 import dev.jvmmcp.core.jmx.JmxConnectionManager;
 import dev.jvmmcp.core.jmx.MemoryMXBeanClient;
 import dev.jvmmcp.core.jmx.ThreadMXBeanClient;
+import dev.jvmmcp.core.pg.PostgresSchemaReader;
 import dev.jvmmcp.core.util.SimpleJson;
 import com.sun.tools.attach.VirtualMachine;
 import picocli.CommandLine.Command;
@@ -152,6 +153,46 @@ public class ServeCommand implements Callable<Integer> {
                     "properties", Map.of("pid", Map.of("type", "number", "description", "Target JVM Process ID")),
                     "required", List.of("pid")
                 )
+            ),
+            Map.of(
+                "name", "inspect_pg_schema",
+                "description", "Inspects PostgreSQL schema, tables, indexes, and foreign keys",
+                "inputSchema", Map.of(
+                    "type", "object",
+                    "properties", Map.of(
+                        "url", Map.of("type", "string", "description", "JDBC URL (e.g. jdbc:postgresql://localhost:5432/db)"),
+                        "user", Map.of("type", "string", "description", "Database username"),
+                        "password", Map.of("type", "string", "description", "Database password"),
+                        "schema", Map.of("type", "string", "description", "Target schema (default: public)")
+                    ),
+                    "required", List.of("url")
+                )
+            ),
+            Map.of(
+                "name", "find_missing_indexes",
+                "description", "Finds missing indexes by analyzing seq_scan and idx_scan metrics",
+                "inputSchema", Map.of(
+                    "type", "object",
+                    "properties", Map.of(
+                        "url", Map.of("type", "string", "description", "JDBC URL (e.g. jdbc:postgresql://localhost:5432/db)"),
+                        "user", Map.of("type", "string", "description", "Database username"),
+                        "password", Map.of("type", "string", "description", "Database password")
+                    ),
+                    "required", List.of("url")
+                )
+            ),
+            Map.of(
+                "name", "find_slow_queries",
+                "description", "Finds slow queries using pg_stat_statements",
+                "inputSchema", Map.of(
+                    "type", "object",
+                    "properties", Map.of(
+                        "url", Map.of("type", "string", "description", "JDBC URL (e.g. jdbc:postgresql://localhost:5432/db)"),
+                        "user", Map.of("type", "string", "description", "Database username"),
+                        "password", Map.of("type", "string", "description", "Database password")
+                    ),
+                    "required", List.of("url")
+                )
             )
         );
     }
@@ -186,6 +227,23 @@ public class ServeCommand implements Callable<Integer> {
                         content.add(Map.of("type", "text", "text", SimpleJson.toJson(threadClient.getThreadSummary(pid))));
                         content.add(Map.of("type", "text", "text", "Deadlock Report: " + SimpleJson.toJson(threadClient.detectDeadlocks())));
                     }
+                }
+            } else if ("inspect_pg_schema".equals(toolName) || "find_missing_indexes".equals(toolName) || "find_slow_queries".equals(toolName)) {
+                if (args == null || !args.containsKey("url")) {
+                    throw new IllegalArgumentException("Missing required argument: url");
+                }
+                String url = (String) args.get("url");
+                String user = (String) args.get("user");
+                String password = (String) args.get("password");
+                PostgresSchemaReader reader = new PostgresSchemaReader(url, user, password);
+
+                if ("inspect_pg_schema".equals(toolName)) {
+                    String schema = args.containsKey("schema") ? (String) args.get("schema") : "public";
+                    content.add(Map.of("type", "text", "text", SimpleJson.toJson(reader.inspectSchema(schema))));
+                } else if ("find_missing_indexes".equals(toolName)) {
+                    content.add(Map.of("type", "text", "text", SimpleJson.toJson(reader.findMissingIndexes())));
+                } else {
+                    content.add(Map.of("type", "text", "text", SimpleJson.toJson(reader.findSlowQueries())));
                 }
             } else {
                 isError = true;
