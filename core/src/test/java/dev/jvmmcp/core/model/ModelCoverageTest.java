@@ -68,12 +68,12 @@ class ModelCoverageTest {
         assertThat(nullInfo.usedBytes()).isZero();
         assertThat(nullInfo.usedPercent()).isZero();
 
-        MemoryUsage normalUsage = new MemoryUsage(100, 200, 500, 1000);
+        MemoryUsage normalUsage = new MemoryUsage(100, 20 * 1024 * 1024, 50 * 1024 * 1024, 100 * 1024 * 1024);
         MemoryUsageInfo normalInfo = MemoryUsageInfo.from(normalUsage);
         assertThat(normalInfo.usedPercent()).isEqualTo(20.0);
-        assertThat(normalInfo.usedMb()).isPositive();
+        assertThat(normalInfo.usedMb()).isEqualTo(20.0);
 
-        MemoryUsage undefinedMax = new MemoryUsage(100, 250, 500, -1);
+        MemoryUsage undefinedMax = new MemoryUsage(100, 25 * 1024 * 1024, 50 * 1024 * 1024, -1);
         MemoryUsageInfo undefinedInfo = MemoryUsageInfo.from(undefinedMax);
         assertThat(undefinedInfo.usedPercent()).isEqualTo(50.0);
     }

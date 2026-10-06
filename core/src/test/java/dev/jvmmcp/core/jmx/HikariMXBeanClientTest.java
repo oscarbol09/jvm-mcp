@@ -119,22 +119,23 @@ class HikariMXBeanClientTest {
     }
 
     @Test
-    @DisplayName("readPool handles non-standard ObjectNames and zero maximumPoolSize")
+    @DisplayName("readPool handles custom pool names and zero maximumPoolSize")
     void shouldHandleCustomObjectNamesAndZeroPoolSize() throws Exception {
-        ObjectName customName = new ObjectName("com.zaxxer.hikari:type=CustomPoolName");
+        ObjectName customName = new ObjectName("com.zaxxer.hikari:type=Pool (CustomPool)");
         when(mockMbsc.queryNames(any(), any())).thenReturn(Set.of(customName));
         when(mockMbsc.getAttribute(customName, "ActiveConnections")).thenReturn(0);
         when(mockMbsc.getAttribute(customName, "IdleConnections")).thenReturn(0);
         when(mockMbsc.getAttribute(customName, "TotalConnections")).thenReturn(0);
         when(mockMbsc.getAttribute(customName, "ThreadsAwaitingConnection")).thenReturn(0);
 
-        ObjectName configName = new ObjectName("com.zaxxer.hikari:type=PoolConfig (com.zaxxer.hikari:type=CustomPoolName)");
+        ObjectName configName = new ObjectName("com.zaxxer.hikari:type=PoolConfig (CustomPool)");
         when(mockMbsc.getAttribute(configName, "MaximumPoolSize")).thenReturn(0);
 
         HikariMXBeanClient client = new HikariMXBeanClient(mockMbsc);
         List<HikariPoolStatistics> pools = client.getPools();
 
         assertThat(pools).hasSize(1);
+        assertThat(pools.get(0).poolName()).isEqualTo("CustomPool");
         assertThat(pools.get(0).saturationRatio()).isEqualTo(0.0);
     }
 }

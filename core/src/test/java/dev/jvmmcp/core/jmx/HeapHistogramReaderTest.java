@@ -113,9 +113,16 @@ class HeapHistogramReaderTest {
     }
 
     // Dummy VM class with executeJCmd for reflection test
+    public static class DummyProvider extends com.sun.tools.attach.spi.AttachProvider {
+        @Override public String name() { return "dummy"; }
+        @Override public String type() { return "dummy"; }
+        @Override public com.sun.tools.attach.VirtualMachine attachVirtualMachine(String id) { return null; }
+        @Override public java.util.List<com.sun.tools.attach.VirtualMachineDescriptor> listVirtualMachines() { return java.util.List.of(); }
+    }
+
     public static class FakeVirtualMachine extends com.sun.tools.attach.VirtualMachine {
         protected FakeVirtualMachine() {
-            super(null, "123");
+            super(new DummyProvider(), "123");
         }
 
         public InputStream executeJCmd(String cmd) {

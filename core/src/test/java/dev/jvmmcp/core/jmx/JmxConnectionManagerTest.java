@@ -69,15 +69,17 @@ class JmxConnectionManagerTest {
     }
 
     @Test
-    @DisplayName("close safely detaches VirtualMachine even when detach throws IOException")
+    @DisplayName("close safely detaches VirtualMachine and closes connector suppressing IOExceptions")
     void shouldSafelyDetachOnClose() throws Exception {
+        java.lang.reflect.Constructor<JmxConnectionManager> ctor = JmxConnectionManager.class.getDeclaredConstructor(
+            long.class, VirtualMachine.class, javax.management.remote.JMXConnector.class, javax.management.MBeanServerConnection.class
+        );
+        ctor.setAccessible(true);
+        javax.management.remote.JMXConnector mockConnector = mock(javax.management.remote.JMXConnector.class);
+        doThrow(new IOException("Close failure")).when(mockConnector).close();
         doThrow(new IOException("Detach failure")).when(virtualMachine).detach();
 
-        // Create an instance via reflection or test through lifecycle
-        JmxConnectionManager localManager = JmxConnectionManager.connectLocal();
-        localManager.close(); // No connector, no VM
-
-        // Verify detach is called safely
-        virtualMachine.detach();
+        JmxConnectionManager manager = ctor.newInstance(123L, virtualMachine, mockConnector, mock(javax.management.MBeanServerConnection.class));
+        manager.close(); // Verifies both exceptions are caught and suppressed cleanly
     }
 }
