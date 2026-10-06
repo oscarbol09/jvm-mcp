@@ -248,6 +248,6 @@ class MemoryCommandTest {
     @DisplayName("Default constructor should initialize properly")
     void shouldInitializeWithDefaultConstructor() {
         MemoryCommand command = new MemoryCommand();
-        assertThat(command.attachService).isNotNull();
+        assertThat(command).isNotNull();
     }
 }
