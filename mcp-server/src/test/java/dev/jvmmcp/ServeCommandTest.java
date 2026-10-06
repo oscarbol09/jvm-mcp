@@ -69,8 +69,10 @@ class ServeCommandTest {
     void shouldAcceptStdioTransport() {
         ByteArrayOutputStream err = new ByteArrayOutputStream();
         PrintStream originalErr = System.err;
+        java.io.InputStream originalIn = System.in;
         try {
             System.setErr(new PrintStream(err));
+            System.setIn(new java.io.ByteArrayInputStream(new byte[0])); // Provide immediate EOF
             CommandLine cmd = new CommandLine(new JvmMcp());
             int exitCode = cmd.execute("serve", "--transport", "stdio");
 
@@ -78,6 +80,7 @@ class ServeCommandTest {
             assertThat(err.toString()).contains("Starting server via transport: stdio");
         } finally {
             System.setErr(originalErr);
+            System.setIn(originalIn);
         }
     }
 
@@ -93,8 +96,10 @@ class ServeCommandTest {
 
         ByteArrayOutputStream err = new ByteArrayOutputStream();
         PrintStream originalErr = System.err;
+        java.io.InputStream originalIn = System.in;
         try {
             System.setErr(new PrintStream(err));
+            System.setIn(new java.io.ByteArrayInputStream(new byte[0])); // Provide immediate EOF
             Integer exitCode = command.call();
 
             assertThat(exitCode).isZero();
@@ -102,6 +107,7 @@ class ServeCommandTest {
             assertThat(err.toString()).contains("Starting server via transport: stdio");
         } finally {
             System.setErr(originalErr);
+            System.setIn(originalIn);
         }
     }
 
