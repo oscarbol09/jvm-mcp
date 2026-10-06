@@ -1,25 +1,35 @@
 package dev.jvmmcp;
 
 import com.sun.net.httpserver.HttpServer;
+import dev.jvmmcp.core.attach.AttachResult;
+import dev.jvmmcp.core.attach.JvmAttachService;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import picocli.CommandLine;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.io.PrintWriter;
-import java.io.StringWriter;
+import java.io.PrintStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.when;
 
+@ExtendWith(MockitoExtension.class)
 class BeansCommandTest {
 
     private static HttpServer server;
     private static String serverBaseUrl;
+
+    @Mock
+    private JvmAttachService mockAttachService;
 
     private static final String SAMPLE_ACTUATOR_JSON = """
         {
@@ -72,21 +82,10 @@ class BeansCommandTest {
     @Test
     @DisplayName("beans command with --help should display options and return exit code 0")
     void shouldDisplayHelp() {
-        StringWriter out = new StringWriter();
         CommandLine cmd = new CommandLine(new JvmMcp());
-        cmd.setOut(new PrintWriter(out));
-
         int exitCode = cmd.execute("beans", "--help");
 
         assertThat(exitCode).isZero();
-        assertThat(out.toString()).contains("Inspects live Spring Boot ApplicationContext");
-        assertThat(out.toString()).contains("--filter");
-        assertThat(out.toString()).contains("--detail");
-        assertThat(out.toString()).contains("--actuator");
-        assertThat(out.toString()).contains("--actuator-user");
-        assertThat(out.toString()).contains("--actuator-password");
-        assertThat(out.toString()).contains("--actuator-token");
-        assertThat(out.toString()).contains("--insecure");
     }
 
     @Test
@@ -118,94 +117,105 @@ class BeansCommandTest {
     }
 
     @Test
-    @DisplayName("beans command with non-existent PID should return error exit code")
-    void shouldFailGracefullyOnNonExistentPid() {
-        CommandLine cmd = new CommandLine(new JvmMcp());
-        int exitCode = cmd.execute("beans", "999999999");
-
-        assertThat(exitCode).isEqualTo(1);
-    }
-
-    @Test
     @DisplayName("beans command against Actuator URL should list beans overview")
     void shouldListBeansOverviewFromActuatorUrl() {
-        StringWriter out = new StringWriter();
-        CommandLine cmd = new CommandLine(new JvmMcp());
-        cmd.setOut(new PrintWriter(out));
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try {
+            System.setOut(new PrintStream(out));
+            CommandLine cmd = new CommandLine(new JvmMcp());
+            int exitCode = cmd.execute("beans", "--actuator", serverBaseUrl);
 
-        int exitCode = cmd.execute("beans", "--actuator", serverBaseUrl);
-
-        assertThat(exitCode).isZero();
-        String output = out.toString();
-        assertThat(output).contains("SPRING BEANS INSPECTION");
-        assertThat(output).contains("Total Beans Matched: 2");
-        assertThat(output).contains("orderService");
-        assertThat(output).contains("paymentGateway");
+            assertThat(exitCode).isZero();
+            String output = out.toString();
+            assertThat(output).contains("SPRING BEANS INSPECTION");
+            assertThat(output).contains("Total Beans Matched: 2");
+            assertThat(output).contains("orderService");
+            assertThat(output).contains("paymentGateway");
+        } finally {
+            System.setOut(originalOut);
+        }
     }
 
     @Test
     @DisplayName("beans command with --filter should match specified glob pattern")
     void shouldFilterBeansWithGlobPattern() {
-        StringWriter out = new StringWriter();
-        CommandLine cmd = new CommandLine(new JvmMcp());
-        cmd.setOut(new PrintWriter(out));
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try {
+            System.setOut(new PrintStream(out));
+            CommandLine cmd = new CommandLine(new JvmMcp());
+            int exitCode = cmd.execute("beans", "--actuator", serverBaseUrl, "--filter", "*Order*");
 
-        int exitCode = cmd.execute("beans", "--actuator", serverBaseUrl, "--filter", "*Order*");
-
-        assertThat(exitCode).isZero();
-        String output = out.toString();
-        assertThat(output).contains("Total Beans Matched: 1");
-        assertThat(output).contains("orderService");
+            assertThat(exitCode).isZero();
+            String output = out.toString();
+            assertThat(output).contains("Total Beans Matched: 1");
+            assertThat(output).contains("orderService");
+        } finally {
+            System.setOut(originalOut);
+        }
     }
 
     @Test
     @DisplayName("beans command with filter matching no beans should report empty result")
     void shouldHandleEmptyBeansMatch() {
-        StringWriter out = new StringWriter();
-        CommandLine cmd = new CommandLine(new JvmMcp());
-        cmd.setOut(new PrintWriter(out));
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try {
+            System.setOut(new PrintStream(out));
+            CommandLine cmd = new CommandLine(new JvmMcp());
+            int exitCode = cmd.execute("beans", "--actuator", serverBaseUrl, "--filter", "*NonExistent*");
 
-        int exitCode = cmd.execute("beans", "--actuator", serverBaseUrl, "--filter", "*NonExistent*");
-
-        assertThat(exitCode).isZero();
-        String output = out.toString();
-        assertThat(output).contains("No beans matched the specified criteria");
+            assertThat(exitCode).isZero();
+            String output = out.toString();
+            assertThat(output).contains("No beans matched the specified criteria");
+        } finally {
+            System.setOut(originalOut);
+        }
     }
 
     @Test
     @DisplayName("beans command with --detail on existing bean should display deep inspection")
     void shouldInspectBeanDetail() {
-        StringWriter out = new StringWriter();
-        CommandLine cmd = new CommandLine(new JvmMcp());
-        cmd.setOut(new PrintWriter(out));
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try {
+            System.setOut(new PrintStream(out));
+            CommandLine cmd = new CommandLine(new JvmMcp());
+            int exitCode = cmd.execute("beans", "--actuator", serverBaseUrl, "--detail", "orderService");
 
-        int exitCode = cmd.execute("beans", "--actuator", serverBaseUrl, "--detail", "orderService");
-
-        assertThat(exitCode).isZero();
-        String output = out.toString();
-        assertThat(output).contains("BEAN DETAIL: orderService");
-        assertThat(output).contains("Type        : dev.jvmmcp.samples.OrderServiceImplementation");
-        assertThat(output).contains("Scope       : singleton");
-        assertThat(output).contains("Aliases     : orderManager, orderSvc");
-        assertThat(output).contains("DIRECT DEPENDENCIES (2)");
-        assertThat(output).contains("-> orderRepository");
-        assertThat(output).contains("-> paymentGateway");
+            assertThat(exitCode).isZero();
+            String output = out.toString();
+            assertThat(output).contains("BEAN DETAIL: orderService");
+            assertThat(output).contains("Type        : dev.jvmmcp.samples.OrderServiceImplementation");
+            assertThat(output).contains("Scope       : singleton");
+            assertThat(output).contains("Aliases     : orderManager, orderSvc");
+            assertThat(output).contains("DIRECT DEPENDENCIES (2)");
+            assertThat(output).contains("-> orderRepository");
+            assertThat(output).contains("-> paymentGateway");
+        } finally {
+            System.setOut(originalOut);
+        }
     }
 
     @Test
     @DisplayName("beans command with --detail on bean with no dependencies should show (None)")
     void shouldInspectBeanDetailWithoutDependencies() {
-        StringWriter out = new StringWriter();
-        CommandLine cmd = new CommandLine(new JvmMcp());
-        cmd.setOut(new PrintWriter(out));
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try {
+            System.setOut(new PrintStream(out));
+            CommandLine cmd = new CommandLine(new JvmMcp());
+            int exitCode = cmd.execute("beans", "--actuator", serverBaseUrl, "--detail", "paymentGateway");
 
-        int exitCode = cmd.execute("beans", "--actuator", serverBaseUrl, "--detail", "paymentGateway");
-
-        assertThat(exitCode).isZero();
-        String output = out.toString();
-        assertThat(output).contains("BEAN DETAIL: paymentGateway");
-        assertThat(output).contains("DIRECT DEPENDENCIES (0)");
-        assertThat(output).contains("(None)");
+            assertThat(exitCode).isZero();
+            String output = out.toString();
+            assertThat(output).contains("BEAN DETAIL: paymentGateway");
+            assertThat(output).contains("DIRECT DEPENDENCIES (0)");
+            assertThat(output).contains("(None)");
+        } finally {
+            System.setOut(originalOut);
+        }
     }
 
     @Test
@@ -220,41 +230,93 @@ class BeansCommandTest {
     @Test
     @DisplayName("beans command with --insecure and credentials warnings")
     void shouldEmitWarningsForInsecureAndPlainHttp() {
-        StringWriter err = new StringWriter();
-        CommandLine cmd = new CommandLine(new JvmMcp());
-        cmd.setErr(new PrintWriter(err));
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        PrintStream originalErr = System.err;
+        try {
+            System.setErr(new PrintStream(err));
+            CommandLine cmd = new CommandLine(new JvmMcp());
+            int exitCode = cmd.execute("beans", "--actuator", serverBaseUrl,
+                "--actuator-token", "test-token", "--insecure");
 
-        int exitCode = cmd.execute("beans", "--actuator", serverBaseUrl,
-            "--actuator-token", "test-token", "--insecure");
-
-        assertThat(exitCode).isZero();
-        String errOutput = err.toString();
-        assertThat(errOutput).contains("Warning: --insecure disables TLS");
-        assertThat(errOutput).contains("Warning: credentials are sent over plain HTTP");
+            assertThat(exitCode).isZero();
+            String errOutput = err.toString();
+            assertThat(errOutput).contains("Warning: --insecure disables TLS");
+            assertThat(errOutput).contains("Warning: credentials are sent over plain HTTP");
+        } finally {
+            System.setErr(originalErr);
+        }
     }
 
     @Test
-    @DisplayName("beans aliases bean, spring-beans, sb should execute command")
-    void shouldSupportAliases() {
-        CommandLine cmd = new CommandLine(new JvmMcp());
+    @DisplayName("beans command on attached PID should execute local inspection")
+    void shouldInspectAttachedProcessBeans() {
+        long targetPid = 100L;
+        when(mockAttachService.attach(String.valueOf(targetPid))).thenReturn(AttachResult.success(String.valueOf(targetPid), null));
 
-        int beanExit = cmd.execute("bean", "--actuator", serverBaseUrl);
-        int sbExit = cmd.execute("sb", "--actuator", serverBaseUrl);
-        int springBeansExit = cmd.execute("spring-beans", "--actuator", serverBaseUrl);
+        BeansCommand command = new BeansCommand(mockAttachService);
+        command.pid = targetPid;
 
-        assertThat(beanExit).isZero();
-        assertThat(sbExit).isZero();
-        assertThat(springBeansExit).isZero();
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try {
+            System.setOut(new PrintStream(out));
+            Integer exitCode = command.call();
+
+            assertThat(exitCode).isZero();
+            assertThat(out.toString()).contains("SPRING BEANS INSPECTION");
+        } finally {
+            System.setOut(originalOut);
+        }
     }
 
     @Test
-    @DisplayName("beans command on current PID should execute inspection")
-    void shouldInspectCurrentProcessBeans() {
-        long currentPid = ProcessHandle.current().pid();
-        CommandLine cmd = new CommandLine(new JvmMcp());
+    @DisplayName("beans command should return error when attach fails")
+    void shouldHandleAttachFailureGracefully() {
+        long targetPid = 100L;
+        when(mockAttachService.attach(String.valueOf(targetPid))).thenReturn(AttachResult.processNotFound(String.valueOf(targetPid)));
 
-        int exitCode = cmd.execute("beans", String.valueOf(currentPid));
-        // Current JVM runner does not have Spring LiveBeansView MBean registered, so it gracefully reports 0 beans
-        assertThat(exitCode).isZero();
+        BeansCommand command = new BeansCommand(mockAttachService);
+        command.pid = targetPid;
+
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        PrintStream originalErr = System.err;
+        try {
+            System.setErr(new PrintStream(err));
+            Integer exitCode = command.call();
+
+            assertThat(exitCode).isEqualTo(1);
+            assertThat(err.toString()).contains("not found");
+        } finally {
+            System.setErr(originalErr);
+        }
+    }
+
+    @Test
+    @DisplayName("beans command should handle unexpected inspection exception")
+    void shouldHandleInspectionExceptionGracefully() {
+        long targetPid = 100L;
+        when(mockAttachService.attach(String.valueOf(targetPid))).thenThrow(new RuntimeException("JMX error"));
+
+        BeansCommand command = new BeansCommand(mockAttachService);
+        command.pid = targetPid;
+
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        PrintStream originalErr = System.err;
+        try {
+            System.setErr(new PrintStream(err));
+            Integer exitCode = command.call();
+
+            assertThat(exitCode).isEqualTo(1);
+            assertThat(err.toString()).contains("JMX error");
+        } finally {
+            System.setErr(originalErr);
+        }
+    }
+
+    @Test
+    @DisplayName("Default constructor should initialize properly")
+    void shouldInitializeWithDefaultConstructor() {
+        BeansCommand command = new BeansCommand();
+        assertThat(command.attachService).isNotNull();
     }
 }

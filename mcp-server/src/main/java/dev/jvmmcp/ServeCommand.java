@@ -26,6 +26,14 @@ public class ServeCommand implements Callable<Integer> {
     @Option(names = "--actuator", description = "Target Actuator Base URL (e.g. http://localhost:8080)")
     String actuatorUrl;
 
+    JvmAttachService attachService = new JvmAttachService();
+
+    public ServeCommand() {}
+
+    public ServeCommand(JvmAttachService attachService) {
+        this.attachService = attachService;
+    }
+
     @Override
     public Integer call() {
         if ("sse".equalsIgnoreCase(transport) || useSpring) {
@@ -34,7 +42,6 @@ public class ServeCommand implements Callable<Integer> {
         }
 
         if (targetPid != null) {
-            JvmAttachService attachService = new JvmAttachService();
             AttachResult result = attachService.attach(String.valueOf(targetPid));
             if (!result.isSuccessful()) {
                 System.err.println("[jvm-mcp] Error attaching to target PID " + targetPid + ": " + result.message());

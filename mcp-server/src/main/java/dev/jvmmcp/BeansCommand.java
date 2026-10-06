@@ -49,6 +49,14 @@ public class BeansCommand implements Callable<Integer> {
     @Option(names = {"--insecure", "-k"}, description = "Trust any TLS certificate (for self-signed HTTPS endpoints). Not recommended for production.")
     boolean insecure;
 
+    JvmAttachService attachService = new JvmAttachService();
+
+    public BeansCommand() {}
+
+    public BeansCommand(JvmAttachService attachService) {
+        this.attachService = attachService;
+    }
+
     @Override
     public Integer call() {
         ActuatorAuth auth = new ActuatorAuth(actuatorUser, actuatorPassword, actuatorToken, insecure);
@@ -75,7 +83,6 @@ public class BeansCommand implements Callable<Integer> {
                 return 1;
             }
 
-            JvmAttachService attachService = new JvmAttachService();
             AttachResult attachResult = attachService.attach(String.valueOf(pid));
 
             if (!attachResult.isSuccessful()) {

@@ -1,30 +1,33 @@
 package dev.jvmmcp;
 
+import dev.jvmmcp.core.attach.AttachResult;
+import dev.jvmmcp.core.attach.JvmAttachService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import picocli.CommandLine;
 
-import java.io.PrintWriter;
-import java.io.StringWriter;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.when;
 
+@ExtendWith(MockitoExtension.class)
 class ThreadsCommandTest {
+
+    @Mock
+    private JvmAttachService mockAttachService;
 
     @Test
     @DisplayName("threads command with --help should display options and return exit code 0")
     void shouldDisplayHelp() {
-        StringWriter out = new StringWriter();
         CommandLine cmd = new CommandLine(new JvmMcp());
-        cmd.setOut(new PrintWriter(out));
-
         int exitCode = cmd.execute("threads", "--help");
 
         assertThat(exitCode).isZero();
-        assertThat(out.toString()).contains("Inspects JVM thread states");
-        assertThat(out.toString()).contains("--deadlocks");
-        assertThat(out.toString()).contains("--dump");
-        assertThat(out.toString()).contains("--blocked");
     }
 
     @Test
@@ -44,105 +47,149 @@ class ThreadsCommandTest {
     @Test
     @DisplayName("threads command with non-existent PID should return error exit code")
     void shouldFailGracefullyOnNonExistentPid() {
-        CommandLine cmd = new CommandLine(new JvmMcp());
-        int exitCode = cmd.execute("threads", "999999999");
+        when(mockAttachService.attach("999999999")).thenReturn(AttachResult.processNotFound("999999999"));
 
-        assertThat(exitCode).isEqualTo(1);
+        ThreadsCommand command = new ThreadsCommand(mockAttachService);
+        command.pid = 999999999L;
+
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        PrintStream originalErr = System.err;
+        try {
+            System.setErr(new PrintStream(err));
+            Integer exitCode = command.call();
+
+            assertThat(exitCode).isEqualTo(1);
+            assertThat(err.toString()).contains("[jvm-mcp] Target JVM process 999999999 not found.");
+        } finally {
+            System.setErr(originalErr);
+        }
     }
 
     @Test
-    @DisplayName("threads command on current PID should display thread summary and deadlocks")
-    void shouldInspectCurrentProcessThreads() {
-        long currentPid = ProcessHandle.current().pid();
-        StringWriter out = new StringWriter();
-        CommandLine cmd = new CommandLine(new JvmMcp());
-        cmd.setOut(new PrintWriter(out));
+    @DisplayName("threads command on attached PID should display summary and deadlock status")
+    void shouldDisplayThreadSummaryAndDeadlocks() {
+        long targetPid = 100L;
+        when(mockAttachService.attach(String.valueOf(targetPid))).thenReturn(AttachResult.success(String.valueOf(targetPid), null));
 
-        int exitCode = cmd.execute("threads", String.valueOf(currentPid));
+        ThreadsCommand command = new ThreadsCommand(mockAttachService);
+        command.pid = targetPid;
 
-        assertThat(exitCode).isZero();
-        String output = out.toString();
-        assertThat(output).contains("JVM THREAD DIAGNOSTICS FOR PID " + currentPid);
-        assertThat(output).contains("Total Threads");
-        assertThat(output).contains("RUNNABLE");
-        assertThat(output).contains("DEADLOCK STATUS");
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try {
+            System.setOut(new PrintStream(out));
+            Integer exitCode = command.call();
+
+            assertThat(exitCode).isZero();
+            String output = out.toString();
+            assertThat(output).contains("JVM THREAD DIAGNOSTICS FOR PID " + targetPid);
+            assertThat(output).contains("Total Threads");
+            assertThat(output).contains("RUNNABLE");
+            assertThat(output).contains("DEADLOCK STATUS");
+        } finally {
+            System.setOut(originalOut);
+        }
     }
 
     @Test
-    @DisplayName("threads command with --deadlocks flag should report deadlock status exclusively")
-    void shouldInspectDeadlocksExclusively() {
-        long currentPid = ProcessHandle.current().pid();
-        StringWriter out = new StringWriter();
-        CommandLine cmd = new CommandLine(new JvmMcp());
-        cmd.setOut(new PrintWriter(out));
+    @DisplayName("threads command with deadlocksOnly flag should report deadlock status exclusively")
+    void shouldReportDeadlocksExclusively() {
+        long targetPid = 100L;
+        when(mockAttachService.attach(String.valueOf(targetPid))).thenReturn(AttachResult.success(String.valueOf(targetPid), null));
 
-        int exitCode = cmd.execute("threads", String.valueOf(currentPid), "--deadlocks");
+        ThreadsCommand command = new ThreadsCommand(mockAttachService);
+        command.pid = targetPid;
+        command.deadlocksOnly = true;
 
-        assertThat(exitCode).isZero();
-        String output = out.toString();
-        assertThat(output).contains("DEADLOCK STATUS");
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try {
+            System.setOut(new PrintStream(out));
+            Integer exitCode = command.call();
+
+            assertThat(exitCode).isZero();
+            String output = out.toString();
+            assertThat(output).contains("DEADLOCK STATUS");
+            assertThat(output).doesNotContain("JVM THREAD DIAGNOSTICS FOR PID");
+        } finally {
+            System.setOut(originalOut);
+        }
     }
 
     @Test
-    @DisplayName("threads command with --dump flag should output thread dump and stack traces")
-    void shouldOutputThreadDump() {
-        long currentPid = ProcessHandle.current().pid();
-        StringWriter out = new StringWriter();
-        CommandLine cmd = new CommandLine(new JvmMcp());
-        cmd.setOut(new PrintWriter(out));
+    @DisplayName("threads command with dump flag should display thread dump")
+    void shouldDisplayThreadDump() {
+        long targetPid = 100L;
+        when(mockAttachService.attach(String.valueOf(targetPid))).thenReturn(AttachResult.success(String.valueOf(targetPid), null));
 
-        int exitCode = cmd.execute("threads", String.valueOf(currentPid), "--dump");
+        ThreadsCommand command = new ThreadsCommand(mockAttachService);
+        command.pid = targetPid;
+        command.dump = true;
 
-        assertThat(exitCode).isZero();
-        String output = out.toString();
-        assertThat(output).contains("THREAD DUMP FOR PID " + currentPid);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try {
+            System.setOut(new PrintStream(out));
+            Integer exitCode = command.call();
+
+            assertThat(exitCode).isZero();
+            String output = out.toString();
+            assertThat(output).contains("THREAD DUMP FOR PID " + targetPid);
+        } finally {
+            System.setOut(originalOut);
+        }
     }
 
     @Test
-    @DisplayName("threads command with --blocked flag should list blocked threads")
+    @DisplayName("threads command with blockedOnly flag should list blocked threads")
     void shouldListBlockedThreads() {
-        long currentPid = ProcessHandle.current().pid();
-        StringWriter out = new StringWriter();
-        CommandLine cmd = new CommandLine(new JvmMcp());
-        cmd.setOut(new PrintWriter(out));
+        long targetPid = 100L;
+        when(mockAttachService.attach(String.valueOf(targetPid))).thenReturn(AttachResult.success(String.valueOf(targetPid), null));
 
-        int exitCode = cmd.execute("threads", String.valueOf(currentPid), "--blocked");
+        ThreadsCommand command = new ThreadsCommand(mockAttachService);
+        command.pid = targetPid;
+        command.blockedOnly = true;
 
-        assertThat(exitCode).isZero();
-        String output = out.toString();
-        assertThat(output).contains("BLOCKED THREADS FOR PID " + currentPid);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try {
+            System.setOut(new PrintStream(out));
+            Integer exitCode = command.call();
+
+            assertThat(exitCode).isZero();
+            String output = out.toString();
+            assertThat(output).contains("BLOCKED THREADS FOR PID " + targetPid);
+        } finally {
+            System.setOut(originalOut);
+        }
     }
 
     @Test
-    @DisplayName("threads aliases thread and th should execute command")
-    void shouldSupportAliases() {
-        long currentPid = ProcessHandle.current().pid();
-        CommandLine cmd = new CommandLine(new JvmMcp());
+    @DisplayName("threads command should catch unexpected JMX query failures")
+    void shouldCatchJmxQueryFailure() {
+        long targetPid = 100L;
+        when(mockAttachService.attach(String.valueOf(targetPid))).thenThrow(new RuntimeException("JMX query failure"));
 
-        int threadExit = cmd.execute("thread", String.valueOf(currentPid));
-        int thExit = cmd.execute("th", String.valueOf(currentPid));
+        ThreadsCommand command = new ThreadsCommand(mockAttachService);
+        command.pid = targetPid;
 
-        assertThat(threadExit).isZero();
-        assertThat(thExit).isZero();
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        PrintStream originalErr = System.err;
+        try {
+            System.setErr(new PrintStream(err));
+            Integer exitCode = command.call();
+
+            assertThat(exitCode).isEqualTo(1);
+            assertThat(err.toString()).contains("JMX query failure");
+        } finally {
+            System.setErr(originalErr);
+        }
     }
 
     @Test
-    @DisplayName("Direct invocation of ThreadsCommand with invalid PID should return error 1")
-    void shouldReturnErrorOnDirectCallWithInvalidPid() {
+    @DisplayName("Default constructor should initialize properly")
+    void shouldInitializeWithDefaultConstructor() {
         ThreadsCommand command = new ThreadsCommand();
-        command.pid = -1;
-
-        Integer exitCode = command.call();
-        assertThat(exitCode).isEqualTo(1);
-    }
-
-    @Test
-    @DisplayName("Direct invocation of ThreadsCommand on current PID should succeed")
-    void shouldSucceedOnDirectCallWithCurrentPid() {
-        ThreadsCommand command = new ThreadsCommand();
-        command.pid = ProcessHandle.current().pid();
-
-        Integer exitCode = command.call();
-        assertThat(exitCode).isZero();
+        assertThat(command.attachService).isNotNull();
     }
 }

@@ -32,6 +32,14 @@ public class MemoryCommand implements Callable<Integer> {
     @Option(names = {"--top", "-n"}, defaultValue = "20", description = "Number of top classes in histogram (default: 20)")
     int topN;
 
+    JvmAttachService attachService = new JvmAttachService();
+
+    public MemoryCommand() {}
+
+    public MemoryCommand(JvmAttachService attachService) {
+        this.attachService = attachService;
+    }
+
     @Override
     public Integer call() {
         if (pid <= 0) {
@@ -39,7 +47,6 @@ public class MemoryCommand implements Callable<Integer> {
             return 1;
         }
 
-        JvmAttachService attachService = new JvmAttachService();
         AttachResult attachResult = attachService.attach(String.valueOf(pid));
 
         if (!attachResult.isSuccessful()) {

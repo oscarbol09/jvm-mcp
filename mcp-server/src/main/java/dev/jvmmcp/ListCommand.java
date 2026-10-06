@@ -15,9 +15,16 @@ import java.util.concurrent.Callable;
 )
 public class ListCommand implements Callable<Integer> {
 
+    JvmAttachService service = new JvmAttachService();
+
+    public ListCommand() {}
+
+    public ListCommand(JvmAttachService service) {
+        this.service = service;
+    }
+
     @Override
     public Integer call() {
-        JvmAttachService service = new JvmAttachService();
         List<JvmProcess> jvms = service.listJvms();
 
         if (jvms.isEmpty()) {

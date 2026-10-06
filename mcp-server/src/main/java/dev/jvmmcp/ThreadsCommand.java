@@ -32,6 +32,14 @@ public class ThreadsCommand implements Callable<Integer> {
     @Option(names = {"--blocked", "-b"}, description = "List only blocked threads")
     boolean blockedOnly;
 
+    JvmAttachService attachService = new JvmAttachService();
+
+    public ThreadsCommand() {}
+
+    public ThreadsCommand(JvmAttachService attachService) {
+        this.attachService = attachService;
+    }
+
     @Override
     public Integer call() {
         if (pid <= 0) {
@@ -39,7 +47,6 @@ public class ThreadsCommand implements Callable<Integer> {
             return 1;
         }
 
-        JvmAttachService attachService = new JvmAttachService();
         AttachResult attachResult = attachService.attach(String.valueOf(pid));
 
         if (!attachResult.isSuccessful()) {
