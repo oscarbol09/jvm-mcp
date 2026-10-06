@@ -15,6 +15,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
@@ -50,6 +51,33 @@ class MemoryCommandTest {
 
         @Override
         public void detach() {}
+
+        @Override
+        public void loadAgent(String agent, String options) {}
+
+        @Override
+        public void loadAgentLibrary(String agentLibrary, String options) {}
+
+        @Override
+        public void loadAgentPath(String agentPath, String options) {}
+
+        @Override
+        public Properties getSystemProperties() {
+            return new Properties();
+        }
+
+        @Override
+        public Properties getAgentProperties() {
+            return new Properties();
+        }
+
+        @Override
+        public String startLocalManagementAgent() {
+            return null;
+        }
+
+        @Override
+        public void startManagementAgent(Properties agentProperties) {}
     }
 
     @Test
