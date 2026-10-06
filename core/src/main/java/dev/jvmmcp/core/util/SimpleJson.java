@@ -19,6 +19,45 @@ public final class SimpleJson {
         throw new IllegalArgumentException("Expected JSON Object but found: " + (parsed != null ? parsed.getClass().getSimpleName() : "null"));
     }
 
+        public static String toJson(Object obj) {
+        if (obj == null) return "null";
+        if (obj instanceof String) return "\"" + ((String) obj).replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+        if (obj instanceof Number || obj instanceof Boolean) return obj.toString();
+        if (obj instanceof Map) {
+            StringBuilder sb = new StringBuilder("{");
+            Map<?, ?> map = (Map<?, ?>) obj;
+            boolean first = true;
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if (!first) sb.append(",");
+                sb.append(toJson(entry.getKey().toString())).append(":").append(toJson(entry.getValue()));
+                first = false;
+            }
+            return sb.append("}").toString();
+        }
+        if (obj instanceof Iterable) {
+            StringBuilder sb = new StringBuilder("[");
+            boolean first = true;
+            for (Object item : (Iterable<?>) obj) {
+                if (!first) sb.append(",");
+                sb.append(toJson(item));
+                first = false;
+            }
+            return sb.append("]").toString();
+        }
+        if (obj instanceof Object[]) {
+            StringBuilder sb = new StringBuilder("[");
+            boolean first = true;
+            for (Object item : (Object[]) obj) {
+                if (!first) sb.append(",");
+                sb.append(toJson(item));
+                first = false;
+            }
+            return sb.append("]").toString();
+        }
+        // Fallback for domain records
+        return toJson(obj.toString());
+    }
+
     public static Object parse(String json) {
         if (json == null) {
             return null;
@@ -270,3 +309,4 @@ public final class SimpleJson {
         }
     }
 }
+
