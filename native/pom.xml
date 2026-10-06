@@ -21,33 +21,39 @@
         </dependency>
     </dependencies>
 
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.graalvm.buildtools</groupId>
-                <artifactId>native-maven-plugin</artifactId>
-                <version>0.10.2</version>
-                <extensions>true</extensions>
-                <executions>
-                    <execution>
-                        <id>build-native</id>
-                        <goals>
-                            <goal>compile-no-fork</goal>
-                        </goals>
-                        <phase>package</phase>
-                    </execution>
-                </executions>
-                <configuration>
-                    <imageName>jvm-mcp</imageName>
-                    <mainClass>dev.jvmmcp.JvmMcp</mainClass>
-                    <buildArgs>
-                        <arg>--no-fallback</arg>
-                        <arg>-H:+ReportExceptionStackTraces</arg>
-                    </buildArgs>
-                </configuration>
-            </plugin>
-        </plugins>
-    </build>
+        <profiles>
+        <profile>
+            <id>native</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.graalvm.buildtools</groupId>
+                        <artifactId>native-maven-plugin</artifactId>
+                        <version>0.10.2</version>
+                        <extensions>true</extensions>
+                        <executions>
+                            <execution>
+                                <id>build-native</id>
+                                <goals>
+                                    <goal>compile-no-fork</goal>
+                                </goals>
+                                <phase>package</phase>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <imageName>jvm-mcp</imageName>
+                            <mainClass>dev.jvmmcp.JvmMcp</mainClass>
+                            <buildArgs>
+                                <arg>--no-fallback</arg>
+                                <arg>-H:+ReportExceptionStackTraces</arg>
+                            </buildArgs>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
+
 
 
