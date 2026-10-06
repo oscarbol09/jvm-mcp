@@ -19,6 +19,15 @@
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Agent jar bundled at build time by the copy-agent-jar execution below; declared
+             so the Maven reactor builds it before this module (e.g. with mvn -T or -pl ... -am) -->
+        <dependency>
+            <groupId>dev.jvmmcp</groupId>
+            <artifactId>jvm-mcp-agent</artifactId>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
         <!-- Picocli for CLI -->
         <dependency>
             <groupId>info.picocli</groupId>
