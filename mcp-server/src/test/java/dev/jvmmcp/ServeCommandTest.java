@@ -140,7 +140,13 @@ class ServeCommandTest {
         ServeCommand command = new ServeCommand();
         command.transport = "stdio";
 
-        Integer exitCode = command.call();
-        assertThat(exitCode).isZero();
+        java.io.InputStream originalIn = System.in;
+        try {
+            System.setIn(new java.io.ByteArrayInputStream(new byte[0]));
+            Integer exitCode = command.call();
+            assertThat(exitCode).isZero();
+        } finally {
+            System.setIn(originalIn);
+        }
     }
 }
