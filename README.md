@@ -65,6 +65,33 @@ Distributed as a standalone native binary starting in `< 15ms`. No Node.js runti
 
 ---
 
+## Quickstart
+
+Configure your AI assistant to run the JVM-MCP server.
+
+### Claude Desktop
+Add the following to your claude_desktop_config.json:
+`json
+{
+  "mcpServers": {
+    "jvm-mcp": {
+      "command": "java",
+      "args": ["-jar", "/path/to/jvm-mcp-server.jar", "serve"]
+    }
+  }
+}
+`
+
+### Cursor
+1. Go to **Settings > Features > MCP**.
+2. Click **+ Add New MCP Server**.
+3. Name: jvm-mcp
+4. Type: command
+5. Command: java -jar /path/to/jvm-mcp-server.jar serve
+
+Once configured, ask your AI: *"What Java processes are running?"* or *"Analyze the memory of PID <number>"*.
+
+---
 ## Exposed Tools
 
 Once attached, the LLM gains real-time diagnostic visibility:
@@ -107,3 +134,4 @@ JVM-MCP is an open-source project welcoming community contributions. Review our 
 This project is licensed under the terms of the **MIT License**. See the [`LICENSE`](LICENSE) file for details.
 
 Copyright (c) 2026 oscarbol09 / JVM-MCP Contributors.
+
