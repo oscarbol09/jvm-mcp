@@ -59,6 +59,9 @@ class ModelCoverageTest {
         assertThat(FrameworkDetector.detect("quarkus-app.jar", "io.quarkus.runner.Main")).isEqualTo(Framework.QUARKUS);
         assertThat(FrameworkDetector.detect("micronaut-app", "io.micronaut.Application")).isEqualTo(Framework.MICRONAUT);
         assertThat(FrameworkDetector.detect("java -jar plain.jar", "com.example.App")).isEqualTo(Framework.PLAIN_JAVA);
+
+        assertThat(Framework.values()).contains(Framework.SPRING_BOOT, Framework.QUARKUS, Framework.MICRONAUT, Framework.PLAIN_JAVA, Framework.UNKNOWN);
+        assertThat(Framework.valueOf("SPRING_BOOT")).isEqualTo(Framework.SPRING_BOOT);
     }
 
     @Test
@@ -76,6 +79,10 @@ class ModelCoverageTest {
         MemoryUsage undefinedMax = new MemoryUsage(100, 25 * 1024 * 1024, 50 * 1024 * 1024, -1);
         MemoryUsageInfo undefinedInfo = MemoryUsageInfo.from(undefinedMax);
         assertThat(undefinedInfo.usedPercent()).isEqualTo(50.0);
+
+        MemoryUsage zeroMaxAndCommitted = new MemoryUsage(0, 0, 0, 0);
+        MemoryUsageInfo zeroInfo = MemoryUsageInfo.from(zeroMaxAndCommitted);
+        assertThat(zeroInfo.usedPercent()).isZero();
     }
 
     @Test

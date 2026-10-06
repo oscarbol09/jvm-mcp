@@ -7,7 +7,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import javax.management.MBeanServerConnection;
+import javax.management.remote.JMXConnector;
 import java.io.IOException;
+import java.lang.reflect.Constructor;
 import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -52,6 +55,57 @@ class JmxConnectionManagerTest {
     }
 
     @Test
+    @DisplayName("resolveConnectorAddress returns existing agent property address")
+    void shouldResolveAddressFromExistingAgentProperties() throws IOException {
+        Properties agentProps = new Properties();
+        agentProps.setProperty("com.sun.management.jmxremote.localConnectorAddress", "service:jmx:rmi:///jndi/rmi://localhost:9999/jmxrmi");
+        when(virtualMachine.getAgentProperties()).thenReturn(agentProps);
+
+        String address = JmxConnectionManager.resolveConnectorAddress(virtualMachine);
+        assertThat(address).isEqualTo("service:jmx:rmi:///jndi/rmi://localhost:9999/jmxrmi");
+    }
+
+    @Test
+    @DisplayName("resolveConnectorAddress starts local management agent when not running")
+    void shouldStartLocalManagementAgent() throws Exception {
+        Properties emptyProps = new Properties();
+        when(virtualMachine.getAgentProperties()).thenReturn(emptyProps);
+        when(virtualMachine.startLocalManagementAgent()).thenReturn("service:jmx:rmi:///jndi/rmi://localhost:8888/jmxrmi");
+
+        String address = JmxConnectionManager.resolveConnectorAddress(virtualMachine);
+        assertThat(address).isEqualTo("service:jmx:rmi:///jndi/rmi://localhost:8888/jmxrmi");
+    }
+
+    @Test
+    @DisplayName("resolveConnectorAddress falls back to re-checking properties after agent start fails")
+    void shouldHandleStartAgentExceptionAndRecheckProps() throws Exception {
+        Properties initialProps = new Properties();
+        Properties updatedProps = new Properties();
+        updatedProps.setProperty("com.sun.management.jmxremote.localConnectorAddress", "service:jmx:rmi:///jndi/rmi://localhost:7777/jmxrmi");
+
+        when(virtualMachine.getAgentProperties()).thenReturn(initialProps, updatedProps);
+        when(virtualMachine.startLocalManagementAgent()).thenThrow(new IOException("Agent start failed"));
+
+        String address = JmxConnectionManager.resolveConnectorAddress(virtualMachine);
+        assertThat(address).isEqualTo("service:jmx:rmi:///jndi/rmi://localhost:7777/jmxrmi");
+    }
+
+    @Test
+    @DisplayName("resolveConnectorAddress returns null when agent jar and connector address missing")
+    void shouldReturnNullWhenConnectorAddressMissing() throws Exception {
+        Properties emptyProps = new Properties();
+        Properties sysProps = new Properties();
+        sysProps.setProperty("java.home", System.getProperty("java.home"));
+
+        when(virtualMachine.getAgentProperties()).thenReturn(emptyProps);
+        when(virtualMachine.getSystemProperties()).thenReturn(sysProps);
+        when(virtualMachine.startLocalManagementAgent()).thenReturn(null);
+
+        String address = JmxConnectionManager.resolveConnectorAddress(virtualMachine);
+        assertThat(address).isNull();
+    }
+
+    @Test
     @DisplayName("connect throws IOException when local connector address cannot be resolved")
     void shouldThrowWhenConnectorAddressCannotBeResolved() throws Exception {
         long otherPid = 999999L;
@@ -71,15 +125,15 @@ class JmxConnectionManagerTest {
     @Test
     @DisplayName("close safely detaches VirtualMachine and closes connector suppressing IOExceptions")
     void shouldSafelyDetachOnClose() throws Exception {
-        java.lang.reflect.Constructor<JmxConnectionManager> ctor = JmxConnectionManager.class.getDeclaredConstructor(
-            long.class, VirtualMachine.class, javax.management.remote.JMXConnector.class, javax.management.MBeanServerConnection.class
+        Constructor<JmxConnectionManager> ctor = JmxConnectionManager.class.getDeclaredConstructor(
+            long.class, VirtualMachine.class, JMXConnector.class, MBeanServerConnection.class
         );
         ctor.setAccessible(true);
-        javax.management.remote.JMXConnector mockConnector = mock(javax.management.remote.JMXConnector.class);
+        JMXConnector mockConnector = mock(JMXConnector.class);
         doThrow(new IOException("Close failure")).when(mockConnector).close();
         doThrow(new IOException("Detach failure")).when(virtualMachine).detach();
 
-        JmxConnectionManager manager = ctor.newInstance(123L, virtualMachine, mockConnector, mock(javax.management.MBeanServerConnection.class));
-        manager.close(); // Verifies both exceptions are caught and suppressed cleanly
+        JmxConnectionManager manager = ctor.newInstance(123L, virtualMachine, mockConnector, mock(MBeanServerConnection.class));
+        manager.close();
     }
 }

@@ -57,13 +57,19 @@ public class JvmAttachService {
         try {
             VirtualMachine vm = VirtualMachine.attach(pid);
             return AttachResult.success(pid, vm);
-        } catch (AttachNotSupportedException e) {
+        } catch (Exception e) {
+            return mapAttachException(pid, e);
+        }
+    }
+
+    AttachResult mapAttachException(String pid, Exception e) {
+        if (e instanceof AttachNotSupportedException) {
             String msg = e.getMessage() != null ? e.getMessage() : "";
             if (msg.toLowerCase().contains("different") || msg.toLowerCase().contains("namespace")) {
                 return AttachResult.unsupportedNamespace(pid, msg);
             }
             return AttachResult.error(pid, "Attach not supported for PID " + pid + ": " + msg);
-        } catch (IOException e) {
+        } else if (e instanceof IOException) {
             String msg = e.getMessage() != null ? e.getMessage() : "";
             String lower = msg.toLowerCase();
             if (lower.contains("permission denied") || lower.contains("access denied")) {
@@ -73,8 +79,8 @@ public class JvmAttachService {
                 return AttachResult.processNotFound(pid);
             }
             return AttachResult.error(pid, "I/O failure attaching to PID " + pid + ": " + msg);
-        } catch (Exception e) {
-            return AttachResult.error(pid, "Unexpected error attaching to PID " + pid + ": " + e.getMessage());
+        } else {
+            return AttachResult.error(pid, "Unexpected error attaching to PID " + pid + ": " + (e != null ? e.getMessage() : ""));
         }
     }
 

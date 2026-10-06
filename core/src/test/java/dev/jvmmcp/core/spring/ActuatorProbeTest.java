@@ -14,7 +14,6 @@ import javax.net.ssl.SSLEngine;
 import javax.net.ssl.X509ExtendedTrustManager;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.http.HttpClient;
@@ -92,6 +91,17 @@ class ActuatorProbeTest {
     }
 
     @Test
+    @DisplayName("probe handles getSystemProperties throwing exception gracefully")
+    void shouldHandleVmPropertiesException() throws Exception {
+        when(virtualMachine.getSystemProperties()).thenThrow(new IOException("Attach read failure"));
+
+        ActuatorProbe probe = new ActuatorProbe();
+        Optional<ActuatorProbe.ProbeResult> result = probe.probe(virtualMachine);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
     @DisplayName("probe returns empty when target endpoints do not contain beans")
     void shouldReturnEmptyWhenNoBeansPayloadFound() throws Exception {
         server.createContext("/actuator/beans", exchange -> {
@@ -139,7 +149,6 @@ class ActuatorProbeTest {
     @DisplayName("fetchFromUrl returns empty for unreachable URL")
     void shouldHandleUnreachableUrlInFetch() {
         ActuatorProbe probe = new ActuatorProbe();
-        // Reserved unroutable IP (RFC 5737 TEST-NET-1) or invalid local port with immediate failure
         Optional<String> result = probe.fetchFromUrl("http://127.0.0.1:1");
         assertThat(result).isEmpty();
     }
@@ -151,7 +160,6 @@ class ActuatorProbeTest {
         ActuatorProbe probe = new ActuatorProbe(auth);
         assertThat(probe).isNotNull();
 
-        // Exercise TrustAllManager methods directly via reflection
         Class<?> trustAllClass = Class.forName("dev.jvmmcp.core.spring.ActuatorProbe$TrustAllManager");
         Constructor<?> ctor = trustAllClass.getDeclaredConstructor();
         ctor.setAccessible(true);
@@ -177,5 +185,21 @@ class ActuatorProbeTest {
         assertThat(probe1).isNotNull();
         assertThat(probe2).isNotNull();
         assertThat(probe3).isNotNull();
+    }
+
+    @Test
+    @DisplayName("ActuatorAuth accessors and credential state")
+    void shouldVerifyActuatorAuthProperties() {
+        ActuatorAuth basic = ActuatorAuth.basic("admin", "pass", true);
+        assertThat(basic.hasCredentials()).isTrue();
+        assertThat(basic.insecure()).isTrue();
+
+        ActuatorAuth bearer = ActuatorAuth.bearer("jwt-token", true);
+        assertThat(bearer.hasCredentials()).isTrue();
+        assertThat(bearer.insecure()).isTrue();
+
+        ActuatorAuth none = ActuatorAuth.NONE;
+        assertThat(none.hasCredentials()).isFalse();
+        assertThat(none.insecure()).isFalse();
     }
 }

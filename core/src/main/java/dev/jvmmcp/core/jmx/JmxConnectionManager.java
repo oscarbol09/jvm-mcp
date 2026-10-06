@@ -56,7 +56,7 @@ public class JmxConnectionManager implements AutoCloseable {
         return new JmxConnectionManager(pid, vm, connector, connection);
     }
 
-    private static String resolveConnectorAddress(VirtualMachine vm) throws IOException {
+    static String resolveConnectorAddress(VirtualMachine vm) throws IOException {
         Properties agentProps = vm.getAgentProperties();
         String connectorAddress = agentProps.getProperty("com.sun.management.jmxremote.localConnectorAddress");
 

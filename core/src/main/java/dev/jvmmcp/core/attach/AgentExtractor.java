@@ -16,17 +16,19 @@ public class AgentExtractor {
     private static final String AGENT_RESOURCE_PATH = "/agent/jvm-mcp-agent.jar";
 
     public Path extractAgentJar() throws IOException {
-        Path cacheDir = resolveCacheDir();
-        Files.createDirectories(cacheDir);
+        return extractAgentJar(resolveCacheDir(), AGENT_RESOURCE_PATH);
+    }
 
+    Path extractAgentJar(Path cacheDir, String resourcePath) throws IOException {
+        Files.createDirectories(cacheDir);
         Path targetPath = cacheDir.resolve("jvm-mcp-agent.jar");
 
-        try (InputStream in = getClass().getResourceAsStream(AGENT_RESOURCE_PATH)) {
+        try (InputStream in = getClass().getResourceAsStream(resourcePath)) {
             if (in == null) {
                 if (Files.exists(targetPath)) {
                     return targetPath;
                 }
-                throw new IOException("Embedded agent resource not found at " + AGENT_RESOURCE_PATH);
+                throw new IOException("Embedded agent resource not found at " + resourcePath);
             }
 
             byte[] resourceBytes = in.readAllBytes();
@@ -45,15 +47,18 @@ public class AgentExtractor {
     }
 
     public Path resolveCacheDir() {
-        String os = System.getProperty("os.name", "").toLowerCase();
+        return resolveCacheDir(System.getProperty("os.name", ""), System.getenv("LOCALAPPDATA"), System.getProperty("user.home", ""));
+    }
+
+    Path resolveCacheDir(String osName, String localAppData, String userHome) {
+        String os = osName != null ? osName.toLowerCase() : "";
         if (os.contains("win")) {
-            String localAppData = System.getenv("LOCALAPPDATA");
             if (localAppData != null && !localAppData.isBlank()) {
                 return Path.of(localAppData, "jvm-mcp");
             }
-            return Path.of(System.getProperty("user.home"), ".jvm-mcp");
+            return Path.of(userHome != null ? userHome : "", ".jvm-mcp");
         }
-        return Path.of(System.getProperty("user.home"), ".cache", "jvm-mcp");
+        return Path.of(userHome != null ? userHome : "", ".cache", "jvm-mcp");
     }
 
     public String calculateChecksum(byte[] data) {

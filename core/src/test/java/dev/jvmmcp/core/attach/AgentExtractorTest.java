@@ -65,12 +65,37 @@ class AgentExtractorTest {
     }
 
     @Test
-    @DisplayName("resolveCacheDir returns valid non-empty path across OS environments")
-    void shouldResolveValidCacheDir() {
-        Path cacheDir = agentExtractor.resolveCacheDir();
+    @DisplayName("extractAgentJar handles missing resource stream gracefully")
+    void shouldHandleMissingResourceStream(@TempDir Path tempCache) throws IOException {
+        // When resource is missing but target file already exists in cache
+        Path existingTarget = tempCache.resolve("jvm-mcp-agent.jar");
+        Files.writeString(existingTarget, "pre-existing-agent");
 
-        assertThat(cacheDir).isNotNull();
-        assertThat(cacheDir.toString()).contains("jvm-mcp");
+        Path returned = agentExtractor.extractAgentJar(tempCache, "/nonexistent/path.jar");
+        assertThat(returned).isEqualTo(existingTarget);
+
+        // When resource is missing and target file does not exist
+        Files.delete(existingTarget);
+        assertThatThrownBy(() -> agentExtractor.extractAgentJar(tempCache, "/nonexistent/path.jar"))
+            .isInstanceOf(IOException.class)
+            .hasMessageContaining("Embedded agent resource not found");
+    }
+
+    @Test
+    @DisplayName("resolveCacheDir resolves paths accurately across Windows and Unix platforms")
+    void shouldResolveCacheDirAcrossPlatforms() {
+        Path winWithAppData = agentExtractor.resolveCacheDir("Windows 11", "C:\\AppData", "C:\\Users\\test");
+        assertThat(winWithAppData).isEqualTo(Path.of("C:\\AppData", "jvm-mcp"));
+
+        Path winWithoutAppData = agentExtractor.resolveCacheDir("Windows 10", null, "C:\\Users\\test");
+        assertThat(winWithoutAppData).isEqualTo(Path.of("C:\\Users\\test", ".jvm-mcp"));
+
+        Path unixPath = agentExtractor.resolveCacheDir("Linux", null, "/home/test");
+        assertThat(unixPath).isEqualTo(Path.of("/home/test", ".cache", "jvm-mcp"));
+
+        Path current = agentExtractor.resolveCacheDir();
+        assertThat(current).isNotNull();
+        assertThat(current.toString()).contains("jvm-mcp");
     }
 
     @Test

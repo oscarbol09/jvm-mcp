@@ -119,6 +119,41 @@ class HikariMXBeanClientTest {
     }
 
     @Test
+    @DisplayName("readPool wraps attribute read exceptions into IOException")
+    void shouldWrapReadPoolExceptions() throws Exception {
+        ObjectName poolName = new ObjectName("com.zaxxer.hikari:type=Pool (FailingPool)");
+        when(mockMbsc.getAttribute(poolName, "ActiveConnections")).thenThrow(new RuntimeException("Attr read failure"));
+
+        HikariMXBeanClient client = new HikariMXBeanClient(mockMbsc);
+
+        assertThatThrownBy(() -> client.readPool(poolName))
+            .isInstanceOf(IOException.class)
+            .hasMessageContaining("Failed to read HikariCP pool");
+    }
+
+    @Test
+    @DisplayName("getMaximumPoolSize wraps attribute read exceptions into IOException")
+    void shouldWrapGetMaximumPoolSizeExceptions() throws Exception {
+        ObjectName configName = new ObjectName("com.zaxxer.hikari:type=PoolConfig (FailingPool)");
+        when(mockMbsc.getAttribute(configName, "MaximumPoolSize")).thenThrow(new RuntimeException("Config read failure"));
+
+        HikariMXBeanClient client = new HikariMXBeanClient(mockMbsc);
+
+        assertThatThrownBy(() -> client.getMaximumPoolSize("FailingPool"))
+            .isInstanceOf(IOException.class)
+            .hasMessageContaining("Failed to read maximum pool size");
+    }
+
+    @Test
+    @DisplayName("extractPoolName strips prefix/suffix or returns raw name when not formatted")
+    void shouldExtractPoolNames() throws Exception {
+        assertThat(hikariClient.extractPoolName(new ObjectName("com.zaxxer.hikari:type=Pool (Custom)")))
+            .isEqualTo("Custom");
+        assertThat(hikariClient.extractPoolName(new ObjectName("com.zaxxer.hikari:type=OtherPool")))
+            .isEqualTo("com.zaxxer.hikari:type=OtherPool");
+    }
+
+    @Test
     @DisplayName("readPool handles custom pool names and zero maximumPoolSize")
     void shouldHandleCustomObjectNamesAndZeroPoolSize() throws Exception {
         ObjectName customName = new ObjectName("com.zaxxer.hikari:type=Pool (CustomPool)");

@@ -40,68 +40,69 @@ public class HikariMXBeanClient {
                     throw new IOException("Failed to query HikariCP MBeans", e);
                 }
             }
-            private HikariPoolStatistics readPool(ObjectName poolName) throws IOException {
-                try {
-                    int active = (Integer) mbsc.getAttribute(poolName, "ActiveConnections");
-                    int idle = (Integer) mbsc.getAttribute(poolName, "IdleConnections");
-                    int total = (Integer) mbsc.getAttribute(poolName, "TotalConnections");
-                    int waiting = (Integer) mbsc.getAttribute(poolName, "ThreadsAwaitingConnection");
+    HikariPoolStatistics readPool(ObjectName poolName) throws IOException {
+        try {
+            int active = (Integer) mbsc.getAttribute(poolName, "ActiveConnections");
+            int idle = (Integer) mbsc.getAttribute(poolName, "IdleConnections");
+            int total = (Integer) mbsc.getAttribute(poolName, "TotalConnections");
+            int waiting = (Integer) mbsc.getAttribute(poolName, "ThreadsAwaitingConnection");
 
-                    String poolNameValue = extractPoolName(poolName);
+            String poolNameValue = extractPoolName(poolName);
 
-                    int maximumPoolSize = getMaximumPoolSize(poolNameValue);
+            int maximumPoolSize = getMaximumPoolSize(poolNameValue);
 
-                    double saturation = maximumPoolSize > 0
-                        ? (double) active / maximumPoolSize
-                        : 0.0;
+            double saturation = maximumPoolSize > 0
+                ? (double) active / maximumPoolSize
+                : 0.0;
 
-                    return new HikariPoolStatistics(
-                        poolNameValue,
-                        active,
-                        idle,
-                        total,
-                        waiting,
-                        maximumPoolSize,
-                        saturation
-                    );
-                } catch (Exception e) {
-                    throw new IOException(
-                        "Failed to read HikariCP pool: " + poolName,
-                        e
-                    );
-                }
-            }
+            return new HikariPoolStatistics(
+                poolNameValue,
+                active,
+                idle,
+                total,
+                waiting,
+                maximumPoolSize,
+                saturation
+            );
+        } catch (Exception e) {
+            throw new IOException(
+                "Failed to read HikariCP pool: " + poolName,
+                e
+            );
+        }
+    }
 
-            private int getMaximumPoolSize(String poolName) throws IOException {
-                try {
-                    ObjectName configName = new ObjectName(
-                      HIKARI_POOL_DOMAIN + ":type=PoolConfig (" + poolName + ")"
-                    );
+    int getMaximumPoolSize(String poolName) throws IOException {
+        try {
+            ObjectName configName = new ObjectName(
+              HIKARI_POOL_DOMAIN + ":type=PoolConfig (" + poolName + ")"
+            );
 
-                    return (Integer) mbsc.getAttribute(
-                        configName,
-                        "MaximumPoolSize"
-                    );
-                } catch (Exception e) {
-                    throw new IOException(
-                        "Failed to read maximum pool size for HikariCP pool: " + poolName,
-                        e
-                    );
-                }
-            }
-            private String extractPoolName(ObjectName objectName) {
-                String value = objectName.toString();
+            return (Integer) mbsc.getAttribute(
+                configName,
+                "MaximumPoolSize"
+            );
+        } catch (Exception e) {
+            throw new IOException(
+                "Failed to read maximum pool size for HikariCP pool: " + poolName,
+                e
+            );
+        }
+    }
 
-                String prefix = HIKARI_POOL_DOMAIN + ":type=Pool (";
+    String extractPoolName(ObjectName objectName) {
+        String value = objectName.toString();
 
-                if (value.startsWith(prefix) && value.endsWith(")")) {
-                    return value.substring(
-                        prefix.length(),
-                        value.length() - 1
-                    );
-                }
+        String prefix = HIKARI_POOL_DOMAIN + ":type=Pool (";
 
-            return value;
-            }
+        if (value.startsWith(prefix) && value.endsWith(")")) {
+            return value.substring(
+                prefix.length(),
+                value.length() - 1
+            );
+        }
+
+        return value;
+    }
 
 }

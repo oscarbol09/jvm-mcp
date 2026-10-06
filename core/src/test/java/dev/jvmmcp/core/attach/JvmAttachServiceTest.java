@@ -1,5 +1,6 @@
 package dev.jvmmcp.core.attach;
 
+import com.sun.tools.attach.AttachNotSupportedException;
 import com.sun.tools.attach.VirtualMachine;
 import dev.jvmmcp.core.model.JvmProcess;
 import org.junit.jupiter.api.BeforeEach;
@@ -70,15 +71,37 @@ class JvmAttachServiceTest {
     }
 
     @Test
+    @DisplayName("mapAttachException categorizes all Attach and IO error subtypes")
+    void shouldMapAllAttachExceptions() {
+        AttachResult nsResult = attachService.mapAttachException("100", new AttachNotSupportedException("Different container namespace"));
+        assertThat(nsResult.status()).isEqualTo(AttachStatus.UNSUPPORTED_NAMESPACE);
+
+        AttachResult genAttachResult = attachService.mapAttachException("101", new AttachNotSupportedException("Target JVM refuses connection"));
+        assertThat(genAttachResult.status()).isEqualTo(AttachStatus.GENERIC_ERROR);
+
+        AttachResult permResult = attachService.mapAttachException("102", new IOException("Permission denied"));
+        assertThat(permResult.status()).isEqualTo(AttachStatus.PERMISSION_DENIED);
+
+        AttachResult notFoundResult = attachService.mapAttachException("103", new IOException("No such process"));
+        assertThat(notFoundResult.status()).isEqualTo(AttachStatus.PROCESS_NOT_FOUND);
+
+        AttachResult ioResult = attachService.mapAttachException("104", new IOException("Broken pipe"));
+        assertThat(ioResult.status()).isEqualTo(AttachStatus.GENERIC_ERROR);
+
+        AttachResult unexpectedResult = attachService.mapAttachException("105", new RuntimeException("Unexpected panic"));
+        assertThat(unexpectedResult.status()).isEqualTo(AttachStatus.GENERIC_ERROR);
+    }
+
+    @Test
     @DisplayName("detach handles null and suppresses IOExceptions gracefully")
     void shouldHandleDetachGracefully() throws Exception {
-        attachService.detach(null); // No error
+        attachService.detach(null);
 
         attachService.detach(mockVm);
         verify(mockVm).detach();
 
         doThrow(new IOException("Detach failure")).when(mockVm).detach();
-        attachService.detach(mockVm); // Handled silently without throwing
+        attachService.detach(mockVm);
     }
 
     @Test
