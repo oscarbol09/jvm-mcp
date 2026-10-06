@@ -21,6 +21,8 @@ class ListCommandTest {
         int exitCode = cmd.execute("list");
 
         assertThat(exitCode).isZero();
+        String output = out.toString();
+        assertThat(output).isNotEmpty();
     }
 
     @Test
@@ -33,5 +35,27 @@ class ListCommandTest {
 
         assertThat(psExit).isZero();
         assertThat(lsExit).isZero();
+    }
+
+    @Test
+    @DisplayName("Direct invocation of ListCommand call should return exit code 0")
+    void shouldCallDirectly() {
+        ListCommand command = new ListCommand();
+        Integer exitCode = command.call();
+
+        assertThat(exitCode).isZero();
+    }
+
+    @Test
+    @DisplayName("list command with --help should display options and return exit code 0")
+    void shouldDisplayHelp() {
+        StringWriter out = new StringWriter();
+        CommandLine cmd = new CommandLine(new JvmMcp());
+        cmd.setOut(new PrintWriter(out));
+
+        int exitCode = cmd.execute("list", "--help");
+
+        assertThat(exitCode).isZero();
+        assertThat(out.toString()).contains("Lists all running Java Virtual Machines");
     }
 }

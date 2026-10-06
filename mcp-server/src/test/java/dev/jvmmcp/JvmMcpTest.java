@@ -44,6 +44,14 @@ class JvmMcpTest {
     }
 
     @Test
+    @DisplayName("Calling root command directly displays usage and returns 0")
+    void shouldCallRootCommandDirectly() {
+        JvmMcp root = new JvmMcp();
+        Integer exitCode = root.call();
+        assertThat(exitCode).isZero();
+    }
+
+    @Test
     @DisplayName("Invoking with invalid subcommand should return error exit code 2")
     void shouldReturnErrorOnInvalidSubcommand() {
         CommandLine cmd = new CommandLine(new JvmMcp());
