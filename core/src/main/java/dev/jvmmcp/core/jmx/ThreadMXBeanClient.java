@@ -14,7 +14,9 @@ import java.util.stream.Collectors;
 /**
  * Diagnostic client querying JVM Threading MXBean for thread dumps, deadlock detection, and lock contention analysis.
  */
-public class ThreadMXBeanClient {
+import dev.jvmmcp.core.port.ThreadDiagnosticPort;
+
+public class ThreadMXBeanClient implements ThreadDiagnosticPort {
 
     private final MBeanServerConnection mbsc;
 
@@ -178,3 +180,4 @@ public class ThreadMXBeanClient {
         return blockedList;
     }
 }
+

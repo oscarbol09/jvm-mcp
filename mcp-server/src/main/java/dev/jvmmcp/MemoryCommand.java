@@ -32,9 +32,11 @@ public class MemoryCommand implements Callable<Integer> {
     @Option(names = {"--top", "-n"}, defaultValue = "20", description = "Number of top classes in histogram (default: 20)")
     int topN;
 
-    JvmAttachService attachService = new JvmAttachService();
+    private final JvmAttachService attachService;
 
-    public MemoryCommand() {}
+    public MemoryCommand() {
+        this.attachService = new JvmAttachService();
+    }
 
     public MemoryCommand(JvmAttachService attachService) {
         this.attachService = attachService;

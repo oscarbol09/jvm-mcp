@@ -4,12 +4,13 @@ import dev.jvmmcp.core.model.HikariPoolStatistics;
 
 import javax.management.MBeanServerConnection;
 import javax.management.ObjectName;
+import dev.jvmmcp.core.port.HikariDiagnosticPort;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
-public class HikariMXBeanClient {
+public class HikariMXBeanClient implements HikariDiagnosticPort {
 
     private static final String HIKARI_POOL_DOMAIN = "com.zaxxer.hikari";
 
@@ -22,24 +23,24 @@ public class HikariMXBeanClient {
         this.mbsc = mbsc;
     }
 
-            public List<HikariPoolStatistics> getPools() throws IOException {
-                try {
-                    Set<ObjectName> poolNames = mbsc.queryNames(
-                        new ObjectName(HIKARI_POOL_DOMAIN + ":type=Pool (*)"),
-                        null
-                    );
+    public List<HikariPoolStatistics> getPools() throws IOException {
+        try {
+            Set<ObjectName> poolNames = mbsc.queryNames(
+                new ObjectName(HIKARI_POOL_DOMAIN + ":type=Pool (*)"),
+                null
+            );
 
-                    List<HikariPoolStatistics> pools = new ArrayList<>();
+            List<HikariPoolStatistics> pools = new ArrayList<>();
 
-                    for (ObjectName poolName : poolNames) {
-                        pools.add(readPool(poolName));
-                    }
-
-                    return pools;
-                } catch (Exception e) {
-                    throw new IOException("Failed to query HikariCP MBeans", e);
-                }
+            for (ObjectName poolName : poolNames) {
+                pools.add(readPool(poolName));
             }
+
+            return pools;
+        } catch (Exception e) {
+            throw new IOException("Failed to query HikariCP MBeans", e);
+        }
+    }
     HikariPoolStatistics readPool(ObjectName poolName) throws IOException {
         try {
             int active = (Integer) mbsc.getAttribute(poolName, "ActiveConnections");

@@ -11,7 +11,9 @@ import java.util.List;
 /**
  * Diagnostic client querying JVM Memory and Garbage Collector MXBeans via JMX.
  */
-public class MemoryMXBeanClient {
+import dev.jvmmcp.core.port.MemoryDiagnosticPort;
+
+public class MemoryMXBeanClient implements MemoryDiagnosticPort {
 
     private final MBeanServerConnection mbsc;
 
@@ -99,3 +101,4 @@ public class MemoryMXBeanClient {
         return new MemoryPressure(level, Math.round(ratio * 100.0) / 100.0, totalGcTime, totalGcCount, recommendation);
     }
 }
+

@@ -32,9 +32,11 @@ public class ThreadsCommand implements Callable<Integer> {
     @Option(names = {"--blocked", "-b"}, description = "List only blocked threads")
     boolean blockedOnly;
 
-    JvmAttachService attachService = new JvmAttachService();
+    private final JvmAttachService attachService;
 
-    public ThreadsCommand() {}
+    public ThreadsCommand() {
+        this.attachService = new JvmAttachService();
+    }
 
     public ThreadsCommand(JvmAttachService attachService) {
         this.attachService = attachService;
