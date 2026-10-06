@@ -16,6 +16,15 @@ public record AttachResult(
         return new AttachResult(AttachStatus.SUCCESS, pid, "Attached successfully to PID " + pid, Optional.ofNullable(vm));
     }
 
+    public static AttachResult self(String pid) {
+        return new AttachResult(
+            AttachStatus.SUCCESS,
+            pid,
+            "PID " + pid + " is the current process; using local self-inspection instead of attaching.",
+            Optional.empty()
+        );
+    }
+
     public static AttachResult processNotFound(String pid) {
         return new AttachResult(
             AttachStatus.PROCESS_NOT_FOUND,

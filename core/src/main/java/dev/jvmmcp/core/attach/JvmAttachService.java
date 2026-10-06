@@ -55,6 +55,17 @@ public class JvmAttachService {
         }
 
         try {
+            long requestedPid = Long.parseLong(pid);
+            if (requestedPid == ProcessHandle.current().pid()) {
+                // Self-attachment is blocked by default on modern JDKs (jdk.attach.allowAttachSelf=false),
+                // so self-inspection must not go through the Attach API.
+                return AttachResult.self(pid);
+            }
+        } catch (NumberFormatException ignored) {
+            // Fall through to the Attach API, which produces a structured error for invalid PIDs.
+        }
+
+        try {
             VirtualMachine vm = VirtualMachine.attach(pid);
             return AttachResult.success(pid, vm);
         } catch (Exception e) {
