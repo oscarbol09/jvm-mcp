@@ -59,26 +59,27 @@ public class ThreadsCommand implements Callable<Integer> {
                     ? JmxConnectionManager.connect(attachResult.virtualMachine().get(), pid) 
                     : JmxConnectionManager.connectLocal()) {
 
-            ThreadMXBeanClient client = new ThreadMXBeanClient(jmxManager.getMBeanServerConnection());
+                ThreadMXBeanClient client = new ThreadMXBeanClient(jmxManager.getMBeanServerConnection());
 
-            if (deadlocksOnly) {
+                if (deadlocksOnly) {
+                    printDeadlocks(client);
+                    return 0;
+                }
+
+                if (blockedOnly) {
+                    printBlockedThreads(client);
+                    return 0;
+                }
+
+                if (dump) {
+                    printThreadDump(client);
+                    return 0;
+                }
+
+                printThreadSummary(client);
                 printDeadlocks(client);
                 return 0;
             }
-
-            if (blockedOnly) {
-                printBlockedThreads(client);
-                return 0;
-            }
-
-            if (dump) {
-                printThreadDump(client);
-                return 0;
-            }
-
-            printThreadSummary(client);
-            printDeadlocks(client);
-            return 0;
 
         } catch (Exception e) {
             System.err.println("[jvm-mcp] Error querying thread metrics: " + e.getMessage());
