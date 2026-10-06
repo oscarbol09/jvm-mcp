@@ -72,7 +72,7 @@ class ServeCommandTest {
         java.io.InputStream originalIn = ServeCommand.testInStream;
         try {
             System.setErr(new PrintStream(err));
-            ServeCommand.testInStream = new java.io.ByteArrayInputStream(new byte[0]);
+            ServeCommand.exitImmediatelyForTest = true;
             CommandLine cmd = new CommandLine(new JvmMcp());
             int exitCode = cmd.execute("serve", "--transport", "stdio");
 
@@ -80,7 +80,7 @@ class ServeCommandTest {
             assertThat(err.toString()).contains("Starting server via transport: stdio");
         } finally {
             System.setErr(originalErr);
-            ServeCommand.testInStream = originalIn;
+            ServeCommand.exitImmediatelyForTest = false;
         }
     }
 
@@ -99,7 +99,7 @@ class ServeCommandTest {
         java.io.InputStream originalIn = ServeCommand.testInStream;
         try {
             System.setErr(new PrintStream(err));
-            ServeCommand.testInStream = new java.io.ByteArrayInputStream(new byte[0]);
+            ServeCommand.exitImmediatelyForTest = true;
             Integer exitCode = command.call();
 
             assertThat(exitCode).isZero();
@@ -107,7 +107,7 @@ class ServeCommandTest {
             assertThat(err.toString()).contains("Starting server via transport: stdio");
         } finally {
             System.setErr(originalErr);
-            ServeCommand.testInStream = originalIn;
+            ServeCommand.exitImmediatelyForTest = false;
         }
     }
 
@@ -142,12 +142,13 @@ class ServeCommandTest {
 
         java.io.InputStream originalIn = ServeCommand.testInStream;
         try {
-            ServeCommand.testInStream = new java.io.ByteArrayInputStream(new byte[0]);
+            ServeCommand.exitImmediatelyForTest = true;
             Integer exitCode = command.call();
             assertThat(exitCode).isZero();
         } finally {
-            ServeCommand.testInStream = originalIn;
+            ServeCommand.exitImmediatelyForTest = false;
         }
     }
 }
+
 
