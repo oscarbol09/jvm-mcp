@@ -72,7 +72,7 @@ class ServeCommandTest {
         java.io.InputStream originalIn = ServeCommand.testInStream;
         try {
             System.setErr(new PrintStream(err));
-            ServeCommand.testInStream = new java.io.ByteArrayInputStream(new byte[0]);
+            ServeCommand.testInStream = new java.io.ByteArrayInputStream("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
             CommandLine cmd = new CommandLine(new JvmMcp());
             int exitCode = cmd.execute("serve", "--transport", "stdio");
 
@@ -99,7 +99,7 @@ class ServeCommandTest {
         java.io.InputStream originalIn = ServeCommand.testInStream;
         try {
             System.setErr(new PrintStream(err));
-            ServeCommand.testInStream = new java.io.ByteArrayInputStream(new byte[0]);
+            ServeCommand.testInStream = new java.io.ByteArrayInputStream("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
             Integer exitCode = command.call();
 
             assertThat(exitCode).isZero();
@@ -142,7 +142,7 @@ class ServeCommandTest {
 
         java.io.InputStream originalIn = ServeCommand.testInStream;
         try {
-            ServeCommand.testInStream = new java.io.ByteArrayInputStream(new byte[0]);
+            ServeCommand.testInStream = new java.io.ByteArrayInputStream("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
             Integer exitCode = command.call();
             assertThat(exitCode).isZero();
         } finally {
@@ -150,6 +150,10 @@ class ServeCommandTest {
         }
     }
 }
+
+
+
+
 
 
 
