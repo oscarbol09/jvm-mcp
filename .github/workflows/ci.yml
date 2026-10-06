@@ -67,7 +67,7 @@ jobs:
           cache: 'maven'
 
       - name: Compile, Test & Verify Monorepo
-        run: mvn clean verify -B --fail-fast
+        run: mvn clean install -B --fail-fast
 
       - name: Run Pitest Mutation Coverage
         if: matrix.os == 'ubuntu-latest' && matrix.java == '21'
@@ -111,4 +111,5 @@ jobs:
             core/target/site/jacoco/
             mcp-server/target/site/jacoco/
           retention-days: 14
+
 
