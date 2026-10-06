@@ -39,7 +39,9 @@ class HikariMXBeanClientTest {
         config.setPoolName("TestHikariPool");
         config.setMaximumPoolSize(5);
         config.setMinimumIdle(1);
-        config.setJdbcUrl("jdbc:h2:mem:testdb");
+        config.setJdbcUrl(postgres.getJdbcUrl());
+        config.setUsername(postgres.getUsername());
+        config.setPassword(postgres.getPassword());
         config.setRegisterMbeans(true);
 
         dataSource = new HikariDataSource(config);
@@ -48,7 +50,9 @@ class HikariMXBeanClientTest {
         secondConfig.setPoolName("SecondTestHikariPool");
         secondConfig.setMaximumPoolSize(10);
         secondConfig.setMinimumIdle(1);
-        secondConfig.setJdbcUrl("jdbc:h2:mem:testdb2");
+        secondConfig.setJdbcUrl(postgres.getJdbcUrl() + "?schema=second");
+        secondConfig.setUsername(postgres.getUsername());
+        secondConfig.setPassword(postgres.getPassword());
         secondConfig.setRegisterMbeans(true);
 
         secondDataSource = new HikariDataSource(secondConfig);
@@ -174,3 +178,4 @@ class HikariMXBeanClientTest {
         assertThat(pools.get(0).saturationRatio()).isEqualTo(0.0);
     }
 }
+

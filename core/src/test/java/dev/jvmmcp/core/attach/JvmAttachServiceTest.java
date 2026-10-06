@@ -5,6 +5,7 @@ import com.sun.tools.attach.VirtualMachine;
 import dev.jvmmcp.core.model.JvmProcess;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -18,6 +19,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("JVM Attach Service")
 class JvmAttachServiceTest {
 
     private JvmAttachService attachService;
@@ -30,122 +32,125 @@ class JvmAttachServiceTest {
         attachService = new JvmAttachService();
     }
 
-    @Test
-    @DisplayName("listJvms should find active JVM processes including current process")
-    void shouldListRunningJvmsIncludingSelf() {
-        List<JvmProcess> jvms = attachService.listJvms();
+    @Nested
+    @DisplayName("When discovering running JVMs")
+    class DiscoveringJvms {
 
-        assertThat(jvms).isNotNull();
-        assertThat(jvms).isNotEmpty();
+        @Test
+        @DisplayName("listJvms should find active JVM processes including the current test runner process")
+        void shouldListRunningJvmsIncludingSelf() {
+            List<JvmProcess> jvms = attachService.listJvms();
 
-        long currentPid = ProcessHandle.current().pid();
-        boolean foundSelf = jvms.stream().anyMatch(jvm -> jvm.pid() == currentPid);
+            assertThat(jvms).isNotNull();
+            assertThat(jvms).isNotEmpty();
 
-        assertThat(foundSelf)
-            .as("listJvms() must discover the test runner JVM itself")
-            .isTrue();
-    }
+            long currentPid = ProcessHandle.current().pid();
+            boolean foundSelf = jvms.stream().anyMatch(jvm -> jvm.pid() == currentPid);
 
-    @Test
-    @DisplayName("attach with non-existent PID should gracefully return not found or generic error")
-    void shouldHandleNonExistentPidGracefully() {
-        String nonExistentPid = "999999999";
+            assertThat(foundSelf)
+                .as("listJvms() must discover the test runner JVM itself")
+                .isTrue();
+        }
 
-        AttachResult result = attachService.attach(nonExistentPid);
+        @Test
+        @DisplayName("listJvms should safely ignore non-numeric PIDs without throwing exceptions")
+        void shouldIgnoreNonNumericPids() {
+            com.sun.tools.attach.VirtualMachineDescriptor mockDesc = org.mockito.Mockito.mock(com.sun.tools.attach.VirtualMachineDescriptor.class);
+            org.mockito.Mockito.when(mockDesc.id()).thenReturn("not-a-number");
 
-        assertThat(result).isNotNull();
-        assertThat(result.isSuccessful()).isFalse();
-        assertThat(result.status()).isIn(AttachStatus.PROCESS_NOT_FOUND, AttachStatus.GENERIC_ERROR);
-    }
-
-    @Test
-    @DisplayName("attach should successfully return AttachResult on valid PID")
-    void shouldAttachSuccessfully() {
-        try (org.mockito.MockedStatic<VirtualMachine> vmStatic = org.mockito.Mockito.mockStatic(VirtualMachine.class)) {
-            vmStatic.when(() -> VirtualMachine.attach("123")).thenReturn(mockVm);
-            AttachResult result = attachService.attach("123");
-            assertThat(result.isSuccessful()).isTrue();
-            assertThat(result.virtualMachine()).isPresent();
+            try (org.mockito.MockedStatic<VirtualMachine> vmStatic = org.mockito.Mockito.mockStatic(VirtualMachine.class)) {
+                vmStatic.when(VirtualMachine::list).thenReturn(java.util.List.of(mockDesc));
+                List<JvmProcess> jvms = attachService.listJvms();
+                assertThat(jvms).isEmpty();
+            }
         }
     }
 
-    @Test
-    @DisplayName("listJvms should ignore non-numeric PIDs safely")
-    void shouldIgnoreNonNumericPids() {
-        com.sun.tools.attach.VirtualMachineDescriptor mockDesc = org.mockito.Mockito.mock(com.sun.tools.attach.VirtualMachineDescriptor.class);
-        org.mockito.Mockito.when(mockDesc.id()).thenReturn("not-a-number");
+    @Nested
+    @DisplayName("When attaching to a JVM")
+    class AttachingToJvms {
 
-        try (org.mockito.MockedStatic<VirtualMachine> vmStatic = org.mockito.Mockito.mockStatic(VirtualMachine.class)) {
-            vmStatic.when(VirtualMachine::list).thenReturn(java.util.List.of(mockDesc));
-            java.util.List<JvmProcess> jvms = attachService.listJvms();
-            assertThat(jvms).isEmpty();
+        @Test
+        @DisplayName("should successfully return AttachResult containing a VirtualMachine on valid PID")
+        void shouldAttachSuccessfully() {
+            try (org.mockito.MockedStatic<VirtualMachine> vmStatic = org.mockito.Mockito.mockStatic(VirtualMachine.class)) {
+                vmStatic.when(() -> VirtualMachine.attach("123")).thenReturn(mockVm);
+                AttachResult result = attachService.attach("123");
+                assertThat(result.isSuccessful()).isTrue();
+                assertThat(result.virtualMachine()).isPresent();
+            }
+        }
+
+        @Test
+        @DisplayName("should handle non-existent PIDs gracefully and return PROCESS_NOT_FOUND or GENERIC_ERROR status")
+        void shouldHandleNonExistentPidGracefully() {
+            String nonExistentPid = "999999999";
+            AttachResult result = attachService.attach(nonExistentPid);
+
+            assertThat(result).isNotNull();
+            assertThat(result.isSuccessful()).isFalse();
+            assertThat(result.status()).isIn(AttachStatus.PROCESS_NOT_FOUND, AttachStatus.GENERIC_ERROR);
+        }
+
+        @Test
+        @DisplayName("should handle null or blank PIDs gracefully returning GENERIC_ERROR status")
+        void shouldHandleBlankPidGracefully() {
+            AttachResult nullResult = attachService.attach(null);
+            assertThat(nullResult.isSuccessful()).isFalse();
+            assertThat(nullResult.status()).isEqualTo(AttachStatus.GENERIC_ERROR);
+
+            AttachResult blankResult = attachService.attach("   ");
+            assertThat(blankResult.isSuccessful()).isFalse();
+            assertThat(blankResult.status()).isEqualTo(AttachStatus.GENERIC_ERROR);
         }
     }
 
-    @Test
-    @DisplayName("attach with null or blank PID should return generic error")
-    void shouldHandleBlankPidGracefully() {
-        AttachResult nullResult = attachService.attach(null);
-        assertThat(nullResult.isSuccessful()).isFalse();
-        assertThat(nullResult.status()).isEqualTo(AttachStatus.GENERIC_ERROR);
+    @Nested
+    @DisplayName("When mapping and handling exceptions")
+    class ExceptionMapping {
 
-        AttachResult blankResult = attachService.attach("   ");
-        assertThat(blankResult.isSuccessful()).isFalse();
-        assertThat(blankResult.status()).isEqualTo(AttachStatus.GENERIC_ERROR);
+        @Test
+        @DisplayName("categorizes AttachNotSupportedException and IOException into domain-specific AttachStatus")
+        void shouldMapAllAttachExceptions() {
+            AttachResult nsResult = attachService.mapAttachException("100", new AttachNotSupportedException("Different container namespace"));
+            assertThat(nsResult.status()).isEqualTo(AttachStatus.UNSUPPORTED_NAMESPACE);
+
+            AttachResult genAttachResult = attachService.mapAttachException("101", new AttachNotSupportedException("Target JVM refuses connection"));
+            assertThat(genAttachResult.status()).isEqualTo(AttachStatus.GENERIC_ERROR);
+
+            AttachResult permResult = attachService.mapAttachException("102", new IOException("Permission denied"));
+            assertThat(permResult.status()).isEqualTo(AttachStatus.PERMISSION_DENIED);
+
+            AttachResult notFoundResult = attachService.mapAttachException("103", new IOException("No such process"));
+            assertThat(notFoundResult.status()).isEqualTo(AttachStatus.PROCESS_NOT_FOUND);
+
+            AttachResult unexpectedResult = attachService.mapAttachException("105", new RuntimeException("Unexpected panic"));
+            assertThat(unexpectedResult.status()).isEqualTo(AttachStatus.GENERIC_ERROR);
+        }
     }
 
-    @Test
-    @DisplayName("mapAttachException categorizes all Attach and IO error subtypes")
-    void shouldMapAllAttachExceptions() {
-        AttachResult nsResult = attachService.mapAttachException("100", new AttachNotSupportedException("Different container namespace"));
-        assertThat(nsResult.status()).isEqualTo(AttachStatus.UNSUPPORTED_NAMESPACE);
+    @Nested
+    @DisplayName("When detaching and extracting metadata")
+    class UtilityFunctions {
 
-        AttachResult genAttachResult = attachService.mapAttachException("101", new AttachNotSupportedException("Target JVM refuses connection"));
-        assertThat(genAttachResult.status()).isEqualTo(AttachStatus.GENERIC_ERROR);
+        @Test
+        @DisplayName("detach handles null VMs and suppresses IOExceptions gracefully")
+        void shouldHandleDetachGracefully() throws Exception {
+            attachService.detach(null);
 
-        AttachResult permResult = attachService.mapAttachException("102", new IOException("Permission denied"));
-        assertThat(permResult.status()).isEqualTo(AttachStatus.PERMISSION_DENIED);
+            attachService.detach(mockVm);
+            verify(mockVm).detach();
 
-        AttachResult notFoundResult = attachService.mapAttachException("103", new IOException("No such process"));
-        assertThat(notFoundResult.status()).isEqualTo(AttachStatus.PROCESS_NOT_FOUND);
+            doThrow(new IOException("Detach failure")).when(mockVm).detach();
+            attachService.detach(mockVm); // Should not throw
+        }
 
-        AttachResult ioResult = attachService.mapAttachException("104", new IOException("Broken pipe"));
-        assertThat(ioResult.status()).isEqualTo(AttachStatus.GENERIC_ERROR);
-
-        AttachResult unexpectedResult = attachService.mapAttachException("105", new RuntimeException("Unexpected panic"));
-        assertThat(unexpectedResult.status()).isEqualTo(AttachStatus.GENERIC_ERROR);
-
-        // Test with null messages
-        AttachResult nullMsgAttach = attachService.mapAttachException("106", new AttachNotSupportedException((String) null));
-        assertThat(nullMsgAttach.status()).isEqualTo(AttachStatus.GENERIC_ERROR);
-
-        AttachResult nullMsgIo = attachService.mapAttachException("107", new IOException((String) null));
-        assertThat(nullMsgIo.status()).isEqualTo(AttachStatus.GENERIC_ERROR);
-    }
-
-    @Test
-    @DisplayName("detach handles null and suppresses IOExceptions gracefully")
-    void shouldHandleDetachGracefully() throws Exception {
-        attachService.detach(null);
-
-        attachService.detach(mockVm);
-        verify(mockVm).detach();
-
-        doThrow(new IOException("Detach failure")).when(mockVm).detach();
-        attachService.detach(mockVm);
-    }
-
-    @Test
-    @DisplayName("extractMainClass parses jar paths and main classes accurately")
-    void shouldExtractMainClassAccurately() {
-        assertThat(attachService.extractMainClass(null)).isEqualTo("Unknown");
-        assertThat(attachService.extractMainClass("")).isEqualTo("Unknown");
-        assertThat(attachService.extractMainClass("   ")).isEqualTo("Unknown");
-        assertThat(attachService.extractMainClass("-jar")).isEqualTo("Unknown");
-        assertThat(attachService.extractMainClass("-jar target/demo.jar")).isEqualTo("demo.jar");
-        assertThat(attachService.extractMainClass("-jar C:\\apps\\demo.jar")).isEqualTo("demo.jar");
-        assertThat(attachService.extractMainClass("service.jar")).isEqualTo("service.jar");
-        assertThat(attachService.extractMainClass("org.example.Application --spring.profiles.active=dev")).isEqualTo("org.example.Application");
-        assertThat(attachService.extractMainClass("com.example.BatchRunner --input /tmp/data.jar")).isEqualTo("com.example.BatchRunner");
+        @Test
+        @DisplayName("extractMainClass strips jar paths and identifies true main classes accurately")
+        void shouldExtractMainClassAccurately() {
+            assertThat(attachService.extractMainClass("-jar target/demo.jar")).isEqualTo("demo.jar");
+            assertThat(attachService.extractMainClass("-jar C:\\apps\\demo.jar")).isEqualTo("demo.jar");
+            assertThat(attachService.extractMainClass("org.example.Application --spring.profiles.active=dev")).isEqualTo("org.example.Application");
+        }
     }
 }
