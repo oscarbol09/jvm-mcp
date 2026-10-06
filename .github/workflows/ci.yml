@@ -77,3 +77,33 @@ jobs:
           else
             echo "[CI] Agent jar verification passed for compile phase."
           fi
+
+      - name: Generate JaCoCo Coverage Summary
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          echo "### 📊 JaCoCo Code Coverage Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Module | Covered Instructions | Total Instructions | Coverage Ratio |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- | :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          for csv in core/target/site/jacoco/jacoco.csv mcp-server/target/site/jacoco/jacoco.csv; do
+            if [ -f "$csv" ]; then
+              module=$(echo "$csv" | cut -d'/' -f1)
+              total_missed=$(awk -F',' 'NR>1 {missed+=$4} END {print missed}' "$csv")
+              total_covered=$(awk -F',' 'NR>1 {covered+=$5} END {print covered}' "$csv")
+              total=$((total_missed + total_covered))
+              if [ "$total" -gt 0 ]; then
+                pct=$(awk "BEGIN {printf \"%.2f\", ($total_covered/$total)*100}")
+                echo "| \`$module\` | $total_covered | $total | **$pct%** |" >> $GITHUB_STEP_SUMMARY
+              fi
+            fi
+          done
+
+      - name: Upload JaCoCo Coverage Reports
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb99ba811e # v4.4.0
+        with:
+          name: jacoco-coverage-reports
+          path: |
+            core/target/site/jacoco/
+            mcp-server/target/site/jacoco/
+          retention-days: 14
