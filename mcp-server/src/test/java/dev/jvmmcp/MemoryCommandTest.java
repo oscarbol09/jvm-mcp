@@ -29,14 +29,14 @@ class MemoryCommandTest {
     @Mock
     private JvmAttachService mockAttachService;
 
-    static class DummyAttachProvider extends AttachProvider {
+    public static class DummyAttachProvider extends AttachProvider {
         @Override public String name() { return "dummy"; }
         @Override public String type() { return "dummy"; }
         @Override public VirtualMachine attachVirtualMachine(String id) { return null; }
         @Override public List<VirtualMachineDescriptor> listVirtualMachines() { return List.of(); }
     }
 
-    static class StubVirtualMachine extends VirtualMachine {
+    public static class StubVirtualMachine extends VirtualMachine {
         private final InputStream stream;
         private final boolean shouldThrow;
 
