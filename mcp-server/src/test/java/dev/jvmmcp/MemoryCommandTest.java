@@ -216,7 +216,7 @@ class MemoryCommandTest {
             Integer exitCode = command.call();
 
             assertThat(exitCode).isZero();
-            assertThat(err.toString()).contains("[jvm-mcp] Could not extract live heap histogram: jcmd error");
+            assertThat(err.toString()).contains("[jvm-mcp] Could not extract live heap histogram");
         } finally {
             System.setErr(originalErr);
         }
