@@ -4,13 +4,22 @@ import com.sun.tools.attach.VirtualMachine;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import javax.management.MBeanServer;
 import javax.management.MBeanServerConnection;
 import javax.management.remote.JMXConnector;
+import javax.management.remote.JMXConnectorServer;
+import javax.management.remote.JMXConnectorServerFactory;
+import javax.management.remote.JMXServiceURL;
+import java.io.File;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
 import java.lang.reflect.Constructor;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -88,6 +97,74 @@ class JmxConnectionManagerTest {
 
         String address = JmxConnectionManager.resolveConnectorAddress(virtualMachine);
         assertThat(address).isEqualTo("service:jmx:rmi:///jndi/rmi://localhost:7777/jmxrmi");
+    }
+
+    @Test
+    @DisplayName("resolveConnectorAddress loads management-agent.jar fallback from java.home")
+    void shouldFallbackToLoadingManagementAgentJar(@TempDir Path tempJavaHome) throws Exception {
+        Path libDir = tempJavaHome.resolve("lib");
+        Files.createDirectories(libDir);
+        Path agentJar = libDir.resolve("management-agent.jar");
+        Files.writeString(agentJar, "dummy-agent");
+
+        Properties sysProps = new Properties();
+        sysProps.setProperty("java.home", tempJavaHome.toString());
+
+        Properties emptyProps = new Properties();
+        Properties loadedProps = new Properties();
+        loadedProps.setProperty("com.sun.management.jmxremote.localConnectorAddress", "service:jmx:rmi:///jndi/rmi://localhost:6666/jmxrmi");
+
+        when(virtualMachine.getSystemProperties()).thenReturn(sysProps);
+        when(virtualMachine.getAgentProperties()).thenReturn(emptyProps, emptyProps, loadedProps);
+        when(virtualMachine.startLocalManagementAgent()).thenThrow(new IOException());
+
+        String address = JmxConnectionManager.resolveConnectorAddress(virtualMachine);
+        assertThat(address).isEqualTo("service:jmx:rmi:///jndi/rmi://localhost:6666/jmxrmi");
+        verify(virtualMachine).loadAgent(agentJar.toAbsolutePath().toString(), "com.sun.management.jmxremote");
+    }
+
+    @Test
+    @DisplayName("resolveConnectorAddress throws IOException when loadAgent fails")
+    void shouldThrowWhenLoadAgentFails(@TempDir Path tempJavaHome) throws Exception {
+        Path libDir = tempJavaHome.resolve("lib");
+        Files.createDirectories(libDir);
+        Path agentJar = libDir.resolve("management-agent.jar");
+        Files.writeString(agentJar, "dummy-agent");
+
+        Properties sysProps = new Properties();
+        sysProps.setProperty("java.home", tempJavaHome.toString());
+        Properties emptyProps = new Properties();
+
+        when(virtualMachine.getSystemProperties()).thenReturn(sysProps);
+        when(virtualMachine.getAgentProperties()).thenReturn(emptyProps);
+        when(virtualMachine.startLocalManagementAgent()).thenThrow(new IOException());
+        doThrow(new RuntimeException("Agent load error")).when(virtualMachine).loadAgent(anyString(), anyString());
+
+        assertThatThrownBy(() -> JmxConnectionManager.resolveConnectorAddress(virtualMachine))
+            .isInstanceOf(IOException.class)
+            .hasMessageContaining("Failed to load management-agent.jar");
+    }
+
+    @Test
+    @DisplayName("connect establishes live remote connection when connector address is valid")
+    void shouldConnectViaRemoteConnectorAddress() throws Exception {
+        MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
+        JMXServiceURL serviceUrl = new JMXServiceURL("service:jmx:rmi://127.0.0.1");
+        JMXConnectorServer connectorServer = JMXConnectorServerFactory.newJMXConnectorServer(serviceUrl, null, mbs);
+        connectorServer.start();
+
+        try {
+            Properties props = new Properties();
+            props.setProperty("com.sun.management.jmxremote.localConnectorAddress", connectorServer.getAddress().toString());
+            when(virtualMachine.getAgentProperties()).thenReturn(props);
+
+            try (JmxConnectionManager manager = JmxConnectionManager.connect(virtualMachine, 888888L)) {
+                assertThat(manager.getPid()).isEqualTo(888888L);
+                assertThat(manager.getMBeanServerConnection()).isNotNull();
+            }
+        } finally {
+            connectorServer.stop();
+        }
     }
 
     @Test

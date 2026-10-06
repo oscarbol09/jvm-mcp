@@ -11,6 +11,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadInfo;
+import java.lang.management.ThreadMXBean;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -84,7 +87,7 @@ class ThreadMXBeanClientTest {
     }
 
     @Test
-    @DisplayName("findBlockedThreads detects threads waiting on intrinsic monitor locks")
+    @DisplayName("findBlockedThreads detects threads waiting on intrinsic monitor locks and filters by threshold")
     void shouldDetectBlockedThreads() throws Exception {
         Object lock = new Object();
         CountDownLatch lockAcquired = new CountDownLatch(1);
@@ -133,6 +136,10 @@ class ThreadMXBeanClientTest {
             assertThat(detail.lockOwnerName()).isEqualTo("holding-thread");
             assertThat(detail.lockOwnerId()).isEqualTo(holdingThread.getId());
             assertThat(detail.stackTrace()).isNotEmpty();
+
+            // Threshold larger than elapsed block time filters it out
+            List<BlockedThreadDetail> filtered = threadClient.findBlockedThreads(10_000_000L);
+            assertThat(filtered).doesNotContain(detail);
         } finally {
             keepHolding.set(false);
             holdingThread.interrupt();
