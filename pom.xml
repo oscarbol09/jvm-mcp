@@ -33,9 +33,9 @@
         <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
         <pitest.version>1.30.0</pitest.version>
         <pitest-junit5.version>1.2.3</pitest-junit5.version>
-        <mockito.version>5.16.0</mockito.version>
-        <hikaricp.version>6.3.3</hikaricp.version>
-        <h2.version>2.4.240</h2.version>
+        <mockito.version>5.24.0</mockito.version>
+        <hikaricp.version>7.1.0</hikaricp.version>
+        <h2.version>2.5.252</h2.version>
 
     </properties>
 
