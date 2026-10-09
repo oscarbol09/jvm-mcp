@@ -184,7 +184,7 @@ public class ActuatorProbe {
         for (int port : candidatePorts) {
             Optional<String> json = probePort(port);
             if (json.isPresent()) {
-                return Optional.of(new ProbeResult("http://localhost:" + port + "/actuator/beans", json.get()));
+                return Optional.of(new ProbeResult("http://127.0.0.1:" + port + "/actuator/beans", json.get()));
             }
         }
 
@@ -198,7 +198,7 @@ public class ActuatorProbe {
         };
 
         for (String path : candidatePaths) {
-            String url = "http://localhost:" + port + path;
+            String url = "http://127.0.0.1:" + port + path;
             try {
                 HttpRequest request = newRequest(url, Duration.ofMillis(1500)).GET().build();
                 HttpResponse<String> response = httpClient.send(request, limitingStringHandler(MAX_PAYLOAD_SIZE));
@@ -206,7 +206,6 @@ public class ActuatorProbe {
                     return Optional.of(response.body());
                 }
             } catch (Exception ignored) {
-                ignored.printStackTrace();
                 // Connection refused or timeout means port/endpoint is not accessible
             }
         }
@@ -223,7 +222,6 @@ public class ActuatorProbe {
                     return Optional.of(response.body());
                 }
             } catch (Exception ignored) {
-                ignored.printStackTrace();
                 // Try the next candidate path
             }
         }

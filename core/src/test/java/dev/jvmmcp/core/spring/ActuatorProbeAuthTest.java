@@ -28,7 +28,7 @@ class ActuatorProbeAuthTest {
 
     @BeforeEach
     void startServer() throws IOException {
-        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/", exchange -> {
             requestedPaths.add(exchange.getRequestURI().getPath());
             lastAuthHeader.set(exchange.getRequestHeaders().getFirst("Authorization"));
@@ -37,8 +37,9 @@ class ActuatorProbeAuthTest {
             boolean servesBeans = path.equals("/actuator/beans") || path.equals("/management/beans");
             byte[] body = (servesBeans ? BEANS_JSON : "not found").getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(servesBeans ? 200 : 404, body.length);
-            exchange.getResponseBody().write(body);
-            exchange.close();
+            try (java.io.OutputStream os = exchange.getResponseBody()) {
+                os.write(body);
+            }
         });
         server.start();
         baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();

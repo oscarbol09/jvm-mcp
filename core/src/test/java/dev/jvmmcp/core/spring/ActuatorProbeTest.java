@@ -40,7 +40,7 @@ class ActuatorProbeTest {
 
     @BeforeEach
     void startServer() throws IOException {
-        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server = HttpServer.create(new InetSocketAddress(0), 0);
         port = server.getAddress().getPort();
     }
 
@@ -64,8 +64,9 @@ class ActuatorProbeTest {
         server.createContext("/actuator/beans", exchange -> {
             byte[] body = BEANS_PAYLOAD.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, body.length);
-            exchange.getResponseBody().write(body);
-            exchange.close();
+            try (java.io.OutputStream os = exchange.getResponseBody()) {
+                os.write(body);
+            }
         });
         server.start();
 
