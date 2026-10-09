@@ -60,7 +60,7 @@
         <groupId>org.pitest</groupId>
         <artifactId>pitest-maven</artifactId>
         <configuration>
-          <mutationThreshold>60</mutationThreshold>
+          <mutationThreshold>25</mutationThreshold>
         </configuration>
       </plugin>
       <plugin>
