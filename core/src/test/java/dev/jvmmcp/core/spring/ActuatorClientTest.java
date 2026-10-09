@@ -125,7 +125,7 @@ class ActuatorClientTest {
         // Assert that the 30MB limit causes an IOException rather than OOM
         assertThatThrownBy(() -> client.fetchEndpoint("/actuator/tarpit"))
             .isInstanceOf(RuntimeException.class)
-            .hasMessageContaining("Response exceeded maximum length of 31457280 bytes");
+            .hasMessageContaining("Content-Length 31458280 exceeds limit 31457280");
     }
 
     @Test

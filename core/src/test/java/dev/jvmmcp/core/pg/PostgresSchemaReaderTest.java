@@ -35,7 +35,7 @@ class PostgresSchemaReaderTest {
             stmt.execute("INSERT INTO orders (user_id, total) VALUES (1, 100.0), (2, 200.0)");
             
             // Create a "Large" table > 10MB to test the missing index size heuristic (Trick A)
-            stmt.execute("CREATE TABLE large_table AS SELECT i AS id, md5(i::text) AS dummy_data FROM generate_series(1, 300000) AS i");
+            stmt.execute("CREATE TABLE large_table AS SELECT i AS id, md5(i::text) AS dummy_data FROM generate_series(1, 400000) AS i");
             // Do a sequential scan on large_table to trigger missing index heuristics
             stmt.execute("SELECT count(*) FROM large_table WHERE dummy_data = 'nonexistent'");
             
