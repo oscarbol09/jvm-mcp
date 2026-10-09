@@ -24,7 +24,7 @@ public class DoctorCommand implements Callable<Integer> {
         System.out.println("Checking Attach API Capabilities...");
         try {
             JvmAttachService attachService = new JvmAttachService();
-            var jvms = attachService.listLocalJvms();
+            var jvms = attachService.listJvms();
             System.out.println("[\u2713] Attach API is functioning.");
             System.out.println("[\u2713] Found " + jvms.size() + " local Java processes accessible to user '" + System.getProperty("user.name") + "'.");
             
