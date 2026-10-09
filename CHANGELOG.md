@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Spring Beans**: ApplicationContext bean hierarchy inspection with JMX fallback (`SpringBeansClient`).
 - **Database Pools**: Live metric extraction for HikariCP connection pools (`HikariMXBeanClient`).
 - **PostgreSQL Inspection**: Pure JDBC schema metadata reader, sequential scan bottleneck detection, and slow query profiling via `pg_stat_statements` (`PostgresSchemaReader`).
+- **Remote Actuator**: Lightweight generic HTTP client for Spring Boot Actuator endpoints (`/health`, `/metrics`, `/startup`) with `jvm-mcp actuator` CLI and MCP integration.
 - **Security**: Basic and Bearer auth support for Actuator endpoints, plus TLS `--insecure` override.
 - **Server**: Stdio JSON-RPC Model Context Protocol (MCP) server implementation (`ServeCommand`).
 - **Infrastructure**: Multi-OS GitHub Actions CI matrix with automated JaCoCo coverage summaries.

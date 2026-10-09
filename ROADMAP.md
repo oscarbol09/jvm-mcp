@@ -6,7 +6,7 @@ This roadmap outlines current development milestones, architectural priorities, 
 
 ---
 
-## Current Status: Phase 5 (Completed)
+## Current Status: Phase 6 (Completed)
 
 - [x] **Phase 0: Architecture Scaffolding**
   - Maven multi-module architecture (`core`, `agent`, `mcp-server`, `native`).
@@ -54,21 +54,22 @@ This roadmap outlines current development milestones, architectural priorities, 
 
 ---
 
-## Active Milestone: Phase 6 — Remote Spring Boot Actuator Client (In Progress)
-
-- [ ] Lightweight `java.net.http.HttpClient` client for `/actuator/health`, `/actuator/metrics`, and `/actuator/startup`.
-- [ ] Basic Auth and Bearer token header propagation.
+- [x] **Phase 6: Remote Spring Boot Actuator Client**
+  - Lightweight `java.net.http.HttpClient` client (`ActuatorClient`) for `/actuator/health`, `/actuator/metrics`, and `/actuator/startup`.
+  - Basic Auth and Bearer token header propagation (`ActuatorAuth`).
+  - Dedicated CLI (`jvm-mcp actuator`) and MCP endpoints (`get_actuator_health`, `get_actuator_metrics`, `get_actuator_startup`).
 
 ---
 
-## Upcoming Community Milestones (Open for Contributions)
+## Active Milestone: Phase 7 & 8 — Packaging & Distribution (In Progress)
 
-The following areas are ideal for external contributors looking to claim an issue:
-
-### 5. Packaging & Distribution (Phase 7 & 8)
 - [ ] GraalVM Native Image tracing agent automation on Linux/macOS.
 - [ ] `jpackage` bundling for zero-dependency Windows `.exe`.
 - [ ] Homebrew Formula (`brew install oscarbol09/tap/jvm-mcp`).
+
+## Upcoming Community Milestones (Open for Contributions)
+
+*(All current feature phases are active or completed. New proposals welcome!)*
 
 ---
 
