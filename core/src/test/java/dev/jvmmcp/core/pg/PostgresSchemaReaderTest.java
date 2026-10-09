@@ -72,7 +72,7 @@ class PostgresSchemaReaderTest {
 
     @Test
     void testFindMissingIndexesThreshold() throws Exception {
-        MissingIndexAnalysis analysis = reader.findMissingIndexes(" public\);
+        MissingIndexAnalysis analysis = reader.findMissingIndexes("public");
         assertThat(analysis).isNotNull();
         
         // large_table should appear because it exceeds 10MB and we did a Seq Scan
