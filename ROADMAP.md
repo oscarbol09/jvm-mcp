@@ -61,11 +61,15 @@ This roadmap outlines current development milestones, architectural priorities, 
 
 ---
 
-## Active Milestone: Phase 7 & 8 — Packaging & Distribution (In Progress)
+## Active Milestone: Phase 7 & 8 - Packaging & Distribution (In Progress)
 
-- [ ] GraalVM Native Image tracing agent automation on Linux/macOS.
-- [ ] `jpackage` bundling for zero-dependency Windows `.exe`.
-- [ ] Homebrew Formula (`brew install oscarbol09/tap/jvm-mcp`).
+- [x] **Phase 7: OS-Matrix Distribution Pipeline**
+  - Abandoned GraalVM Native Image due to `jdk.attach` C++ native library loading constraints under Closed-World AOT.
+  - Implemented `jlink` custom JRE stripping for Linux/macOS.
+  - Configured `jpackage` bundling for zero-dependency Windows `.exe` installers.
+- [ ] **Phase 8: Ecosystem & Package Managers**
+  - Universal `install.sh` (`curl | bash`).
+  - Homebrew Formula (`brew install oscarbol09/tap/jvm-mcp`).
 
 ## Upcoming Community Milestones (Open for Contributions)
 

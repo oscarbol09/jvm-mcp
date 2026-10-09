@@ -1,4 +1,4 @@
-# JVM-MCP
+﻿# JVM-MCP
 
 > **Native Java Model Context Protocol (MCP) server for live Spring Boot inspection.**  
 > Provide Claude, Cursor, and Antigravity with real-time context on memory, threads, and database state without modifying your application code.
@@ -114,9 +114,9 @@ Once attached, the LLM gains real-time diagnostic visibility:
 ## Known Limitations and Trade-offs
 
 - **OS Permission Boundaries:** By kernel design, the JDK Attach API requires `jvm-mcp` to run with matching UID permissions as the target JVM. If your target app runs inside an isolated Docker container, direct host attachment will fail. In those environments, use the `--actuator http://localhost:8080` mode or attach from within the container namespace.
-- **Windows Packaging:** Native Image dynamic linking with `attach.dll` on Windows has known runtime constraints. Pragmatically, Linux and macOS distribute as pure GraalVM native binaries, while Windows ships as a zero-dependency self-contained executable via `jpackage` (~300ms startup).
+- **OS-Matrix Distribution Parity:** GraalVM Native Image was aggressively abandoned across all platforms. The JDK Attach API (`jdk.attach`) requires dynamic loading of native C++ libraries at runtime (e.g., `libattach.so` or `attach.dll`), which fundamentally violates Closed-World AOT assumptions. Pragmatically, we distribute using `jlink` custom JREs for Linux/macOS and `jpackage` for zero-dependency Windows `.exe` installers, achieving cross-platform parity without sacrificing JVM introspection capabilities.
 
----
+
 
 ## Community and Contributing
 
