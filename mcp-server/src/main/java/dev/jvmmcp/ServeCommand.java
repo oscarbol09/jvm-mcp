@@ -229,8 +229,7 @@ public class ServeCommand implements Callable<Integer> {
                 "inputSchema", Map.of(
                     "type", "object",
                     "properties", Map.of(
-                        "url", Map.of("type", "string", "description", "JDBC URL (e.g. jdbc:postgresql://localhost:5432/db)"),
-                        ),
+                        "url", Map.of("type", "string", "description", "JDBC URL (e.g. jdbc:postgresql://localhost:5432/db)")),
                     "required", List.of("url")
                 )
             ),
@@ -240,8 +239,7 @@ public class ServeCommand implements Callable<Integer> {
                 "inputSchema", Map.of(
                     "type", "object",
                     "properties", Map.of(
-                        "url", Map.of("type", "string", "description", "JDBC URL (e.g. jdbc:postgresql://localhost:5432/db)"),
-                        ),
+                        "url", Map.of("type", "string", "description", "JDBC URL (e.g. jdbc:postgresql://localhost:5432/db)")),
                     "required", List.of("url")
                 )
             ),
@@ -251,8 +249,7 @@ public class ServeCommand implements Callable<Integer> {
                 "inputSchema", Map.of(
                     "type", "object",
                     "properties", Map.of(
-                        "url", Map.of("type", "string", "description", "Actuator Base URL (e.g. http://localhost:8080)"),
-                        ),
+                        "url", Map.of("type", "string", "description", "Actuator Base URL (e.g. http://localhost:8080)")),
                     "required", List.of("url")
                 )
             ),
@@ -263,8 +260,7 @@ public class ServeCommand implements Callable<Integer> {
                     "type", "object",
                     "properties", Map.of(
                         "url", Map.of("type", "string", "description", "Actuator Base URL (e.g. http://localhost:8080)"),
-                        "metrics", Map.of("type", "string", "description", "Optional comma-separated list of metric names (e.g. jvm.memory.used,jvm.threads.live)"),
-                        ),
+                        "metrics", Map.of("type", "string", "description", "Optional comma-separated list of metric names (e.g. jvm.memory.used,jvm.threads.live)")),
                     "required", List.of("url")
                 )
             ),
@@ -274,8 +270,7 @@ public class ServeCommand implements Callable<Integer> {
                 "inputSchema", Map.of(
                     "type", "object",
                     "properties", Map.of(
-                        "url", Map.of("type", "string", "description", "Actuator Base URL (e.g. http://localhost:8080)"),
-                        ),
+                        "url", Map.of("type", "string", "description", "Actuator Base URL (e.g. http://localhost:8080)")),
                     "required", List.of("url")
                 )
             ),
@@ -468,5 +463,6 @@ public class ServeCommand implements Callable<Integer> {
         System.out.flush();
     }
 }
+
 
 
