@@ -6,6 +6,8 @@ import dev.jvmmcp.core.jmx.JmxConnectionManager;
 import dev.jvmmcp.core.jmx.MemoryMXBeanClient;
 import dev.jvmmcp.core.jmx.ThreadMXBeanClient;
 import dev.jvmmcp.core.pg.PostgresSchemaReader;
+import dev.jvmmcp.core.spring.ActuatorAuth;
+import dev.jvmmcp.core.spring.ActuatorClient;
 import dev.jvmmcp.core.util.SimpleJson;
 import com.sun.tools.attach.VirtualMachine;
 import picocli.CommandLine.Command;
@@ -193,6 +195,52 @@ public class ServeCommand implements Callable<Integer> {
                     ),
                     "required", List.of("url")
                 )
+            ),
+            Map.of(
+                "name", "get_actuator_health",
+                "description", "Fetches Spring Boot Actuator /health endpoint",
+                "inputSchema", Map.of(
+                    "type", "object",
+                    "properties", Map.of(
+                        "url", Map.of("type", "string", "description", "Actuator Base URL (e.g. http://localhost:8080)"),
+                        "user", Map.of("type", "string", "description", "Basic auth user"),
+                        "password", Map.of("type", "string", "description", "Basic auth password"),
+                        "token", Map.of("type", "string", "description", "Bearer token"),
+                        "insecure", Map.of("type", "boolean", "description", "Disable TLS validation")
+                    ),
+                    "required", List.of("url")
+                )
+            ),
+            Map.of(
+                "name", "get_actuator_metrics",
+                "description", "Fetches Spring Boot Actuator /metrics endpoint. Optionally pass metricName to get a specific metric.",
+                "inputSchema", Map.of(
+                    "type", "object",
+                    "properties", Map.of(
+                        "url", Map.of("type", "string", "description", "Actuator Base URL (e.g. http://localhost:8080)"),
+                        "metricName", Map.of("type", "string", "description", "Optional metric name (e.g. jvm.memory.used)"),
+                        "user", Map.of("type", "string", "description", "Basic auth user"),
+                        "password", Map.of("type", "string", "description", "Basic auth password"),
+                        "token", Map.of("type", "string", "description", "Bearer token"),
+                        "insecure", Map.of("type", "boolean", "description", "Disable TLS validation")
+                    ),
+                    "required", List.of("url")
+                )
+            ),
+            Map.of(
+                "name", "get_actuator_startup",
+                "description", "Fetches Spring Boot Actuator /startup endpoint",
+                "inputSchema", Map.of(
+                    "type", "object",
+                    "properties", Map.of(
+                        "url", Map.of("type", "string", "description", "Actuator Base URL (e.g. http://localhost:8080)"),
+                        "user", Map.of("type", "string", "description", "Basic auth user"),
+                        "password", Map.of("type", "string", "description", "Basic auth password"),
+                        "token", Map.of("type", "string", "description", "Bearer token"),
+                        "insecure", Map.of("type", "boolean", "description", "Disable TLS validation")
+                    ),
+                    "required", List.of("url")
+                )
             )
         );
     }
@@ -263,6 +311,32 @@ public class ServeCommand implements Callable<Integer> {
                     content.add(Map.of("type", "text", "text", SimpleJson.toJson(reader.findMissingIndexes())));
                 } else {
                     content.add(Map.of("type", "text", "text", SimpleJson.toJson(reader.findSlowQueries())));
+                }
+            } else if (toolName.startsWith("get_actuator_")) {
+                String url = getStringArg(args, "url", true);
+                String user = getStringArg(args, "user", false);
+                String password = getStringArg(args, "password", false);
+                String token = getStringArg(args, "token", false);
+                boolean insecure = args != null && Boolean.TRUE.equals(args.get("insecure"));
+
+                ActuatorAuth auth = token != null ? ActuatorAuth.bearer(token, insecure) : ActuatorAuth.basic(user, password, insecure);
+                auth.validate().ifPresent(error -> { throw new IllegalArgumentException(error); });
+
+                ActuatorClient client = new ActuatorClient(url, auth);
+
+                if ("get_actuator_health".equals(toolName)) {
+                    content.add(Map.of("type", "text", "text", client.getHealth()));
+                } else if ("get_actuator_metrics".equals(toolName)) {
+                    String metricName = getStringArg(args, "metricName", false);
+                    if (metricName != null && !metricName.isBlank()) {
+                        content.add(Map.of("type", "text", "text", client.getMetric(metricName)));
+                    } else {
+                        content.add(Map.of("type", "text", "text", client.getMetrics()));
+                    }
+                } else if ("get_actuator_startup".equals(toolName)) {
+                    content.add(Map.of("type", "text", "text", client.getStartup()));
+                } else {
+                    throw new IllegalArgumentException("Unknown actuator tool: " + toolName);
                 }
             } else {
                 isError = true;
