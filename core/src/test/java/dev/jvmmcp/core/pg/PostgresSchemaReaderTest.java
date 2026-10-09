@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PostgresSchemaReaderTest {
 
     @Container
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine");
+    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("public.ecr.aws/docker/library/postgres:15-alpine");
 
     private static PostgresSchemaReader reader;
 
@@ -111,3 +111,4 @@ class PostgresSchemaReaderTest {
         assertThat(analysis.pgStatStatementsAvailable()).isFalse();
     }
 }
+
