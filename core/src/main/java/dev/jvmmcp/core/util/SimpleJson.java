@@ -19,18 +19,42 @@ public final class SimpleJson {
         throw new IllegalArgumentException("Expected JSON Object but found: " + (parsed != null ? parsed.getClass().getSimpleName() : "null"));
     }
 
-        public static String toJson(Object obj) {
+    public static String toJson(Object obj) {
         if (obj == null) return "null";
         if (obj instanceof String) {
             String s = (String) obj;
-            s = s.replace("\\", "\\\\")
-                 .replace("\"", "\\\"")
-                 .replace("\b", "\\b")
-                 .replace("\f", "\\f")
-                 .replace("\n", "\\n")
-                 .replace("\r", "\\r")
-                 .replace("\t", "\\t");
-            return "\"" + s + "\"";
+            StringBuilder sb = new StringBuilder(s.length() + 16);
+            sb.append('"');
+            for (int i = 0; i < s.length(); i++) {
+                char c = s.charAt(i);
+                switch (c) {
+                    case '"': sb.append("\\\""); break;
+                    case '\\': sb.append("\\\\"); break;
+                    case '\b': sb.append("\\b"); break;
+                    case '\f': sb.append("\\f"); break;
+                    case '\n': sb.append("\\n"); break;
+                    case '\r': sb.append("\\r"); break;
+                    case '\t': sb.append("\\t"); break;
+                    default:
+                        if (c < 32) {
+                            sb.append(String.format("\\u%04x", (int) c));
+                        } else {
+                            sb.append(c);
+                        }
+                }
+            }
+            sb.append('"');
+            return sb.toString();
+        }
+        if (obj instanceof Double) {
+            Double d = (Double) obj;
+            if (d.isNaN() || d.isInfinite()) return "null";
+            return d.toString();
+        }
+        if (obj instanceof Float) {
+            Float f = (Float) obj;
+            if (f.isNaN() || f.isInfinite()) return "null";
+            return f.toString();
         }
         if (obj instanceof Number || obj instanceof Boolean) return obj.toString();
         if (obj instanceof Map) {

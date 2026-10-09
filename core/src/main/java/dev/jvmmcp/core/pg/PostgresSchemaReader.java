@@ -203,7 +203,7 @@ public class PostgresSchemaReader {
         return tableName;
     }
 
-    public MissingIndexAnalysis findMissingIndexes() throws SQLException {
+    public MissingIndexAnalysis findMissingIndexes(String schemaName) throws SQLException {
         // Filters out small tables (< 10MB) where PG intentionally uses Seq Scans for performance
         String sql = """
             SELECT
@@ -215,7 +215,8 @@ public class PostgresSchemaReader {
             FROM
                 pg_stat_user_tables
             WHERE
-                seq_scan > 100 AND seq_tup_read > 10000
+                schemaname = ?
+                AND seq_scan > 100 AND seq_tup_read > 10000
                 AND (idx_scan IS NULL OR seq_scan > idx_scan)
                 AND pg_relation_size(relid) > 10 * 1024 * 1024
             ORDER BY
@@ -224,16 +225,18 @@ public class PostgresSchemaReader {
             """;
         List<MissingIndexCandidate> candidates = new ArrayList<>();
         try (Connection conn = getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(sql)) {
-            while (rs.next()) {
-                candidates.add(new MissingIndexCandidate(
-                    rs.getString("table_name"),
-                    rs.getLong("seq_scan"),
-                    rs.getLong("seq_tup_read"),
-                    rs.getLong("idx_scan"),
-                    rs.getLong("idx_tup_fetch")
-                ));
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, schemaName);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    candidates.add(new MissingIndexCandidate(
+                        rs.getString("table_name"),
+                        rs.getLong("seq_scan"),
+                        rs.getLong("seq_tup_read"),
+                        rs.getLong("idx_scan"),
+                        rs.getLong("idx_tup_fetch")
+                    ));
+                }
             }
         }
         return new MissingIndexAnalysis(candidates);
