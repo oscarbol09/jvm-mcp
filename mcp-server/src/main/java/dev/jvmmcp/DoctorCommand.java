@@ -1,6 +1,6 @@
 package dev.jvmmcp;
 
-import dev.jvmmcp.core.discovery.JvmAttachService;
+import dev.jvmmcp.core.attach.JvmAttachService;
 import picocli.CommandLine.Command;
 
 import java.util.concurrent.Callable;
