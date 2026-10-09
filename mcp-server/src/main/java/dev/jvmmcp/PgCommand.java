@@ -40,7 +40,7 @@ public class PgCommand implements Callable<Integer> {
                     System.out.println(SimpleJson.toJson(info));
                 }
                 case "missing-indexes" -> {
-                    MissingIndexAnalysis analysis = reader.findMissingIndexes();
+                    MissingIndexAnalysis analysis = reader.findMissingIndexes(schema);
                     System.out.println(SimpleJson.toJson(analysis));
                 }
                 case "slow-queries" -> {
