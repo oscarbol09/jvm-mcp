@@ -92,6 +92,11 @@ public class ServeCommand implements Callable<Integer> {
                     handleRequest(req);
                 } catch (Exception e) {
                     System.err.println("[jvm-mcp] Error processing request: " + e.getMessage());
+                    Map<String, Object> errResp = new LinkedHashMap<>();
+                    errResp.put("jsonrpc", "2.0");
+                    errResp.put("id", null);
+                    errResp.put("error", Map.of("code", -32700, "message", "Parse error: " + e.getMessage()));
+                    sendResponse(errResp);
                 }
             }
         } catch (Exception e) {
@@ -104,11 +109,13 @@ public class ServeCommand implements Callable<Integer> {
 
     private void handleRequest(Map<String, Object> req) {
         Object id = req.get("id");
+        if (id == null) return; // JSON-RPC 2.0: do not respond to notifications
+
         String method = (String) req.get("method");
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("jsonrpc", "2.0");
-        if (id != null) response.put("id", id);
+        response.put("id", id);
 
         if ("tools/list".equals(method)) {
             response.put("result", Map.of("tools", getToolsList()));
@@ -150,6 +157,27 @@ public class ServeCommand implements Callable<Integer> {
             Map.of(
                 "name", "get_thread_diagnostics",
                 "description", "Inspects JVM thread states and detects deadlocks",
+                "inputSchema", Map.of(
+                    "type", "object",
+                    "properties", Map.of("pid", Map.of("type", "number", "description", "Target JVM Process ID")),
+                    "required", List.of("pid")
+                )
+            ),
+            Map.of(
+                "name", "get_heap_histogram",
+                "description", "Retrieves a histogram of class instances in the JVM heap",
+                "inputSchema", Map.of(
+                    "type", "object",
+                    "properties", Map.of(
+                        "pid", Map.of("type", "number", "description", "Target JVM Process ID"),
+                        "limit", Map.of("type", "number", "description", "Limit of classes to return (default 100)")
+                    ),
+                    "required", List.of("pid")
+                )
+            ),
+            Map.of(
+                "name", "get_thread_dump",
+                "description", "Retrieves a full thread dump from the target JVM",
                 "inputSchema", Map.of(
                     "type", "object",
                     "properties", Map.of("pid", Map.of("type", "number", "description", "Target JVM Process ID")),
@@ -311,7 +339,13 @@ public class ServeCommand implements Callable<Integer> {
         try {
             if ("list_jvms".equals(toolName)) {
                 content.add(Map.of("type", "text", "text", SimpleJson.toJson(attachService.listJvms())));
-            } else if ("get_memory_summary".equals(toolName) || "get_thread_diagnostics".equals(toolName)) {
+            } else if ("get_memory_summary".equals(toolName) || 
+                       "get_heap_histogram".equals(toolName) || 
+                       "get_thread_diagnostics".equals(toolName) || 
+                       "get_thread_dump".equals(toolName) || 
+                       "list_spring_beans".equals(toolName) || 
+                       "get_bean_detail".equals(toolName) || 
+                       "list_hikari_pools".equals(toolName)) {
                 long pid = getLongArg(args, "pid", true);
                 AttachResult attachResult = attachService.attach(String.valueOf(pid));
                 
@@ -326,10 +360,17 @@ public class ServeCommand implements Callable<Integer> {
                     if ("get_memory_summary".equals(toolName)) {
                         MemoryMXBeanClient memoryClient = new MemoryMXBeanClient(jmxManager.getMBeanServerConnection());
                         content.add(Map.of("type", "text", "text", SimpleJson.toJson(memoryClient.getHeapSummary(pid))));
-                    } else if ("get_thread_summary".equals(toolName)) {
+                    } else if ("get_heap_histogram".equals(toolName)) {
+                        dev.jvmmcp.core.jmx.HeapHistogramReader histoReader = new dev.jvmmcp.core.jmx.HeapHistogramReader(jmxManager.getMBeanServerConnection());
+                        long limit = args != null && args.containsKey("limit") ? getLongArg(args, "limit", false) : 100L;
+                        content.add(Map.of("type", "text", "text", SimpleJson.toJson(histoReader.getHistogram(pid, (int) limit))));
+                    } else if ("get_thread_diagnostics".equals(toolName)) {
                         ThreadMXBeanClient threadClient = new ThreadMXBeanClient(jmxManager.getMBeanServerConnection());
                         content.add(Map.of("type", "text", "text", SimpleJson.toJson(threadClient.getThreadSummary(pid))));
                         content.add(Map.of("type", "text", "text", "Deadlock Report: " + SimpleJson.toJson(threadClient.detectDeadlocks())));
+                    } else if ("get_thread_dump".equals(toolName)) {
+                        ThreadMXBeanClient threadClient = new ThreadMXBeanClient(jmxManager.getMBeanServerConnection());
+                        content.add(Map.of("type", "text", "text", SimpleJson.toJson(threadClient.getThreadDump(pid, false, false))));
                     } else if ("list_spring_beans".equals(toolName) || "get_bean_detail".equals(toolName)) {
                         dev.jvmmcp.core.spring.SpringBeansClient beansClient = new dev.jvmmcp.core.spring.SpringBeansClient();
                         String filterGlob = getStringArg(args, "filter", false);

@@ -54,7 +54,7 @@ public class PostgresSchemaReader {
     }
 
     private Connection getConnection() throws SQLException {
-        String cacheKey = jdbcUrl + "|" + (username != null ? username : "");
+        String cacheKey = jdbcUrl + "|" + (username != null ? username : "") + "|" + (password != null ? password : "");
         
         HikariDataSource ds;
         synchronized (DATA_SOURCES) {
@@ -95,7 +95,7 @@ public class PostgresSchemaReader {
             SELECT
                 t.table_name,
                 c.reltuples::bigint AS estimated_row_count,
-                pg_relation_size(t.table_name::regclass) AS size_bytes,
+                pg_relation_size(c.oid) AS size_bytes,
                 (SELECT count(*) FROM information_schema.columns col WHERE col.table_schema = t.table_schema AND col.table_name = t.table_name) AS column_count
             FROM
                 information_schema.tables t
@@ -127,12 +127,13 @@ public class PostgresSchemaReader {
                 i.tablename AS table_name,
                 i.indexname AS index_name,
                 i.indexdef AS index_def,
-                pg_relation_size(i.indexname::regclass) AS size_bytes,
+                pg_relation_size(c.oid) AS size_bytes,
                 ix.indisunique AS is_unique,
                 ix.indisprimary AS is_primary
             FROM
                 pg_indexes i
             JOIN pg_class c ON c.relname = i.indexname
+            JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = i.schemaname
             JOIN pg_index ix ON ix.indexrelid = c.oid
             WHERE
                 i.schemaname = ?
@@ -272,6 +273,8 @@ public class PostgresSchemaReader {
                     rows
                 FROM
                     pg_stat_statements pss
+                WHERE 
+                    dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
                 ORDER BY
                     compatible_mean_time DESC
                 LIMIT 20

@@ -49,6 +49,11 @@ public class ActuatorClient {
 
     private String normalizeBaseUrl(String url) {
         String trimmed = url.trim();
+        URI uri = URI.create(trimmed);
+        String host = uri.getHost();
+        if (host != null && !host.equals("localhost") && !host.equals("127.0.0.1") && !host.equals("::1") && !host.equals("0:0:0:0:0:0:0:1")) {
+            throw new IllegalArgumentException("SSRF Protection: Actuator URLs must target localhost (got: " + host + ")");
+        }
         return trimmed.endsWith("/") ? trimmed.substring(0, trimmed.length() - 1) : trimmed;
     }
 
@@ -201,7 +206,7 @@ public class ActuatorClient {
     }
 
     public String getMetric(String metricName) {
-        return fetchEndpoint("/actuator/metrics/" + metricName);
+        return fetchEndpoint("/actuator/metrics/" + java.net.URLEncoder.encode(metricName, StandardCharsets.UTF_8));
     }
 
     public String getMetricsBatch(List<String> metricNames) {
@@ -211,7 +216,8 @@ public class ActuatorClient {
 
         List<CompletableFuture<String>> futures = metricNames.stream()
             .map(name -> {
-                String targetUrl = baseUrl + "/actuator/metrics/" + name;
+                String encodedName = java.net.URLEncoder.encode(name.trim(), StandardCharsets.UTF_8);
+                String targetUrl = baseUrl + "/actuator/metrics/" + encodedName;
                 HttpRequest request = newRequest(targetUrl).GET().build();
 
                 return httpClient.sendAsync(request, limitingStringHandler(MAX_PAYLOAD_SIZE))

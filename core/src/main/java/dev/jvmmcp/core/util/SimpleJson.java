@@ -21,7 +21,17 @@ public final class SimpleJson {
 
         public static String toJson(Object obj) {
         if (obj == null) return "null";
-        if (obj instanceof String) return "\"" + ((String) obj).replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+        if (obj instanceof String) {
+            String s = (String) obj;
+            s = s.replace("\\", "\\\\")
+                 .replace("\"", "\\\"")
+                 .replace("\b", "\\b")
+                 .replace("\f", "\\f")
+                 .replace("\n", "\\n")
+                 .replace("\r", "\\r")
+                 .replace("\t", "\\t");
+            return "\"" + s + "\"";
+        }
         if (obj instanceof Number || obj instanceof Boolean) return obj.toString();
         if (obj instanceof Map) {
             StringBuilder sb = new StringBuilder("{");
@@ -54,7 +64,25 @@ public final class SimpleJson {
             }
             return sb.append("]").toString();
         }
-        // Fallback for domain records
+        // Serialize Java Records using reflection
+        if (obj.getClass().isRecord()) {
+            StringBuilder sb = new StringBuilder("{");
+            boolean first = true;
+            for (java.lang.reflect.RecordComponent component : obj.getClass().getRecordComponents()) {
+                if (!first) sb.append(",");
+                sb.append(toJson(component.getName())).append(":");
+                try {
+                    java.lang.reflect.Method accessor = component.getAccessor();
+                    accessor.setAccessible(true);
+                    sb.append(toJson(accessor.invoke(obj)));
+                } catch (Exception e) {
+                    sb.append("null");
+                }
+                first = false;
+            }
+            return sb.append("}").toString();
+        }
+        // Fallback for everything else
         return toJson(obj.toString());
     }
 
