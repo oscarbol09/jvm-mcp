@@ -183,7 +183,7 @@ class HikariMXBeanClientTest {
 
         assertThat(pools).hasSize(1);
         assertThat(pools.get(0).poolName()).isEqualTo("CustomPool");
-        assertThat(pools.get(0).saturationRatio()).isEqualTo(0.0);
+        assertThat(pools.get(0).saturationRatio()).isEqualTo(-1.0);
     }
 }
 

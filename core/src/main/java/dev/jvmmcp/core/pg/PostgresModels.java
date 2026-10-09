@@ -27,7 +27,9 @@ public final class PostgresModels {
     public record ForeignKeyInfo(
             String tableName,
             String constraintName,
-            String foreignTableName) {
+            String sourceColumn,
+            String foreignTableName,
+            String foreignColumn) {
     }
 
     public record SchemaInfo(

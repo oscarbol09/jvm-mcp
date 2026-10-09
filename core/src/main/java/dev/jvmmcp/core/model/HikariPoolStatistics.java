@@ -7,6 +7,7 @@ public record HikariPoolStatistics(
     int totalConnections,
     int threadsAwaitingConnection,
     int maximumPoolSize,
-    double saturationRatio
+    double saturationRatio,
+    HikariPoolHealth health
 ) {
 }

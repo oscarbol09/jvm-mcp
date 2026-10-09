@@ -1,10 +1,11 @@
 package dev.jvmmcp.core.jmx;
 
+import dev.jvmmcp.core.model.HikariPoolHealth;
 import dev.jvmmcp.core.model.HikariPoolStatistics;
+import dev.jvmmcp.core.port.HikariDiagnosticPort;
 
 import javax.management.MBeanServerConnection;
 import javax.management.ObjectName;
-import dev.jvmmcp.core.port.HikariDiagnosticPort;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,6 +24,7 @@ public class HikariMXBeanClient implements HikariDiagnosticPort {
         this.mbsc = mbsc;
     }
 
+    @Override
     public List<HikariPoolStatistics> getPools() throws IOException {
         try {
             Set<ObjectName> poolNames = mbsc.queryNames(
@@ -38,9 +40,10 @@ public class HikariMXBeanClient implements HikariDiagnosticPort {
 
             return pools;
         } catch (Exception e) {
-            throw new IOException("Failed to query HikariCP MBeans", e);
+            throw new IOException("Failed to query HikariCP MBeans. Ensure spring.datasource.hikari.register-mbeans=true is set.", e);
         }
     }
+
     HikariPoolStatistics readPool(ObjectName poolName) throws IOException {
         try {
             int active = (Integer) mbsc.getAttribute(poolName, "ActiveConnections");
@@ -50,11 +53,19 @@ public class HikariMXBeanClient implements HikariDiagnosticPort {
 
             String poolNameValue = extractPoolName(poolName);
 
-            int maximumPoolSize = getMaximumPoolSize(poolNameValue);
+            int maximumPoolSize = -1;
+            try {
+                maximumPoolSize = getMaximumPoolSize(poolName);
+            } catch (Exception ignored) {
+                // If PoolConfig MBean is missing, don't fail the entire stat reading
+            }
 
-            double saturation = maximumPoolSize > 0
-                ? (double) active / maximumPoolSize
-                : 0.0;
+            double saturation = -1.0;
+            if (maximumPoolSize > 0) {
+                saturation = (double) active / maximumPoolSize;
+            }
+
+            HikariPoolHealth health = analyzeHealth(poolNameValue, active, waiting, maximumPoolSize, saturation);
 
             return new HikariPoolStatistics(
                 poolNameValue,
@@ -63,51 +74,67 @@ public class HikariMXBeanClient implements HikariDiagnosticPort {
                 total,
                 waiting,
                 maximumPoolSize,
-                saturation
+                saturation,
+                health
             );
         } catch (Exception e) {
-            throw new IOException(
-                "Failed to read HikariCP pool: " + poolName,
-                e
-            );
+            throw new IOException("Failed to read HikariCP pool: " + poolName, e);
         }
     }
 
-    int getMaximumPoolSize(String poolName) throws IOException {
-        try {
-            ObjectName configName = new ObjectName(
-              HIKARI_POOL_DOMAIN + ":type=PoolConfig (" + poolName + ")"
-            );
+    private HikariPoolHealth analyzeHealth(String poolName, int active, int waiting, int max, double saturation) {
+        String status;
+        String recommendation;
 
-            return (Integer) mbsc.getAttribute(
-                configName,
-                "MaximumPoolSize"
-            );
+        if (waiting > 0 && active == max && max > 0) {
+            status = "EXHAUSTED";
+            recommendation = "CRITICAL: True Connection Starvation detected. Pool is fully active and " + waiting + " thread(s) are blocked. Investigate connection leaks or increase maximumPoolSize.";
+        } else if (waiting > 0) {
+            status = "DEGRADED";
+            recommendation = "WARNING: Threads awaiting connection (" + waiting + "), but pool is not fully active. This indicates CPU starvation, OS scheduling issues, or a severe GC pause (Clock Leap) rather than DB pool exhaustion.";
+        } else if (saturation >= 0.90) {
+            status = "DEGRADED";
+            recommendation = "WARNING: Pool saturation is at " + Math.round(saturation * 100) + "%. High risk of starvation during traffic spikes.";
+        } else {
+            status = "HEALTHY";
+            recommendation = "Pool is healthy. Saturation: " + (saturation >= 0 ? Math.round(saturation * 100) + "%" : "Unknown");
+        }
+
+        return new HikariPoolHealth(poolName, status, recommendation);
+    }
+
+    int getMaximumPoolSize(ObjectName poolObjectName) throws IOException {
+        try {
+            String configNameStr = poolObjectName.toString().replace("type=Pool", "type=PoolConfig");
+            ObjectName configName = new ObjectName(configNameStr);
+            return (Integer) mbsc.getAttribute(configName, "MaximumPoolSize");
         } catch (Exception e) {
-            throw new IOException(
-                "Failed to read maximum pool size for HikariCP pool: " + poolName,
-                e
-            );
+            throw new IOException("Failed to read maximum pool size from config MBean", e);
         }
     }
 
     String extractPoolName(ObjectName objectName) {
-        String value = objectName.toString();
-
-        String prefix = HIKARI_POOL_DOMAIN + ":type=Pool (";
-
-        if (value.startsWith(prefix) && value.endsWith(")")) {
-            return value.substring(
-                prefix.length(),
-                value.length() - 1
-            );
+        String nameValue = objectName.getKeyProperty("name");
+        if (nameValue != null) {
+            // JMX 2.0 format: type=Pool,name=MyPoolName
+            // If the name is quoted, unquote it
+            if (nameValue.startsWith("\"") && nameValue.endsWith("\"")) {
+                return nameValue.substring(1, nameValue.length() - 1);
+            }
+            return nameValue;
         }
 
-        return value;
+        // Legacy format: type=Pool (MyPoolName)
+        String typeValue = objectName.getKeyProperty("type");
+        if (typeValue != null && typeValue.startsWith("Pool (") && typeValue.endsWith(")")) {
+            return typeValue.substring(6, typeValue.length() - 1);
+        }
+        
+        // Fallback
+        return objectName.toString();
     }
 
     @Override
     public void close() throws Exception {
-        // Client itself holds no native resources; JmxConnectionManager manages the transport.
     }
 }
