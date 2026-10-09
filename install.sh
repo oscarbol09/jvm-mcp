@@ -2,13 +2,10 @@
 set -euo pipefail
 
 # Configuration
-REPO="dariux2016/jvm-mcp" # Replace with actual owner/repo or keep dynamic
+REPO="oscarbol09/jvm-mcp"
 BIN_DIR="${HOME}/.local/bin"
 EXECUTABLE_NAME="jvm-mcp"
-
-echo "========================================"
-echo "    JVM-MCP Universal Installer"
-echo "========================================"
+INSTALL_DIR="${HOME}/.local/share/jvm-mcp"
 
 # 1. Detect OS
 OS="$(uname -s)"
@@ -22,29 +19,24 @@ esac
 ARCH="$(uname -m)"
 case "${ARCH}" in
     x86_64|amd64) ARCH_NAME="amd64" ;;
-    aarch64|arm64) ARCH_NAME="aarch64" ;;
+    aarch64|arm64) ARCH_NAME="amd64" ; echo "Note: Using amd64 build on arm64 via Rosetta/translation" ;;
     *)             echo "Error: Unsupported architecture: ${ARCH}"; exit 1 ;;
 esac
 
-# Wait, the release artifact is a tar.gz for Mac and Linux because it bundles the JRE!
 RELEASE_ASSET="jvm-mcp-${OS_NAME}-${ARCH_NAME}.tar.gz"
 DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${RELEASE_ASSET}"
 
-TMP_DIR=$(mktemp -d)
-trap 'rm -rf -- "$TMP_DIR"' EXIT
-
 echo "Downloading ${RELEASE_ASSET} from GitHub..."
-curl -fsSL "${DOWNLOAD_URL}" -o "${TMP_DIR}/${RELEASE_ASSET}"
-
-echo "Extracting bundled JRE..."
-INSTALL_DIR="${HOME}/.jvm-mcp"
-rm -rf "${INSTALL_DIR}"
 mkdir -p "${INSTALL_DIR}"
-tar -xzf "${TMP_DIR}/${RELEASE_ASSET}" -C "${INSTALL_DIR}"
+curl -fsSL "${DOWNLOAD_URL}" -o "/tmp/${RELEASE_ASSET}"
 
+echo "Extracting JVM-MCP..."
+tar -xzf "/tmp/${RELEASE_ASSET}" -C "${INSTALL_DIR}"
+rm "/tmp/${RELEASE_ASSET}"
+
+echo "Creating symlink in ${BIN_DIR}..."
 mkdir -p "${BIN_DIR}"
-# Create a symlink to the bash launcher
-ln -sf "${INSTALL_DIR}/${EXECUTABLE_NAME}-${OS_NAME}-${ARCH_NAME}" "${BIN_DIR}/${EXECUTABLE_NAME}"
+ln -sf "${INSTALL_DIR}/jvm-mcp-${OS_NAME}-${ARCH_NAME}" "${BIN_DIR}/${EXECUTABLE_NAME}"
 
 # 3. Update PATH if necessary
 if [[ ":$PATH:" != *":${BIN_DIR}:"* ]]; then
@@ -61,4 +53,5 @@ if [[ ":$PATH:" != *":${BIN_DIR}:"* ]]; then
     echo "Please restart your terminal or run: source ~/.bashrc (or ~/.zshrc)"
 fi
 
-echo "✅ Successfully installed ${EXECUTABLE_NAME} to ${BIN_DIR}"
+echo "Successfully installed ${EXECUTABLE_NAME} to ${BIN_DIR}"
+echo "Run 'jvm-mcp --help' to get started."

@@ -20,7 +20,7 @@ jobs:
           - os: macos-latest
             suffix: macos-amd64
           - os: windows-latest
-            suffix: windows-amd64.exe
+            suffix: windows-amd64
     steps:
       - name: Checkout Source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,11 +43,10 @@ jobs:
           
           if [ "${{ matrix.os }}" == "windows-latest" ]; then
             jpackage --type app-image --name jvm-mcp --input mcp-server/target --main-jar jvm-mcp-server-1.0.0-SNAPSHOT.jar --main-class dev.jvmmcp.JvmMcp --runtime-image custom-jre --dest build-out
-            mv build-out/jvm-mcp/jvm-mcp.exe build-out/jvm-mcp-${{ matrix.suffix }}
+            cd build-out
+            7z a jvm-mcp-${{ matrix.suffix }}.zip jvm-mcp
+            cd ..
           elif [ "${{ matrix.os }}" == "macos-latest" ]; then
-            jpackage --type app-image --name jvm-mcp --input mcp-server/target --main-jar jvm-mcp-server-1.0.0-SNAPSHOT.jar --main-class dev.jvmmcp.JvmMcp --runtime-image custom-jre --dest build-out
-            # jpackage on macOS creates a .app bundle. We want a pure executable.
-            # A simpler way for a CLI is just a bash script that launches the bundled java.
             mkdir -p dist
             cp -r custom-jre dist/
             cp mcp-server/target/jvm-mcp-server-*.jar dist/app.jar
@@ -82,7 +81,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: |
-          $binaryPath = "build-out\jvm-mcp-${{ matrix.suffix }}"
+          $binaryPath = "build-out\jvm-mcp\jvm-mcp.exe"
           $process = Start-Process -FilePath $binaryPath -ArgumentList "--version" -Wait -PassThru -WindowStyle Hidden
           if ($process.ExitCode -ne 0) {
             Write-Error "Executable failed with exit code $($process.ExitCode)"
@@ -96,4 +95,4 @@ jobs:
           generate_release_notes: true
           files: |
             jvm-mcp-*.tar.gz
-            build-out/jvm-mcp-*.exe
+            build-out/jvm-mcp-*.zip

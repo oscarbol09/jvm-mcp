@@ -1,58 +1,44 @@
 package dev.jvmmcp;
 
-import com.sun.tools.attach.VirtualMachine;
+import dev.jvmmcp.core.discovery.JvmAttachService;
 import picocli.CommandLine.Command;
 
 import java.util.concurrent.Callable;
 
-@Command(name = "doctor", description = "Diagnoses the local system for Attach API permissions and JMX capability", mixinStandardHelpOptions = true)
+@Command(name = "doctor", description = "Check environment readiness for JVM-MCP")
 public class DoctorCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
-        System.out.println("=========================================");
-        System.out.println("          JVM-MCP System Doctor");
-        System.out.println("=========================================\n");
+        System.out.println("JVM-MCP Doctor");
+        System.out.println("--------------");
+        System.out.println("OS Name:       " + System.getProperty("os.name"));
+        System.out.println("OS Arch:       " + System.getProperty("os.arch"));
+        System.out.println("OS Version:    " + System.getProperty("os.version"));
+        System.out.println("Java Version:  " + System.getProperty("java.version"));
+        System.out.println("Java Vendor:   " + System.getProperty("java.vendor"));
+        System.out.println("Java Home:     " + System.getProperty("java.home"));
+        System.out.println("User Name:     " + System.getProperty("user.name"));
+        System.out.println();
 
-        boolean attachPassed = false;
+        System.out.println("Checking Attach API Capabilities...");
         try {
-            System.out.println("Checking JVM Attach API support...");
-            VirtualMachine.list();
-            attachPassed = true;
-            System.out.println("[OK] jdk.attach module is present and functioning.");
-        } catch (Throwable t) {
-            System.out.println("[FAIL] Could not load or execute VirtualMachine.list()");
-            System.out.println("Reason: " + t.getMessage());
-        }
-
-        System.out.println("\nChecking OS permissions...");
-        String osName = System.getProperty("os.name").toLowerCase();
-        if (osName.contains("nix") || osName.contains("nux") || osName.contains("aix")) {
-            System.out.println("Detected Linux/Unix. Ensuring ptrace_scope allows attaching to non-child processes...");
-            try {
-                String ptrace = java.nio.file.Files.readString(java.nio.file.Paths.get("/proc/sys/kernel/yama/ptrace_scope")).trim();
-                if ("0".equals(ptrace)) {
-                    System.out.println("[OK] ptrace_scope is set to 0.");
-                } else {
-                    System.out.println("[WARN] ptrace_scope is " + ptrace + ". You may not be able to attach to JVMs run by your own user unless you use sudo or set it to 0:");
-                    System.out.println("       echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope");
-                }
-            } catch (Exception e) {
-                System.out.println("[INFO] Could not read /proc/sys/kernel/yama/ptrace_scope (might not be Yama enabled).");
+            JvmAttachService attachService = new JvmAttachService();
+            var jvms = attachService.listLocalJvms();
+            System.out.println("[\u2713] Attach API is functioning.");
+            System.out.println("[\u2713] Found " + jvms.size() + " local Java processes accessible to user '" + System.getProperty("user.name") + "'.");
+            
+            if (jvms.isEmpty()) {
+                System.out.println("\nNote: No Java processes found. Ensure your target applications are running as the same OS user.");
             }
-        } else if (osName.contains("mac")) {
-            System.out.println("Detected macOS. Note that attaching to processes run by other users or root requires sudo.");
-        } else if (osName.contains("win")) {
-            System.out.println("Detected Windows. Attaching should work via Named Pipes (e.g. \\\\.\\pipe\\javatool...) if running under the same user.");
-        }
-
-        System.out.println("\n=========================================");
-        if (attachPassed) {
-            System.out.println("STATUS: HEALTHY. jvm-mcp is ready to connect.");
-            return 0;
-        } else {
-            System.out.println("STATUS: DEGRADED. Ensure you are using the bundled JRE with jdk.attach.");
+        } catch (Exception e) {
+            System.out.println("[\u2717] Attach API failed to initialize: " + e.getMessage());
+            System.out.println("    Resolution: Ensure you are running this CLI as the same user as the target JVM.");
             return 1;
         }
+
+        System.out.println();
+        System.out.println("Your system is ready to use JVM-MCP.");
+        return 0;
     }
 }
