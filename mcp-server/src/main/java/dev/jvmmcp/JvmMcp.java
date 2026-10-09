@@ -17,7 +17,8 @@ import java.util.concurrent.Callable;
         ThreadsCommand.class,
         BeansCommand.class,
         PgCommand.class,
-        ActuatorCommand.class
+        ActuatorCommand.class,
+        DoctorCommand.class
     }
 )
 public class JvmMcp implements Callable<Integer> {

@@ -58,7 +58,11 @@ public class ActuatorCommand implements Callable<Integer> {
                 result = client.getMetrics();
             } else if (endpoint.toLowerCase().startsWith("metrics/")) {
                 String metricName = endpoint.substring("metrics/".length());
-                result = client.getMetric(metricName);
+                if (metricName.contains(",")) {
+                    result = client.getMetricsBatch(java.util.Arrays.asList(metricName.split(",")));
+                } else {
+                    result = client.getMetric(metricName);
+                }
             } else {
                 result = client.fetchEndpoint(endpoint);
             }

@@ -218,7 +218,7 @@ public class ServeCommand implements Callable<Integer> {
                     "type", "object",
                     "properties", Map.of(
                         "url", Map.of("type", "string", "description", "Actuator Base URL (e.g. http://localhost:8080)"),
-                        "metricName", Map.of("type", "string", "description", "Optional metric name (e.g. jvm.memory.used)"),
+                        "metrics", Map.of("type", "string", "description", "Optional comma-separated list of metric names (e.g. jvm.memory.used,jvm.threads.live)"),
                         "user", Map.of("type", "string", "description", "Basic auth user"),
                         "password", Map.of("type", "string", "description", "Basic auth password"),
                         "token", Map.of("type", "string", "description", "Bearer token"),
@@ -240,6 +240,41 @@ public class ServeCommand implements Callable<Integer> {
                         "insecure", Map.of("type", "boolean", "description", "Disable TLS validation")
                     ),
                     "required", List.of("url")
+                )
+            ),
+            Map.of(
+                "name", "list_spring_beans",
+                "description", "Lists instantiated Spring Beans in the ApplicationContext",
+                "inputSchema", Map.of(
+                    "type", "object",
+                    "properties", Map.of(
+                        "pid", Map.of("type", "number", "description", "Target JVM Process ID"),
+                        "filter", Map.of("type", "string", "description", "Optional glob filter (e.g. *Service*)")
+                    ),
+                    "required", List.of("pid")
+                )
+            ),
+            Map.of(
+                "name", "get_bean_detail",
+                "description", "Gets detailed information about a specific Spring Bean",
+                "inputSchema", Map.of(
+                    "type", "object",
+                    "properties", Map.of(
+                        "pid", Map.of("type", "number", "description", "Target JVM Process ID"),
+                        "beanName", Map.of("type", "string", "description", "Exact bean name")
+                    ),
+                    "required", List.of("pid", "beanName")
+                )
+            ),
+            Map.of(
+                "name", "list_hikari_pools",
+                "description", "Lists active HikariCP connection pools, their metrics, and heuristically analyzes their health for starvation or Clock Leaps.",
+                "inputSchema", Map.of(
+                    "type", "object",
+                    "properties", Map.of(
+                        "pid", Map.of("type", "number", "description", "Target JVM Process ID")
+                    ),
+                    "required", List.of("pid")
                 )
             )
         );
@@ -295,6 +330,20 @@ public class ServeCommand implements Callable<Integer> {
                         ThreadMXBeanClient threadClient = new ThreadMXBeanClient(jmxManager.getMBeanServerConnection());
                         content.add(Map.of("type", "text", "text", SimpleJson.toJson(threadClient.getThreadSummary(pid))));
                         content.add(Map.of("type", "text", "text", "Deadlock Report: " + SimpleJson.toJson(threadClient.detectDeadlocks())));
+                    } else if ("list_spring_beans".equals(toolName) || "get_bean_detail".equals(toolName)) {
+                        dev.jvmmcp.core.spring.SpringBeansClient beansClient = new dev.jvmmcp.core.spring.SpringBeansClient();
+                        String filterGlob = getStringArg(args, "filter", false);
+                        dev.jvmmcp.core.model.SpringBeansReport report = beansClient.inspectBeans(pid, attachResult.virtualMachine().orElse(null), jmxManager.getMBeanServerConnection(), filterGlob);
+                        
+                        if ("list_spring_beans".equals(toolName)) {
+                            content.add(Map.of("type", "text", "text", SimpleJson.toJson(report)));
+                        } else {
+                            String beanName = getStringArg(args, "beanName", true);
+                            content.add(Map.of("type", "text", "text", SimpleJson.toJson(beansClient.getBeanDetail(report, beanName).orElse(null))));
+                        }
+                    } else if ("list_hikari_pools".equals(toolName)) {
+                        dev.jvmmcp.core.jmx.HikariMXBeanClient hikariClient = new dev.jvmmcp.core.jmx.HikariMXBeanClient(jmxManager.getMBeanServerConnection());
+                        content.add(Map.of("type", "text", "text", SimpleJson.toJson(hikariClient.getPools())));
                     }
                 }
             } else if ("inspect_pg_schema".equals(toolName) || "find_missing_indexes".equals(toolName) || "find_slow_queries".equals(toolName)) {
@@ -327,9 +376,13 @@ public class ServeCommand implements Callable<Integer> {
                 if ("get_actuator_health".equals(toolName)) {
                     content.add(Map.of("type", "text", "text", client.getHealth()));
                 } else if ("get_actuator_metrics".equals(toolName)) {
-                    String metricName = getStringArg(args, "metricName", false);
-                    if (metricName != null && !metricName.isBlank()) {
-                        content.add(Map.of("type", "text", "text", client.getMetric(metricName)));
+                    String metricsParam = getStringArg(args, "metrics", false);
+                    if (metricsParam != null && !metricsParam.isBlank()) {
+                        if (metricsParam.contains(",")) {
+                            content.add(Map.of("type", "text", "text", client.getMetricsBatch(java.util.Arrays.asList(metricsParam.split(",")))));
+                        } else {
+                            content.add(Map.of("type", "text", "text", client.getMetric(metricsParam)));
+                        }
                     } else {
                         content.add(Map.of("type", "text", "text", client.getMetrics()));
                     }
