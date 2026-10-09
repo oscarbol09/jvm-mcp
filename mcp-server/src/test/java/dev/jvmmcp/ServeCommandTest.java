@@ -149,11 +149,94 @@ class ServeCommandTest {
             ServeCommand.testInStream = originalIn;
         }
     }
+
+    @Test
+    @DisplayName("initialize MCP handshake returns a valid protocolVersion")
+    void shouldInitializeHandshake() throws Exception {
+        ServeCommand command = new ServeCommand(mockAttachService);
+        command.transport = "stdio";
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        java.io.InputStream originalIn = ServeCommand.testInStream;
+        try {
+            System.setOut(new PrintStream(out));
+            String input = "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"initialize\", \"params\": {\"protocolVersion\": \"2024-11-05\"}}\n";
+            ServeCommand.testInStream = new java.io.ByteArrayInputStream(input.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            
+            Integer exitCode = command.call();
+            assertThat(exitCode).isZero();
+            
+            String output = out.toString().trim();
+            java.util.Map<String, Object> response = dev.jvmmcp.core.util.SimpleJson.parseObject(output);
+            assertThat(response.get("jsonrpc")).isEqualTo("2.0");
+            assertThat(response.get("id")).isEqualTo(1);
+            java.util.Map<String, Object> result = (java.util.Map<String, Object>) response.get("result");
+            assertThat(result.get("protocolVersion")).isEqualTo("2024-11-05");
+        } finally {
+            System.setOut(originalOut);
+            ServeCommand.testInStream = originalIn;
+        }
+    }
+
+    @Test
+    @DisplayName("tools/call with unknown tool returns error")
+    void shouldReturnErrorForUnknownTool() throws Exception {
+        ServeCommand command = new ServeCommand(mockAttachService);
+        command.transport = "stdio";
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        java.io.InputStream originalIn = ServeCommand.testInStream;
+        try {
+            System.setOut(new PrintStream(out));
+            String input = "{\"jsonrpc\": \"2.0\", \"id\": 2, \"method\": \"tools/call\", \"params\": {\"name\": \"unknown_tool\", \"arguments\": {}}}\n";
+            ServeCommand.testInStream = new java.io.ByteArrayInputStream(input.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            
+            Integer exitCode = command.call();
+            assertThat(exitCode).isZero();
+            
+            String output = out.toString().trim();
+            java.util.Map<String, Object> response = dev.jvmmcp.core.util.SimpleJson.parseObject(output);
+            
+            java.util.Map<String, Object> result = (java.util.Map<String, Object>) response.get("result");
+            assertThat(result.get("isError")).isEqualTo(true);
+            java.util.List<java.util.Map<String, Object>> content = (java.util.List<java.util.Map<String, Object>>) result.get("content");
+            assertThat(content.get(0).get("text").toString()).contains("Unknown tool: unknown_tool");
+        } finally {
+            System.setOut(originalOut);
+            ServeCommand.testInStream = originalIn;
+        }
+    }
+
+    @Test
+    @DisplayName("tools/call with missing parameters returns error")
+    void shouldReturnErrorForMissingParams() throws Exception {
+        ServeCommand command = new ServeCommand(mockAttachService);
+        command.transport = "stdio";
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        java.io.InputStream originalIn = ServeCommand.testInStream;
+        try {
+            System.setOut(new PrintStream(out));
+            String input = "{\"jsonrpc\": \"2.0\", \"id\": 3, \"method\": \"tools/call\", \"params\": {\"name\": \"get_memory_summary\", \"arguments\": {}}}\n";
+            ServeCommand.testInStream = new java.io.ByteArrayInputStream(input.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            
+            Integer exitCode = command.call();
+            assertThat(exitCode).isZero();
+            
+            String output = out.toString().trim();
+            java.util.Map<String, Object> response = dev.jvmmcp.core.util.SimpleJson.parseObject(output);
+            
+            java.util.Map<String, Object> result = (java.util.Map<String, Object>) response.get("result");
+            assertThat(result.get("isError")).isEqualTo(true);
+            java.util.List<java.util.Map<String, Object>> content = (java.util.List<java.util.Map<String, Object>>) result.get("content");
+            assertThat(content.get(0).get("text").toString()).contains("Missing required argument: pid");
+        } finally {
+            System.setOut(originalOut);
+            ServeCommand.testInStream = originalIn;
+        }
+    }
+
 }
-
-
-
-
-
-
-

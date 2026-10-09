@@ -10,7 +10,6 @@
     <packaging>pom</packaging>
 
     <modules>
-        <module>agent</module>
         <module>core</module>
         <module>mcp-server</module>
         <module>native</module>
