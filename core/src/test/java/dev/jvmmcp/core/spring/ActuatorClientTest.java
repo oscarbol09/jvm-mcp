@@ -70,6 +70,26 @@ class ActuatorClientTest {
             }
         });
 
+        server.createContext("/actuator/metrics/jvm.memory.max", exchange -> {
+            String response = "{\"name\":\"jvm.memory.max\",\"measurements\":[{\"value\":54321}]}";
+            exchange.sendResponseHeaders(200, response.length());
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(response.getBytes());
+            }
+        });
+
+        server.createContext("/actuator/tarpit", exchange -> {
+            // Write 31MB of spaces to trigger the 30MB limit
+            exchange.sendResponseHeaders(200, 31457280 + 1000);
+            try (OutputStream os = exchange.getResponseBody()) {
+                byte[] chunk = new byte[8192];
+                java.util.Arrays.fill(chunk, (byte) ' ');
+                for (int i = 0; i < 3900; i++) { // ~31.9 MB
+                    os.write(chunk);
+                }
+            }
+        });
+
         server.start();
         port = server.getAddress().getPort();
         client = new ActuatorClient("http://localhost:" + port, ActuatorAuth.NONE);
@@ -86,6 +106,34 @@ class ActuatorClientTest {
     void testGetHealth() {
         String res = client.getHealth();
         assertThat(res).isEqualTo("{\"status\":\"UP\"}");
+    }
+
+    @Test
+    void testGetMetricsBatch() {
+        // Test CompletableFuture.allOf() handling multiple metrics concurrently
+        java.util.List<String> metrics = java.util.Arrays.asList("jvm.memory.used", "jvm.memory.max");
+        String res = client.getMetricsBatch(metrics);
+        // It returns a JSON object combining them
+        assertThat(res).contains("\"jvm.memory.used\"");
+        assertThat(res).contains("12345");
+        assertThat(res).contains("\"jvm.memory.max\"");
+        assertThat(res).contains("54321");
+    }
+
+    @Test
+    void testLimitingStringHandlerCancelsTarpit() {
+        // Assert that the 30MB limit causes an IOException rather than OOM
+        assertThatThrownBy(() -> client.fetchEndpoint("/actuator/tarpit"))
+            .isInstanceOf(RuntimeException.class)
+            .hasMessageContaining("Response exceeded maximum length of 31457280 bytes");
+    }
+
+    @Test
+    void testSemanticErrorMappers() {
+        assertThatThrownBy(() -> client.fetchEndpoint("/actuator/notfound"))
+            .isInstanceOf(RuntimeException.class)
+            .hasMessageContaining("HTTP 404")
+            .hasMessageContaining("management.endpoints.web.exposure.include");
     }
 
     @Test

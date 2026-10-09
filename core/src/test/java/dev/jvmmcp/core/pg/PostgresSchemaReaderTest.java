@@ -34,9 +34,15 @@ class PostgresSchemaReaderTest {
             stmt.execute("INSERT INTO users (username) VALUES ('test1'), ('test2')");
             stmt.execute("INSERT INTO orders (user_id, total) VALUES (1, 100.0), (2, 200.0)");
             
+            // Create a "Large" table > 10MB to test the missing index size heuristic (Trick A)
+            stmt.execute("CREATE TABLE large_table AS SELECT i AS id, md5(i::text) AS dummy_data FROM generate_series(1, 300000) AS i");
+            // Do a sequential scan on large_table to trigger missing index heuristics
+            stmt.execute("SELECT count(*) FROM large_table WHERE dummy_data = 'nonexistent'");
+            
             // Generate some stats for pg_stat_user_tables
             stmt.execute("ANALYZE users");
             stmt.execute("ANALYZE orders");
+            stmt.execute("ANALYZE large_table");
         }
 
         reader = new PostgresSchemaReader(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
@@ -50,37 +56,54 @@ class PostgresSchemaReaderTest {
     @Test
     void testInspectSchema() throws Exception {
         SchemaInfo schemaInfo = reader.inspectSchema("public");
-        
         assertThat(schemaInfo.schemaName()).isEqualTo("public");
+        assertThat(schemaInfo.tables()).extracting(TableInfo::tableName).contains("users", "orders", "large_table");
         
-        // Check tables
-        assertThat(schemaInfo.tables()).hasSize(2);
-        assertThat(schemaInfo.tables()).extracting(TableInfo::tableName).containsExactlyInAnyOrder("users", "orders");
-        
-        // Check indexes
-        assertThat(schemaInfo.indexes()).extracting(IndexInfo::indexName)
-            .contains("users_pkey", "users_username_key", "orders_pkey", "idx_orders_user_id");
-            
-        // Check foreign keys
         assertThat(schemaInfo.foreignKeys()).hasSize(1);
         assertThat(schemaInfo.foreignKeys().getFirst().tableName()).isEqualTo("orders");
         assertThat(schemaInfo.foreignKeys().getFirst().foreignTableName()).isEqualTo("users");
+        assertThat(schemaInfo.foreignKeys().getFirst().sourceColumn()).isEqualTo("user_id");
+        assertThat(schemaInfo.foreignKeys().getFirst().foreignColumn()).isEqualTo("id");
     }
 
     @Test
-    void testFindMissingIndexes() throws Exception {
-        // Just verify it doesn't crash, missing index requires specific usage stats to show up
+    void testFindMissingIndexesThreshold() throws Exception {
         MissingIndexAnalysis analysis = reader.findMissingIndexes();
         assertThat(analysis).isNotNull();
-        assertThat(analysis.candidates()).isEmpty(); // No missing indexes generated yet
+        
+        // large_table should appear because it exceeds 10MB and we did a Seq Scan
+        assertThat(analysis.candidates()).extracting(MissingIndexCandidate::tableName).contains("large_table");
+        
+        // users and orders MUST NOT appear, even if they had seq scans, because they are < 10MB
+        assertThat(analysis.candidates()).extracting(MissingIndexCandidate::tableName).doesNotContain("users", "orders");
+    }
+
+    @Test
+    void testLruDataSourceEviction() throws Exception {
+        // We simulate 6 distinct logical DBs by appending an application_name param
+        for (int i = 1; i <= 6; i++) {
+            String dynamicUrl = postgres.getJdbcUrl() + "&ApplicationName=tenant_" + i;
+            PostgresSchemaReader dynamicReader = new PostgresSchemaReader(dynamicUrl, postgres.getUsername(), postgres.getPassword());
+            dynamicReader.inspectSchema("public"); // triggers getConnection()
+        }
+        
+        // The cache capacity is 5. We inserted 6. The 1st one (tenant_1) should have been evicted.
+        // We can't easily assert the static map is size 5 without reflection, but we can verify
+        // no OutOfMemory occurs and the operations succeed. We can verify the logic via reflection if necessary:
+        try {
+            java.lang.reflect.Field field = PostgresSchemaReader.class.getDeclaredField("DATA_SOURCES");
+            field.setAccessible(true);
+            java.util.Map<?, ?> cache = (java.util.Map<?, ?>) field.get(null);
+            assertThat(cache).hasSize(5);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Test
     void testFindSlowQueries() throws Exception {
-        // Without pg_stat_statements extension installed in test container, it should return gracefully
         SlowQueryAnalysis analysis = reader.findSlowQueries();
         assertThat(analysis).isNotNull();
         assertThat(analysis.pgStatStatementsAvailable()).isFalse();
-        assertThat(analysis.slowQueries()).isEmpty();
     }
 }

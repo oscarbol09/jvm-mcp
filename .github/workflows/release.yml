@@ -68,6 +68,28 @@ jobs:
             tar -czvf jvm-mcp-${{ matrix.suffix }}.tar.gz -C dist .
           fi
 
+      - name: Verify Executable (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p verify_app
+          tar -xzf jvm-mcp-${{ matrix.suffix }}.tar.gz -C verify_app
+          # On macOS/Linux, the tar contains a bin/java folder and jvm-mcp executable
+          # Let's run it using the script inside the current directory
+          ./verify_app/jvm-mcp-${{ matrix.suffix }} --version
+          echo "Linux/macOS binary verified successfully."
+
+      - name: Verify Executable (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $binaryPath = "build-out\jvm-mcp-${{ matrix.suffix }}"
+          $process = Start-Process -FilePath $binaryPath -ArgumentList "--version" -Wait -PassThru -WindowStyle Hidden
+          if ($process.ExitCode -ne 0) {
+            Write-Error "Executable failed with exit code $($process.ExitCode)"
+            exit 1
+          }
+          Write-Host "Windows app-image verified successfully."
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
