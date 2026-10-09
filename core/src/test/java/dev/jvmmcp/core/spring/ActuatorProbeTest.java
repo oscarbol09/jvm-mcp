@@ -262,7 +262,7 @@ class ActuatorProbeTest {
     @DisplayName("probe throws on GeneralSecurityException")
     void shouldThrowOnGeneralSecurityException() {
         try (org.mockito.MockedStatic<javax.net.ssl.SSLContext> sslStatic = org.mockito.Mockito.mockStatic(javax.net.ssl.SSLContext.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
-            sslStatic.when(() -> javax.net.ssl.SSLContext.getInstance("TLS"))
+            sslStatic.when(() -> javax.net.ssl.SSLContext.getInstance("TLSv1.2"))
                      .thenThrow(new java.security.NoSuchAlgorithmException("Simulated"));
             
             org.assertj.core.api.Assertions.assertThatThrownBy(() -> new ActuatorProbe(ActuatorAuth.basic("a", "b", true)))
@@ -271,3 +271,4 @@ class ActuatorProbeTest {
         }
     }
 }
+
