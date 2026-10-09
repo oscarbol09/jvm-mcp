@@ -113,7 +113,6 @@ public class ActuatorProbe {
             HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(safeUri)
                 .timeout(timeout)
-                .header("Host", host)
                 .header("Accept", "application/json");
             auth.authorizationHeader().ifPresent(value -> builder.header("Authorization", value));
             return builder;
@@ -207,6 +206,7 @@ public class ActuatorProbe {
                     return Optional.of(response.body());
                 }
             } catch (Exception ignored) {
+                ignored.printStackTrace();
                 // Connection refused or timeout means port/endpoint is not accessible
             }
         }
@@ -223,6 +223,7 @@ public class ActuatorProbe {
                     return Optional.of(response.body());
                 }
             } catch (Exception ignored) {
+                ignored.printStackTrace();
                 // Try the next candidate path
             }
         }
