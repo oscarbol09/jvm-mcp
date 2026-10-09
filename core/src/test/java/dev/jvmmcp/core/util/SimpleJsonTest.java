@@ -137,7 +137,7 @@ class SimpleJsonTest {
     @Test
     @DisplayName("parse and toJson should round-trip successfully for strings with escape sequences and unicode")
     void shouldRoundTripStrings() {
-        String original = "Here is a string with \n newline, \t tab, \u001b escape, \" quotes \", and unicode ? ??.";
+        String original = "Here is a string with \n newline, \t tab, \u001b escape, \" quotes \", and unicode \u2603 \uD83D\uDCA9.";
         String json = SimpleJson.toJson(original);
         Object parsed = SimpleJson.parse(json);
         assertThat(parsed).isEqualTo(original);

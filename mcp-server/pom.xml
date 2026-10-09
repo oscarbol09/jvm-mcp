@@ -14,7 +14,6 @@
       <artifactId>jvm-mcp-core</artifactId>
       <version>${project.version}</version>
     </dependency>
-             so the Maven reactor builds it before this module (e.g. with mvn -T or -pl ... -am) -->
     <!-- Picocli for CLI -->
     <dependency>
       <groupId>info.picocli</groupId>
@@ -61,7 +60,7 @@
         <groupId>org.pitest</groupId>
         <artifactId>pitest-maven</artifactId>
         <configuration>
-          <mutationThreshold>25</mutationThreshold>
+          <mutationThreshold>60</mutationThreshold>
         </configuration>
       </plugin>
       <plugin>
@@ -79,15 +78,15 @@
                   <element>BUNDLE</element>
                   <limits>
                     <limit>
-                      <counter>INSTRUCTION</counter>
-                      <value>COVEREDRATIO</value>
-                      <minimum>0.50</minimum>
-                    </limit>
+                                            <counter>INSTRUCTION</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.80</minimum>
+                                        </limit>
                     <limit>
-                      <counter>BRANCH</counter>
-                      <value>COVEREDRATIO</value>
-                      <minimum>0.40</minimum>
-                    </limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.70</minimum>
+                                        </limit>
                   </limits>
                 </rule>
               </rules>
