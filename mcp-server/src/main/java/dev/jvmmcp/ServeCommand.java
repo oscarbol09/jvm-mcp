@@ -111,31 +111,59 @@ public class ServeCommand implements Callable<Integer> {
         Object id = req.get("id");
         if (id == null) return; // JSON-RPC 2.0: do not respond to notifications
 
-        String method = (String) req.get("method");
-
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("jsonrpc", "2.0");
         response.put("id", id);
 
-        if ("tools/list".equals(method)) {
-            response.put("result", Map.of("tools", getToolsList()));
-            sendResponse(response);
-            return;
-        }
+        try {
+            String method = (String) req.get("method");
 
-        if ("tools/call".equals(method)) {
-            Map<String, Object> params = (Map<String, Object>) req.get("params");
-            if (params != null) {
-                String toolName = (String) params.get("name");
-                Map<String, Object> args = (Map<String, Object>) params.get("arguments");
-                response.put("result", executeTool(toolName, args));
+            if ("initialize".equals(method)) {
+                Map<String, Object> params = (Map<String, Object>) req.get("params");
+                String clientVersion = params != null && params.containsKey("protocolVersion") ? (String) params.get("protocolVersion") : "2024-11-05";
+                response.put("result", Map.of(
+                    "protocolVersion", clientVersion,
+                    "capabilities", Map.of("tools", Map.of()),
+                    "serverInfo", Map.of("name", "jvm-mcp", "version", JvmMcp.VERSION)
+                ));
                 sendResponse(response);
                 return;
             }
-        }
 
-        response.put("error", Map.of("code", -32601, "message", "Method not found"));
-        sendResponse(response);
+            if ("ping".equals(method)) {
+                response.put("result", Map.of());
+                sendResponse(response);
+                return;
+            }
+
+            if ("tools/list".equals(method)) {
+                response.put("result", Map.of("tools", getToolsList()));
+                sendResponse(response);
+                return;
+            }
+
+            if ("tools/call".equals(method)) {
+                Map<String, Object> params = (Map<String, Object>) req.get("params");
+                if (params != null) {
+                    String toolName = (String) params.get("name");
+                    Map<String, Object> args = (Map<String, Object>) params.get("arguments");
+                    response.put("result", executeTool(toolName, args));
+                    sendResponse(response);
+                    return;
+                } else {
+                    response.put("error", Map.of("code", -32602, "message", "Invalid params"));
+                    sendResponse(response);
+                    return;
+                }
+            }
+
+            response.put("error", Map.of("code", -32601, "message", "Method not found"));
+            sendResponse(response);
+        } catch (Exception e) {
+            System.err.println("[jvm-mcp] Internal error handling request: " + e.getMessage());
+            response.put("error", Map.of("code", -32603, "message", "Internal error: " + e.getMessage()));
+            sendResponse(response);
+        }
     }
 
     private List<Map<String, Object>> getToolsList() {
@@ -361,9 +389,9 @@ public class ServeCommand implements Callable<Integer> {
                         MemoryMXBeanClient memoryClient = new MemoryMXBeanClient(jmxManager.getMBeanServerConnection());
                         content.add(Map.of("type", "text", "text", SimpleJson.toJson(memoryClient.getHeapSummary(pid))));
                     } else if ("get_heap_histogram".equals(toolName)) {
-                        dev.jvmmcp.core.jmx.HeapHistogramReader histoReader = new dev.jvmmcp.core.jmx.HeapHistogramReader(jmxManager.getMBeanServerConnection());
+                        dev.jvmmcp.core.jmx.HeapHistogramReader histoReader = new dev.jvmmcp.core.jmx.HeapHistogramReader();
                         long limit = args != null && args.containsKey("limit") ? getLongArg(args, "limit", false) : 100L;
-                        content.add(Map.of("type", "text", "text", SimpleJson.toJson(histoReader.getHistogram(pid, (int) limit))));
+                        content.add(Map.of("type", "text", "text", SimpleJson.toJson(histoReader.readHistogram(jmxManager.getMBeanServerConnection(), pid, (int) limit))));
                     } else if ("get_thread_diagnostics".equals(toolName)) {
                         ThreadMXBeanClient threadClient = new ThreadMXBeanClient(jmxManager.getMBeanServerConnection());
                         content.add(Map.of("type", "text", "text", SimpleJson.toJson(threadClient.getThreadSummary(pid))));
@@ -389,8 +417,11 @@ public class ServeCommand implements Callable<Integer> {
                 }
             } else if ("inspect_pg_schema".equals(toolName) || "find_missing_indexes".equals(toolName) || "find_slow_queries".equals(toolName)) {
                 String url = getStringArg(args, "url", true);
-                String user = getStringArg(args, "user", false);
-                String password = getStringArg(args, "password", false);
+                if (!url.startsWith("jdbc:postgresql:")) {
+                    throw new IllegalArgumentException("URL must be a jdbc:postgresql:// URL");
+                }
+                String user = System.getenv("PG_USER");
+                String password = System.getenv("PG_PASSWORD");
                 PostgresSchemaReader reader = new PostgresSchemaReader(url, user, password);
 
                 if ("inspect_pg_schema".equals(toolName)) {
@@ -398,16 +429,18 @@ public class ServeCommand implements Callable<Integer> {
                     if (schema == null) schema = "public";
                     content.add(Map.of("type", "text", "text", SimpleJson.toJson(reader.inspectSchema(schema))));
                 } else if ("find_missing_indexes".equals(toolName)) {
-                    content.add(Map.of("type", "text", "text", SimpleJson.toJson(reader.findMissingIndexes())));
+                    String schema = getStringArg(args, "schema", false);
+                    if (schema == null) schema = "public";
+                    content.add(Map.of("type", "text", "text", SimpleJson.toJson(reader.findMissingIndexes(schema))));
                 } else {
                     content.add(Map.of("type", "text", "text", SimpleJson.toJson(reader.findSlowQueries())));
                 }
             } else if (toolName.startsWith("get_actuator_")) {
                 String url = getStringArg(args, "url", true);
-                String user = getStringArg(args, "user", false);
-                String password = getStringArg(args, "password", false);
-                String token = getStringArg(args, "token", false);
-                boolean insecure = args != null && Boolean.TRUE.equals(args.get("insecure"));
+                String user = System.getenv("ACTUATOR_USER");
+                String password = System.getenv("ACTUATOR_PASSWORD");
+                String token = System.getenv("ACTUATOR_TOKEN");
+                boolean insecure = "true".equalsIgnoreCase(System.getenv("ACTUATOR_INSECURE"));
 
                 ActuatorAuth auth = token != null ? ActuatorAuth.bearer(token, insecure) : ActuatorAuth.basic(user, password, insecure);
                 auth.validate().ifPresent(error -> { throw new IllegalArgumentException(error); });

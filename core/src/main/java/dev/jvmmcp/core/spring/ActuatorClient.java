@@ -51,7 +51,11 @@ public class ActuatorClient {
         String trimmed = url.trim();
         URI uri = URI.create(trimmed);
         String host = uri.getHost();
-        if (host != null && !host.equals("localhost") && !host.equals("127.0.0.1") && !host.equals("::1") && !host.equals("0:0:0:0:0:0:0:1")) {
+        if (host == null) {
+            throw new IllegalArgumentException("SSRF Protection: Malformed or missing host in URL");
+        }
+        String cleanHost = host.startsWith("[") && host.endsWith("]") ? host.substring(1, host.length() - 1) : host;
+        if (!cleanHost.equals("localhost") && !cleanHost.equals("127.0.0.1") && !cleanHost.equals("::1") && !cleanHost.equals("0:0:0:0:0:0:0:1")) {
             throw new IllegalArgumentException("SSRF Protection: Actuator URLs must target localhost (got: " + host + ")");
         }
         return trimmed.endsWith("/") ? trimmed.substring(0, trimmed.length() - 1) : trimmed;

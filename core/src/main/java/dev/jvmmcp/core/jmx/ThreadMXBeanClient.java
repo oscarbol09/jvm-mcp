@@ -80,13 +80,17 @@ public class ThreadMXBeanClient implements ThreadDiagnosticPort {
     }
 
     public ThreadDump getThreadDump(long pid) throws IOException {
+        return getThreadDump(pid, true, true);
+    }
+
+    public ThreadDump getThreadDump(long pid, boolean lockedMonitors, boolean lockedSynchronizers) throws IOException {
         ThreadMXBean threadMXBean = ManagementFactory.newPlatformMXBeanProxy(
             mbsc,
             ManagementFactory.THREAD_MXBEAN_NAME,
             ThreadMXBean.class
         );
 
-        ThreadInfo[] threadInfos = threadMXBean.dumpAllThreads(true, true);
+        ThreadInfo[] threadInfos = threadMXBean.dumpAllThreads(lockedMonitors, lockedSynchronizers);
         List<ThreadDetail> threadDetails = Arrays.stream(threadInfos)
             .filter(Objects::nonNull)
             .map(ThreadDetail::from)

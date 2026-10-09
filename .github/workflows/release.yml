@@ -18,7 +18,7 @@ jobs:
           - os: ubuntu-latest
             suffix: linux-amd64
           - os: macos-latest
-            suffix: macos-amd64
+            suffix: macos-aarch64
           - os: windows-latest
             suffix: windows-amd64
     steps:
@@ -33,7 +33,7 @@ jobs:
           cache: 'maven'
 
       - name: Build Fat JAR
-        run: ./mvnw clean package -B -DskipTests
+        run: ./mvnw clean package -B 
 
       - name: Build Native Executable with jpackage
         shell: bash
