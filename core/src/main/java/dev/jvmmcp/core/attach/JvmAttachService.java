@@ -7,6 +7,7 @@ import dev.jvmmcp.core.model.Framework;
 import dev.jvmmcp.core.model.JvmProcess;
 
 import java.io.IOException;
+import java.lang.System.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -16,7 +17,10 @@ import java.util.Objects;
  */
 public class JvmAttachService {
 
+    private static final Logger LOGGER = System.getLogger(JvmAttachService.class.getName());
+
     public List<JvmProcess> listJvms() {
+        long start = System.nanoTime();
         List<JvmProcess> result = new ArrayList<>();
         List<VirtualMachineDescriptor> descriptors = VirtualMachine.list();
 
@@ -45,6 +49,9 @@ public class JvmAttachService {
                 true
             ));
         }
+
+        long durationMs = (System.nanoTime() - start) / 1_000_000;
+        LOGGER.log(Logger.Level.DEBUG, "Discovered {0} JVMs in {1} ms", result.size(), durationMs);
 
         return result;
     }
@@ -110,21 +117,29 @@ public class JvmAttachService {
             return "Unknown";
         }
 
-        String[] parts = displayName.trim().split("\\s+");
-        String first = parts[0];
+        String command = displayName.trim().replace("\"", "");
 
-        if ("-jar".equalsIgnoreCase(first)) {
-            if (parts.length > 1) {
-                return stripJarPath(parts[1]);
-            }
-            return "Unknown";
+        // Handle "-jar " prefix explicitly
+        if (command.toLowerCase().startsWith("-jar ")) {
+            command = command.substring(5).trim();
         }
 
-        if (first.toLowerCase().endsWith(".jar")) {
-            return stripJarPath(first);
+        // 1. Is it a JAR execution? Look for ".jar" before arguments.
+        int jarIndex = command.toLowerCase().indexOf(".jar ");
+        if (jarIndex != -1) {
+            return stripJarPath(command.substring(0, jarIndex + 4).trim());
+        }
+        if (command.toLowerCase().endsWith(".jar")) {
+            return stripJarPath(command.trim());
         }
 
-        return first;
+        // 2. It must be a main class. Main classes cannot contain spaces.
+        int spaceIndex = command.indexOf(' ');
+        if (spaceIndex != -1) {
+            return command.substring(0, spaceIndex).trim();
+        }
+
+        return command;
     }
 
     private String stripJarPath(String token) {

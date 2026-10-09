@@ -40,21 +40,29 @@ public class ThreadMXBeanClient implements ThreadDiagnosticPort {
         long totalStarted = threadMXBean.getTotalStartedThreadCount();
 
         long[] threadIds = threadMXBean.getAllThreadIds();
-        ThreadInfo[] threadInfos = threadMXBean.getThreadInfo(threadIds);
-
+        
         int runnable = 0;
         int blocked = 0;
         int waiting = 0;
         int timedWaiting = 0;
 
-        for (ThreadInfo info : threadInfos) {
-            if (info == null) continue;
-            switch (info.getThreadState()) {
-                case RUNNABLE -> runnable++;
-                case BLOCKED -> blocked++;
-                case WAITING -> waiting++;
-                case TIMED_WAITING -> timedWaiting++;
-                default -> {}
+        // Chunking to prevent massive JMX serialization and GC pressure on target JVM
+        // Using maxDepth 0 avoids heavy stack trace generation.
+        int chunkSize = 500;
+        for (int i = 0; i < threadIds.length; i += chunkSize) {
+            int end = Math.min(threadIds.length, i + chunkSize);
+            long[] chunk = Arrays.copyOfRange(threadIds, i, end);
+            ThreadInfo[] chunkInfos = threadMXBean.getThreadInfo(chunk, 0);
+            
+            for (ThreadInfo info : chunkInfos) {
+                if (info == null) continue;
+                switch (info.getThreadState()) {
+                    case RUNNABLE -> runnable++;
+                    case BLOCKED -> blocked++;
+                    case WAITING -> waiting++;
+                    case TIMED_WAITING -> timedWaiting++;
+                    default -> {}
+                }
             }
         }
 

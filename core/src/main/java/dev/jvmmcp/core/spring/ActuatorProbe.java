@@ -8,18 +8,27 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509ExtendedTrustManager;
 import java.net.Socket;
 import java.net.URI;
+import java.net.InetAddress;
+import java.net.Inet6Address;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Flow;
+import java.io.IOException;
 
 /**
  * Probes a running Spring Boot application for exposed Actuator HTTP endpoints via discovered system properties.
  */
 public class ActuatorProbe {
+
+    private static final long MAX_PAYLOAD_SIZE = 30L * 1024 * 1024; // 30MB
 
     private final HttpClient httpClient;
     private final ActuatorAuth auth;
@@ -51,10 +60,6 @@ public class ActuatorProbe {
         return builder.build();
     }
 
-    /**
-     * Creates an SSL context that accepts any certificate and hostname. Only used when the user
-     * explicitly passes --insecure, e.g. to test against self-signed certificates.
-     */
     private static SSLContext trustAllSslContext() {
         try {
             SSLContext context = SSLContext.getInstance("TLS");
@@ -65,9 +70,6 @@ public class ActuatorProbe {
         }
     }
 
-    /**
-     * Extends X509ExtendedTrustManager so the JDK also skips hostname verification.
-     */
     private static final class TrustAllManager extends X509ExtendedTrustManager {
         @Override public void checkClientTrusted(X509Certificate[] chain, String authType) {}
         @Override public void checkServerTrusted(X509Certificate[] chain, String authType) {}
@@ -78,13 +80,100 @@ public class ActuatorProbe {
         @Override public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
     }
 
-    private HttpRequest.Builder newRequest(String url, Duration timeout) {
-        HttpRequest.Builder builder = HttpRequest.newBuilder()
-            .uri(URI.create(url))
-            .timeout(timeout)
-            .header("Accept", "application/json");
-        auth.authorizationHeader().ifPresent(value -> builder.header("Authorization", value));
-        return builder;
+    private HttpRequest.Builder newRequest(String urlStr, Duration timeout) {
+        try {
+            URI originalUri = URI.create(urlStr);
+            String host = originalUri.getHost();
+            if (host == null) {
+                throw new SecurityException("Invalid URL: No host provided");
+            }
+
+            InetAddress[] addresses = InetAddress.getAllByName(host);
+            for (InetAddress addr : addresses) {
+                if (!addr.isLoopbackAddress()) {
+                    throw new SecurityException("SSRF blocked: Host resolves to non-loopback IP " + addr.getHostAddress());
+                }
+            }
+
+            String pinnedIp = addresses[0].getHostAddress();
+            if (addresses[0] instanceof Inet6Address) {
+                pinnedIp = "[" + pinnedIp + "]";
+            }
+
+            URI safeUri = new URI(
+                originalUri.getScheme(),
+                originalUri.getUserInfo(),
+                pinnedIp,
+                originalUri.getPort(),
+                originalUri.getPath(),
+                originalUri.getQuery(),
+                originalUri.getFragment()
+            );
+
+            HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(safeUri)
+                .timeout(timeout)
+                .header("Host", host)
+                .header("Accept", "application/json");
+            auth.authorizationHeader().ifPresent(value -> builder.header("Authorization", value));
+            return builder;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create safe request: " + e.getMessage(), e);
+        }
+    }
+
+    private static HttpResponse.BodyHandler<String> limitingStringHandler(long maxBytes) {
+        return responseInfo -> {
+            responseInfo.headers().firstValueAsLong("Content-Length").ifPresent(len -> {
+                if (len > maxBytes) {
+                    throw new IllegalArgumentException("Content-Length " + len + " exceeds limit " + maxBytes);
+                }
+            });
+
+            HttpResponse.BodySubscriber<String> downstream = HttpResponse.BodySubscribers.ofString(StandardCharsets.UTF_8);
+            
+            return new HttpResponse.BodySubscriber<String>() {
+                private long totalReceived = 0;
+                private Flow.Subscription subscription;
+
+                @Override
+                public void onSubscribe(Flow.Subscription subscription) {
+                    this.subscription = subscription;
+                    downstream.onSubscribe(subscription);
+                }
+
+                @Override
+                public void onNext(List<ByteBuffer> item) {
+                    long batchSize = 0;
+                    for (ByteBuffer b : item) {
+                        batchSize += b.remaining();
+                    }
+                    totalReceived += batchSize;
+
+                    if (totalReceived > maxBytes) {
+                        subscription.cancel();
+                        downstream.onError(new IOException("Response size exceeded maximum limit of " + maxBytes + " bytes"));
+                        return;
+                    }
+                    downstream.onNext(item);
+                }
+
+                @Override
+                public void onError(Throwable throwable) {
+                    downstream.onError(throwable);
+                }
+
+                @Override
+                public void onComplete() {
+                    downstream.onComplete();
+                }
+
+                @Override
+                public CompletionStage<String> getBody() {
+                    return downstream.getBody();
+                }
+            };
+        };
     }
 
     public Optional<ProbeResult> probe(VirtualMachine vm) {
@@ -113,8 +202,7 @@ public class ActuatorProbe {
             String url = "http://localhost:" + port + path;
             try {
                 HttpRequest request = newRequest(url, Duration.ofMillis(1500)).GET().build();
-
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                HttpResponse<String> response = httpClient.send(request, limitingStringHandler(MAX_PAYLOAD_SIZE));
                 if (response.statusCode() == 200 && response.body() != null && response.body().contains("beans")) {
                     return Optional.of(response.body());
                 }
@@ -126,16 +214,11 @@ public class ActuatorProbe {
         return Optional.empty();
     }
 
-    /**
-     * Fetches the beans endpoint from a user-supplied URL. Accepts http or https, and either a full
-     * beans URL (e.g. https://host/management/beans) or a base URL, in which case both
-     * {@code /actuator/beans} and {@code /beans} (custom management base path) are tried.
-     */
     public Optional<String> fetchFromUrl(String baseUrl) {
         for (String targetUrl : candidateBeansUrls(baseUrl)) {
             try {
                 HttpRequest request = newRequest(targetUrl, Duration.ofSeconds(3)).GET().build();
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                HttpResponse<String> response = httpClient.send(request, limitingStringHandler(MAX_PAYLOAD_SIZE));
                 if (response.statusCode() == 200 && response.body() != null) {
                     return Optional.of(response.body());
                 }
@@ -170,7 +253,6 @@ public class ActuatorProbe {
             addPortFromProperty(ports, agentProps.getProperty("server.port"));
         } catch (Exception ignored) {}
 
-        // Common default ports to test as fallback
         ports.add(8080);
         ports.add(8081);
         ports.add(9090);

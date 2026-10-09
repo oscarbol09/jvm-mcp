@@ -31,13 +31,21 @@ public class MemoryMXBeanClient implements MemoryDiagnosticPort {
             MemoryMXBean.class
         );
 
+        RuntimeMXBean runtimeMXBean = ManagementFactory.newPlatformMXBeanProxy(
+            mbsc,
+            ManagementFactory.RUNTIME_MXBEAN_NAME,
+            RuntimeMXBean.class
+        );
+
+        long uptimeMs = runtimeMXBean.getUptime();
+
         MemoryUsageInfo heapUsage = MemoryUsageInfo.from(memoryMXBean.getHeapMemoryUsage());
         MemoryUsageInfo nonHeapUsage = MemoryUsageInfo.from(memoryMXBean.getNonHeapMemoryUsage());
 
         List<MemoryPoolInfo> pools = getMemoryPools();
         List<GarbageCollectorInfo> gcs = getGarbageCollectors();
 
-        MemoryPressure pressure = evaluatePressure(heapUsage, gcs);
+        MemoryPressure pressure = evaluatePressure(heapUsage, pools, gcs, uptimeMs);
 
         return new HeapSummary(pid, heapUsage, nonHeapUsage, pools, gcs, pressure);
     }
@@ -76,29 +84,58 @@ public class MemoryMXBeanClient implements MemoryDiagnosticPort {
         return gcInfos;
     }
 
-    public MemoryPressure evaluatePressure(MemoryUsageInfo heapUsage, List<GarbageCollectorInfo> gcs) {
-        double ratio = heapUsage.maxBytes() > 0 
+    public MemoryPressure evaluatePressure(MemoryUsageInfo heapUsage, List<MemoryPoolInfo> pools, List<GarbageCollectorInfo> gcs, long uptimeMs) {
+        double heapRatio = heapUsage.maxBytes() > 0 
             ? (double) heapUsage.usedBytes() / (double) heapUsage.maxBytes()
             : (heapUsage.committedBytes() > 0 ? (double) heapUsage.usedBytes() / (double) heapUsage.committedBytes() : 0.0);
+
+        double maxMetaspaceRatio = 0.0;
+        for (MemoryPoolInfo pool : pools) {
+            String name = pool.name().toLowerCase();
+            if (name.contains("metaspace") || name.contains("compressed class space")) {
+                MemoryUsageInfo usage = pool.usage();
+                if (usage.maxBytes() > 0) {
+                    double ratio = (double) usage.usedBytes() / (double) usage.maxBytes();
+                    if (ratio > maxMetaspaceRatio) {
+                        maxMetaspaceRatio = ratio;
+                    }
+                }
+            }
+        }
+
+        double maxMemoryRatio = Math.max(heapRatio, maxMetaspaceRatio);
 
         long totalGcTime = gcs.stream().mapToLong(GarbageCollectorInfo::collectionTimeMs).sum();
         long totalGcCount = gcs.stream().mapToLong(GarbageCollectorInfo::collectionCount).sum();
 
+        double gcOverhead = uptimeMs > 0 ? ((double) totalGcTime / (double) uptimeMs) : 0.0;
+
         MemoryPressureLevel level;
         String recommendation;
 
-        if (ratio >= 0.95) {
+        if (gcOverhead >= 0.20) {
             level = MemoryPressureLevel.CRITICAL;
-            recommendation = "CRITICAL: Heap utilization exceeds 95%. Immediate risk of OutOfMemoryError. Recommend inspecting heap histogram for memory leaks or increasing -Xmx.";
-        } else if (ratio >= 0.85) {
+            recommendation = "CRITICAL: GC Lifetime Overhead is " + Math.round(gcOverhead * 100) + "%. The JVM is spending excessive time in Garbage Collection (Thrashing), severely degrading throughput. Inspect for memory leaks.";
+        } else if (maxMemoryRatio >= 0.95) {
+            level = MemoryPressureLevel.CRITICAL;
+            if (maxMetaspaceRatio >= 0.95) {
+                recommendation = "CRITICAL: Metaspace/Class Space utilization exceeds 95%. Immediate risk of java.lang.OutOfMemoryError: Metaspace. Recommend checking for ClassLoader leaks or increasing -XX:MaxMetaspaceSize.";
+            } else {
+                recommendation = "CRITICAL: Heap utilization exceeds 95%. Immediate risk of java.lang.OutOfMemoryError: Java heap space. Recommend inspecting heap histogram for memory leaks or increasing -Xmx.";
+            }
+        } else if (maxMemoryRatio >= 0.85 || gcOverhead >= 0.10) {
             level = MemoryPressureLevel.ELEVATED;
-            recommendation = "ELEVATED: Heap utilization exceeds 85%. Frequent GC cycles may introduce latency spikes. Monitor object allocation rates.";
+            if (gcOverhead >= 0.10) {
+                recommendation = "ELEVATED: GC Overhead is " + Math.round(gcOverhead * 100) + "%. Frequent GC cycles are introducing latency spikes. Monitor object allocation rates.";
+            } else {
+                recommendation = "ELEVATED: Memory utilization exceeds 85%. Monitor memory pools.";
+            }
         } else {
             level = MemoryPressureLevel.NORMAL;
             recommendation = "NORMAL: Memory consumption is healthy (< 85% utilization). Garbage collection pauses are within normal thresholds.";
         }
 
-        return new MemoryPressure(level, Math.round(ratio * 100.0) / 100.0, totalGcTime, totalGcCount, recommendation);
+        return new MemoryPressure(level, Math.round(maxMemoryRatio * 100.0) / 100.0, totalGcTime, totalGcCount, recommendation);
     }
 
     @Override

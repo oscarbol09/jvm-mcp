@@ -68,6 +68,8 @@ public class HeapHistogramReader {
         List<ClassHistogramItem> items = new ArrayList<>();
         long totalInstances = 0;
         long totalBytes = 0;
+        long parsedTotalInstances = 0;
+        long parsedTotalBytes = 0;
 
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
             String line;
@@ -103,6 +105,9 @@ public class HeapHistogramReader {
                         long bytes = Long.parseLong(parts[2]);
                         String className = parts[3];
 
+                        parsedTotalInstances += instances;
+                        parsedTotalBytes += bytes;
+
                         if (topN <= 0 || items.size() < topN) {
                             items.add(ClassHistogramItem.of(rank, instances, bytes, className));
                         }
@@ -111,9 +116,9 @@ public class HeapHistogramReader {
             }
         }
 
-        if (totalBytes == 0 && !items.isEmpty()) {
-            totalBytes = items.stream().mapToLong(ClassHistogramItem::bytes).sum();
-            totalInstances = items.stream().mapToLong(ClassHistogramItem::instances).sum();
+        if (totalBytes == 0) {
+            totalBytes = parsedTotalBytes;
+            totalInstances = parsedTotalInstances;
         }
 
         double totalMb = totalBytes / (1024.0 * 1024.0);

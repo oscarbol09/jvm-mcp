@@ -111,14 +111,15 @@ public class SpringBeansClient {
             return report;
         }
 
+        java.util.regex.Pattern pattern = GlobMatcher.compileGlob(filterGlob);
         List<SpringContextBeans> filteredContexts = new ArrayList<>();
         int filteredTotal = 0;
 
         for (SpringContextBeans context : report.contexts()) {
             List<SpringBeanDetail> matchedBeans = context.beans().stream()
-                .filter(bean -> GlobMatcher.matches(bean.name(), filterGlob) 
-                             || GlobMatcher.matches(bean.type(), filterGlob)
-                             || bean.aliases().stream().anyMatch(a -> GlobMatcher.matches(a, filterGlob)))
+                .filter(bean -> (bean.name() != null && pattern.matcher(bean.name()).matches()) 
+                             || (bean.type() != null && pattern.matcher(bean.type()).matches())
+                             || bean.aliases().stream().anyMatch(a -> a != null && pattern.matcher(a).matches()))
                 .toList();
 
             if (!matchedBeans.isEmpty()) {

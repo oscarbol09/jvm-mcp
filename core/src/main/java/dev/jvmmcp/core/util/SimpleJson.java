@@ -92,63 +92,73 @@ public final class SimpleJson {
     }
 
     private static Map<String, Object> parseObject(Tokenizer tokenizer) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        tokenizer.consume('{');
-        tokenizer.skipWhitespace();
-
-        if (tokenizer.peek() == '}') {
-            tokenizer.consume('}');
-            return map;
-        }
-
-        while (true) {
+        tokenizer.enter();
+        try {
+            Map<String, Object> map = new LinkedHashMap<>();
+            tokenizer.consume('{');
             tokenizer.skipWhitespace();
-            String key = parseString(tokenizer);
-            tokenizer.skipWhitespace();
-            tokenizer.consume(':');
-            Object value = parseValue(tokenizer);
-            map.put(key, value);
 
-            tokenizer.skipWhitespace();
-            char next = tokenizer.peek();
-            if (next == '}') {
+            if (tokenizer.peek() == '}') {
                 tokenizer.consume('}');
-                break;
-            } else if (next == ',') {
-                tokenizer.consume(',');
-            } else {
-                throw new IllegalArgumentException("Expected ',' or '}' in object at position " + tokenizer.getIndex() + ", got '" + next + "'");
+                return map;
             }
-        }
 
-        return map;
+            while (true) {
+                tokenizer.skipWhitespace();
+                String key = parseString(tokenizer);
+                tokenizer.skipWhitespace();
+                tokenizer.consume(':');
+                Object value = parseValue(tokenizer);
+                map.put(key, value);
+
+                tokenizer.skipWhitespace();
+                char next = tokenizer.peek();
+                if (next == '}') {
+                    tokenizer.consume('}');
+                    break;
+                } else if (next == ',') {
+                    tokenizer.consume(',');
+                } else {
+                    throw new IllegalArgumentException("Expected ',' or '}' in object at position " + tokenizer.getIndex() + ", got '" + next + "'");
+                }
+            }
+
+            return map;
+        } finally {
+            tokenizer.exit();
+        }
     }
 
     private static List<Object> parseArray(Tokenizer tokenizer) {
-        List<Object> list = new ArrayList<>();
-        tokenizer.consume('[');
-        tokenizer.skipWhitespace();
-
-        if (tokenizer.peek() == ']') {
-            tokenizer.consume(']');
-            return list;
-        }
-
-        while (true) {
-            list.add(parseValue(tokenizer));
+        tokenizer.enter();
+        try {
+            List<Object> list = new ArrayList<>();
+            tokenizer.consume('[');
             tokenizer.skipWhitespace();
-            char next = tokenizer.peek();
-            if (next == ']') {
-                tokenizer.consume(']');
-                break;
-            } else if (next == ',') {
-                tokenizer.consume(',');
-            } else {
-                throw new IllegalArgumentException("Expected ',' or ']' in array at position " + tokenizer.getIndex() + ", got '" + next + "'");
-            }
-        }
 
-        return list;
+            if (tokenizer.peek() == ']') {
+                tokenizer.consume(']');
+                return list;
+            }
+
+            while (true) {
+                list.add(parseValue(tokenizer));
+                tokenizer.skipWhitespace();
+                char next = tokenizer.peek();
+                if (next == ']') {
+                    tokenizer.consume(']');
+                    break;
+                } else if (next == ',') {
+                    tokenizer.consume(',');
+                } else {
+                    throw new IllegalArgumentException("Expected ',' or ']' in array at position " + tokenizer.getIndex() + ", got '" + next + "'");
+                }
+            }
+
+            return list;
+        } finally {
+            tokenizer.exit();
+        }
     }
 
     private static String parseString(Tokenizer tokenizer) {
@@ -256,10 +266,24 @@ public final class SimpleJson {
     private static final class Tokenizer {
         private final String src;
         private int index;
+        private int depth;
+        private static final int MAX_DEPTH = 150;
 
         Tokenizer(String src) {
             this.src = src;
             this.index = 0;
+            this.depth = 0;
+        }
+
+        void enter() {
+            depth++;
+            if (depth > MAX_DEPTH) {
+                throw new IllegalArgumentException("Max JSON recursion depth exceeded: " + MAX_DEPTH);
+            }
+        }
+
+        void exit() {
+            depth--;
         }
 
         boolean hasMore() {
