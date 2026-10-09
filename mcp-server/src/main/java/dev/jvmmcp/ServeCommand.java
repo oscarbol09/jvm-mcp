@@ -120,9 +120,8 @@ public class ServeCommand implements Callable<Integer> {
 
             if ("initialize".equals(method)) {
                 Map<String, Object> params = (Map<String, Object>) req.get("params");
-                String clientVersion = params != null && params.containsKey("protocolVersion") ? (String) params.get("protocolVersion") : "2024-11-05";
                 response.put("result", Map.of(
-                    "protocolVersion", clientVersion,
+                    "protocolVersion", "2024-11-05",
                     "capabilities", Map.of("tools", Map.of()),
                     "serverInfo", Map.of("name", "jvm-mcp", "version", JvmMcp.VERSION)
                 ));
@@ -219,8 +218,6 @@ public class ServeCommand implements Callable<Integer> {
                     "type", "object",
                     "properties", Map.of(
                         "url", Map.of("type", "string", "description", "JDBC URL (e.g. jdbc:postgresql://localhost:5432/db)"),
-                        "user", Map.of("type", "string", "description", "Database username"),
-                        "password", Map.of("type", "string", "description", "Database password"),
                         "schema", Map.of("type", "string", "description", "Target schema (default: public)")
                     ),
                     "required", List.of("url")
@@ -232,10 +229,7 @@ public class ServeCommand implements Callable<Integer> {
                 "inputSchema", Map.of(
                     "type", "object",
                     "properties", Map.of(
-                        "url", Map.of("type", "string", "description", "JDBC URL (e.g. jdbc:postgresql://localhost:5432/db)"),
-                        "user", Map.of("type", "string", "description", "Database username"),
-                        "password", Map.of("type", "string", "description", "Database password")
-                    ),
+                        "url", Map.of("type", "string", "description", "JDBC URL (e.g. jdbc:postgresql://localhost:5432/db)")),
                     "required", List.of("url")
                 )
             ),
@@ -245,10 +239,7 @@ public class ServeCommand implements Callable<Integer> {
                 "inputSchema", Map.of(
                     "type", "object",
                     "properties", Map.of(
-                        "url", Map.of("type", "string", "description", "JDBC URL (e.g. jdbc:postgresql://localhost:5432/db)"),
-                        "user", Map.of("type", "string", "description", "Database username"),
-                        "password", Map.of("type", "string", "description", "Database password")
-                    ),
+                        "url", Map.of("type", "string", "description", "JDBC URL (e.g. jdbc:postgresql://localhost:5432/db)")),
                     "required", List.of("url")
                 )
             ),
@@ -258,12 +249,7 @@ public class ServeCommand implements Callable<Integer> {
                 "inputSchema", Map.of(
                     "type", "object",
                     "properties", Map.of(
-                        "url", Map.of("type", "string", "description", "Actuator Base URL (e.g. http://localhost:8080)"),
-                        "user", Map.of("type", "string", "description", "Basic auth user"),
-                        "password", Map.of("type", "string", "description", "Basic auth password"),
-                        "token", Map.of("type", "string", "description", "Bearer token"),
-                        "insecure", Map.of("type", "boolean", "description", "Disable TLS validation")
-                    ),
+                        "url", Map.of("type", "string", "description", "Actuator Base URL (e.g. http://localhost:8080)")),
                     "required", List.of("url")
                 )
             ),
@@ -274,12 +260,7 @@ public class ServeCommand implements Callable<Integer> {
                     "type", "object",
                     "properties", Map.of(
                         "url", Map.of("type", "string", "description", "Actuator Base URL (e.g. http://localhost:8080)"),
-                        "metrics", Map.of("type", "string", "description", "Optional comma-separated list of metric names (e.g. jvm.memory.used,jvm.threads.live)"),
-                        "user", Map.of("type", "string", "description", "Basic auth user"),
-                        "password", Map.of("type", "string", "description", "Basic auth password"),
-                        "token", Map.of("type", "string", "description", "Bearer token"),
-                        "insecure", Map.of("type", "boolean", "description", "Disable TLS validation")
-                    ),
+                        "metrics", Map.of("type", "string", "description", "Optional comma-separated list of metric names (e.g. jvm.memory.used,jvm.threads.live)")),
                     "required", List.of("url")
                 )
             ),
@@ -289,12 +270,7 @@ public class ServeCommand implements Callable<Integer> {
                 "inputSchema", Map.of(
                     "type", "object",
                     "properties", Map.of(
-                        "url", Map.of("type", "string", "description", "Actuator Base URL (e.g. http://localhost:8080)"),
-                        "user", Map.of("type", "string", "description", "Basic auth user"),
-                        "password", Map.of("type", "string", "description", "Basic auth password"),
-                        "token", Map.of("type", "string", "description", "Bearer token"),
-                        "insecure", Map.of("type", "boolean", "description", "Disable TLS validation")
-                    ),
+                        "url", Map.of("type", "string", "description", "Actuator Base URL (e.g. http://localhost:8080)")),
                     "required", List.of("url")
                 )
             ),
@@ -391,6 +367,8 @@ public class ServeCommand implements Callable<Integer> {
                     } else if ("get_heap_histogram".equals(toolName)) {
                         dev.jvmmcp.core.jmx.HeapHistogramReader histoReader = new dev.jvmmcp.core.jmx.HeapHistogramReader();
                         long limit = args != null && args.containsKey("limit") ? getLongArg(args, "limit", false) : 100L;
+                        if (limit <= 0) limit = 100L;
+                        if (limit > 1000) limit = 1000L;
                         content.add(Map.of("type", "text", "text", SimpleJson.toJson(histoReader.readHistogram(jmxManager.getMBeanServerConnection(), pid, (int) limit))));
                     } else if ("get_thread_diagnostics".equals(toolName)) {
                         ThreadMXBeanClient threadClient = new ThreadMXBeanClient(jmxManager.getMBeanServerConnection());
@@ -417,8 +395,8 @@ public class ServeCommand implements Callable<Integer> {
                 }
             } else if ("inspect_pg_schema".equals(toolName) || "find_missing_indexes".equals(toolName) || "find_slow_queries".equals(toolName)) {
                 String url = getStringArg(args, "url", true);
-                if (!url.startsWith("jdbc:postgresql:")) {
-                    throw new IllegalArgumentException("URL must be a jdbc:postgresql:// URL");
+                if (!url.startsWith("jdbc:postgresql://localhost:") && !url.startsWith("jdbc:postgresql://localhost/") && !url.startsWith("jdbc:postgresql://127.0.0.1:") && !url.startsWith("jdbc:postgresql://127.0.0.1/")) {
+                    throw new IllegalArgumentException("SSRF Protection: JDBC URL must target localhost (got: " + url + ")");
                 }
                 String user = System.getenv("PG_USER");
                 String password = System.getenv("PG_PASSWORD");
@@ -485,4 +463,6 @@ public class ServeCommand implements Callable<Integer> {
         System.out.flush();
     }
 }
+
+
 

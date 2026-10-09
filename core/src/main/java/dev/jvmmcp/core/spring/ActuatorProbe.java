@@ -62,7 +62,7 @@ public class ActuatorProbe {
 
     private static SSLContext trustAllSslContext() {
         try {
-            SSLContext context = SSLContext.getInstance("TLS");
+            SSLContext context = SSLContext.getInstance("TLSv1.2");
             context.init(null, new TrustManager[] {new TrustAllManager()}, null);
             return context;
         } catch (GeneralSecurityException e) {
@@ -272,3 +272,4 @@ public class ActuatorProbe {
 
     public record ProbeResult(String url, String rawJson) {}
 }
+

@@ -34,10 +34,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Static Application Security Testing (SAST)
-        uses: returntocorp/semgrep-action@v1
-        with:
-          config: "p/java p/owasp-top-ten"
-          generateSarif: "1"
+        run: pipx install semgrep && semgrep scan --config "p/java" --config "p/owasp-top-ten" --error
 
   # ---------------------------------------------------------------------------
   # Job 2: Multi-Platform Compilation, Test Suite & Coverage Matrix
@@ -109,5 +106,7 @@ jobs:
             core/target/site/jacoco/
             mcp-server/target/site/jacoco/
           retention-days: 14
+
+
 
 

@@ -31,7 +31,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 class HikariMXBeanClientTest {
 
     @Container
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine");
+    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(org.testcontainers.utility.DockerImageName.parse("public.ecr.aws/docker/library/postgres:15-alpine").asCompatibleSubstituteFor("postgres"));
 
     private JmxConnectionManager connectionManager;
     private HikariDataSource dataSource;
@@ -186,5 +186,7 @@ class HikariMXBeanClientTest {
         assertThat(pools.get(0).saturationRatio()).isEqualTo(-1.0);
     }
 }
+
+
 
 
