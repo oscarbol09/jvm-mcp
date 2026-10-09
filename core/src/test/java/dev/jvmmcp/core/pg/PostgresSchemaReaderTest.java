@@ -31,13 +31,17 @@ class PostgresSchemaReaderTest {
             stmt.execute("CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INT REFERENCES users(id), total DECIMAL)");
             stmt.execute("CREATE INDEX idx_orders_user_id ON orders(user_id)");
             
-            stmt.execute("INSERT INTO users (username) VALUES ('test1'), ('test2')");
-            stmt.execute("INSERT INTO orders (user_id, total) VALUES (1, 100.0), (2, 200.0)");
+            stmt.execute("INSERT INTO users (username) SELECT 'test' || i FROM generate_series(1, 150) AS i");
+            stmt.execute("INSERT INTO orders (user_id, total) SELECT i, i * 10.0 FROM generate_series(1, 150) AS i");
             
             // Create a "Large" table > 10MB to test the missing index size heuristic (Trick A)
             stmt.execute("CREATE TABLE large_table AS SELECT i AS id, md5(i::text) AS dummy_data FROM generate_series(1, 400000) AS i");
-            // Do a sequential scan on large_table to trigger missing index heuristics
-            stmt.execute("SELECT count(*) FROM large_table WHERE dummy_data = 'nonexistent'");
+            // Do sequential scans on large_table to trigger missing index heuristics (needs > 100 seq scans)
+            for (int i = 0; i < 105; i++) {
+                stmt.execute("SELECT count(*) FROM large_table WHERE dummy_data = 'nonexistent'");
+                stmt.execute("SELECT count(*) FROM users WHERE username = 'nonexistent'");
+                stmt.execute("SELECT count(*) FROM orders WHERE total = -1");
+            }
             
             // Generate some stats for pg_stat_user_tables
             stmt.execute("ANALYZE users");
