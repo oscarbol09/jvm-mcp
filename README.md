@@ -1,4 +1,4 @@
-﻿# JVM-MCP
+# JVM-MCP
 
 > **Native Java Model Context Protocol (MCP) server for live Spring Boot inspection.**  
 > Provide Claude, Cursor, and Antigravity with real-time context on memory, threads, and database state without modifying your application code.
@@ -48,19 +48,19 @@ Existing diagnostic approaches have significant drawbacks: Python scripts analyz
 Distributed as a standalone native binary starting in `< 15ms`. No Node.js runtime required, no intermediate scripts, and critically: **zero modifications to your target application code**.
 
 ```
-┌───────────────────────────────────────┐
-│     Claude Desktop / Cursor / IDE     │
-└──────────────────┬────────────────────┘
-                   │ MCP Protocol (stdio)
-                   ▼
-┌───────────────────────────────────────┐
-│              jvm-mcp                  │ (Native Binary, < 15ms startup)
-└──────────────────┬────────────────────┘
-                   │ Attach API / JMX
-                   ▼
-┌───────────────────────────────────────┐
-│       Target Java App (PID 45231)     │ (No custom dependencies required)
-└───────────────────────────────────────┘
++---------------------------------------+
+�     Claude Desktop / Cursor / IDE     �
++---------------------------------------+
+                   � MCP Protocol (stdio)
+                   ?
++---------------------------------------+
+�              jvm-mcp                  � (Native Binary, < 15ms startup)
++---------------------------------------+
+                   � Attach API / JMX
+                   ?
++---------------------------------------+
+�       Target Java App (PID 45231)     � (No custom dependencies required)
++---------------------------------------+
 ```
 
 ---
@@ -134,4 +134,5 @@ JVM-MCP is an open-source project welcoming community contributions. Review our 
 This project is licensed under the terms of the **MIT License**. See the [`LICENSE`](LICENSE) file for details.
 
 Copyright (c) 2026 oscarbol09 / JVM-MCP Contributors.
+
 

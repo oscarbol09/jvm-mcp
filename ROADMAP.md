@@ -82,3 +82,4 @@ This roadmap outlines current development milestones, architectural priorities, 
 1. Check existing issues or open a new one with the title `[Proposal] Milestone Name`.
 2. Follow the architectural constraints in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 3. Open a draft PR early for architectural alignment.
+
