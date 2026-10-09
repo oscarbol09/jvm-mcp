@@ -326,7 +326,7 @@ public class ServeCommand implements Callable<Integer> {
                     if ("get_memory_summary".equals(toolName)) {
                         MemoryMXBeanClient memoryClient = new MemoryMXBeanClient(jmxManager.getMBeanServerConnection());
                         content.add(Map.of("type", "text", "text", SimpleJson.toJson(memoryClient.getHeapSummary(pid))));
-                    } else {
+                    } else if ("get_thread_summary".equals(toolName)) {
                         ThreadMXBeanClient threadClient = new ThreadMXBeanClient(jmxManager.getMBeanServerConnection());
                         content.add(Map.of("type", "text", "text", SimpleJson.toJson(threadClient.getThreadSummary(pid))));
                         content.add(Map.of("type", "text", "text", "Deadlock Report: " + SimpleJson.toJson(threadClient.detectDeadlocks())));
