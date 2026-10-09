@@ -151,7 +151,7 @@ class HikariMXBeanClientTest {
 
         HikariMXBeanClient client = new HikariMXBeanClient(mockMbsc);
 
-        assertThatThrownBy(() -> client.getMaximumPoolSize("FailingPool"))
+        assertThatThrownBy(() -> client.getMaximumPoolSize(configName))
             .isInstanceOf(IOException.class)
             .hasMessageContaining("Failed to read maximum pool size");
     }

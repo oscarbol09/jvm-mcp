@@ -78,9 +78,9 @@ class MemoryMXBeanClientTest {
     @DisplayName("evaluatePressure flags CRITICAL when heap ratio exceeds 95%")
     void shouldFlagCriticalPressure() {
         MemoryUsageInfo criticalUsage = new MemoryUsageInfo(100, 960, 1000, 1000, 96.0, 96.0, 100.0);
-        MemoryPressure pressure = memoryClient.evaluatePressure(criticalUsage, List.of(
+        MemoryPressure pressure = memoryClient.evaluatePressure(criticalUsage, List.of(), List.of(
             new GarbageCollectorInfo("G1 Young", 10, 150, new String[]{"G1 Eden"})
-        ));
+        ), 10000L);
 
         assertThat(pressure.level()).isEqualTo(MemoryPressureLevel.CRITICAL);
         assertThat(pressure.recommendation()).contains("CRITICAL");
@@ -92,7 +92,7 @@ class MemoryMXBeanClientTest {
     @DisplayName("evaluatePressure flags ELEVATED when heap ratio is between 85% and 95%")
     void shouldFlagElevatedPressure() {
         MemoryUsageInfo elevatedUsage = new MemoryUsageInfo(100, 880, 1000, 1000, 88.0, 88.0, 100.0);
-        MemoryPressure pressure = memoryClient.evaluatePressure(elevatedUsage, List.of());
+        MemoryPressure pressure = memoryClient.evaluatePressure(elevatedUsage, List.of(), List.of(), 10000L);
 
         assertThat(pressure.level()).isEqualTo(MemoryPressureLevel.ELEVATED);
         assertThat(pressure.recommendation()).contains("ELEVATED");
@@ -102,7 +102,7 @@ class MemoryMXBeanClientTest {
     @DisplayName("evaluatePressure flags NORMAL when heap ratio is low")
     void shouldFlagNormalPressure() {
         MemoryUsageInfo normalUsage = new MemoryUsageInfo(100, 200, 1000, 1000, 20.0, 20.0, 100.0);
-        MemoryPressure pressure = memoryClient.evaluatePressure(normalUsage, List.of());
+        MemoryPressure pressure = memoryClient.evaluatePressure(normalUsage, List.of(), List.of(), 10000L);
 
         assertThat(pressure.level()).isEqualTo(MemoryPressureLevel.NORMAL);
         assertThat(pressure.recommendation()).contains("NORMAL");
@@ -112,12 +112,12 @@ class MemoryMXBeanClientTest {
     @DisplayName("evaluatePressure falls back to committed bytes when max bytes is unassigned")
     void shouldHandleUndefinedMaxBytesInPressure() {
         MemoryUsageInfo undefinedMax = new MemoryUsageInfo(100, 450, 500, -1, 90.0, 450.0, 500.0);
-        MemoryPressure pressure = memoryClient.evaluatePressure(undefinedMax, List.of());
+        MemoryPressure pressure = memoryClient.evaluatePressure(undefinedMax, List.of(), List.of(), 10000L);
 
         assertThat(pressure.level()).isEqualTo(MemoryPressureLevel.ELEVATED);
 
         MemoryUsageInfo zeroCommitted = new MemoryUsageInfo(0, 0, 0, -1, 0.0, 0.0, 0.0);
-        MemoryPressure zeroPressure = memoryClient.evaluatePressure(zeroCommitted, List.of());
+        MemoryPressure zeroPressure = memoryClient.evaluatePressure(zeroCommitted, List.of(), List.of(), 10000L);
         assertThat(zeroPressure.level()).isEqualTo(MemoryPressureLevel.NORMAL);
     }
 }
