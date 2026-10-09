@@ -10,9 +10,17 @@ permissions:
 
 jobs:
   build-and-release:
-    name: Build and Create GitHub Release
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    name: Build and Release (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            suffix: linux-amd64
+          - os: macos-latest
+            suffix: macos-amd64
+          - os: windows-latest
+            suffix: windows-amd64.exe
     steps:
       - name: Checkout Source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -24,19 +32,46 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Build and Package
+      - name: Build Fat JAR
         run: ./mvnw clean package -B -DskipTests
 
-      - name: Generate Checksums
+      - name: Build Native Executable with jpackage
         shell: bash
         run: |
-          cd mcp-server/target
-          sha256sum jvm-mcp-server-*.jar > checksums.txt
+          # Use jlink and jpackage to bundle the JRE and Attach API
+          jlink --add-modules java.base,java.management,java.net.http,java.sql,java.naming,jdk.attach,jdk.management,jdk.management.agent,java.instrument,jdk.internal.jvmstat --output custom-jre --strip-debug --no-man-pages --no-header-files
+          
+          if [ "${{ matrix.os }}" == "windows-latest" ]; then
+            jpackage --type app-image --name jvm-mcp --input mcp-server/target --main-jar jvm-mcp-server-1.0.0-SNAPSHOT.jar --main-class dev.jvmmcp.JvmMcp --runtime-image custom-jre --dest build-out
+            mv build-out/jvm-mcp/jvm-mcp.exe build-out/jvm-mcp-${{ matrix.suffix }}
+          elif [ "${{ matrix.os }}" == "macos-latest" ]; then
+            jpackage --type app-image --name jvm-mcp --input mcp-server/target --main-jar jvm-mcp-server-1.0.0-SNAPSHOT.jar --main-class dev.jvmmcp.JvmMcp --runtime-image custom-jre --dest build-out
+            # jpackage on macOS creates a .app bundle. We want a pure executable.
+            # A simpler way for a CLI is just a bash script that launches the bundled java.
+            mkdir -p dist
+            cp -r custom-jre dist/
+            cp mcp-server/target/jvm-mcp-server-*.jar dist/app.jar
+            echo '#!/bin/bash' > dist/jvm-mcp-${{ matrix.suffix }}
+            echo 'DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"' >> dist/jvm-mcp-${{ matrix.suffix }}
+            echo 'exec "$DIR/custom-jre/bin/java" -jar "$DIR/app.jar" "$@"' >> dist/jvm-mcp-${{ matrix.suffix }}
+            chmod +x dist/jvm-mcp-${{ matrix.suffix }}
+            tar -czvf jvm-mcp-${{ matrix.suffix }}.tar.gz -C dist .
+          else
+            # Linux
+            mkdir -p dist
+            cp -r custom-jre dist/
+            cp mcp-server/target/jvm-mcp-server-*.jar dist/app.jar
+            echo '#!/bin/bash' > dist/jvm-mcp-${{ matrix.suffix }}
+            echo 'DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"' >> dist/jvm-mcp-${{ matrix.suffix }}
+            echo 'exec "$DIR/custom-jre/bin/java" -jar "$DIR/app.jar" "$@"' >> dist/jvm-mcp-${{ matrix.suffix }}
+            chmod +x dist/jvm-mcp-${{ matrix.suffix }}
+            tar -czvf jvm-mcp-${{ matrix.suffix }}.tar.gz -C dist .
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           generate_release_notes: true
           files: |
-            mcp-server/target/jvm-mcp-server-*.jar
-            mcp-server/target/checksums.txt
+            jvm-mcp-*.tar.gz
+            build-out/jvm-mcp-*.exe
