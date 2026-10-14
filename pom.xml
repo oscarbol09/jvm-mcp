@@ -34,7 +34,7 @@
         <mockito.version>5.24.0</mockito.version>
         <hikaricp.version>7.1.0</hikaricp.version>
         <h2.version>2.5.252</h2.version>
-        <testcontainers.version>1.21.4</testcontainers.version>
+        <testcontainers.version>2.0.5</testcontainers.version>
         <maven-shade-plugin.version>3.6.2</maven-shade-plugin.version>
     </properties>
 
