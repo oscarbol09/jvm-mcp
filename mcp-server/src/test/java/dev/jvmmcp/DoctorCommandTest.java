@@ -48,7 +48,7 @@ class DoctorCommandTest {
             assertThat(output).contains("Java Home:     " + System.getProperty("java.home"));
             assertThat(output).contains("User Name:     " + System.getProperty("user.name"));
             assertThat(output).contains("Checking Attach API Capabilities...");
-            assertThat(output).contains("Attach API is functioning.");
+            assertThat(output).contains("[OK] Attach API is functioning.");
             assertThat(output).contains("Your system is ready to use JVM-MCP.");
         } finally {
             System.setOut(originalOut);
@@ -91,7 +91,7 @@ class DoctorCommandTest {
             int exitCode = doctor.call();
 
             assertThat(exitCode).isZero();
-            assertThat(out.toString()).contains("Found 1 local Java processes accessible to user '" + System.getProperty("user.name") + "'.");
+            assertThat(out.toString()).contains("[OK] Found 1 local Java processes accessible to user '" + System.getProperty("user.name") + "'.");
             assertThat(out.toString()).doesNotContain("Note: No Java processes found.");
         } finally {
             System.setOut(originalOut);
@@ -112,7 +112,7 @@ class DoctorCommandTest {
             int exitCode = doctor.call();
 
             assertThat(exitCode).isEqualTo(1);
-            assertThat(out.toString()).contains("Attach API failed to initialize: Access denied");
+            assertThat(out.toString()).contains("[ERROR] Attach API failed to initialize: Access denied");
             assertThat(out.toString()).contains("Resolution: Ensure you are running this CLI as the same user as the target JVM.");
         } finally {
             System.setOut(originalOut);
@@ -126,7 +126,7 @@ class DoctorCommandTest {
         PrintStream ps = new PrintStream(out);
 
         DoctorCommand.checkJvmVendor("Eclipse Adoptium", "OpenJDK 64-Bit Server VM", ps);
-        assertThat(out.toString()).contains("HotSpot-compatible JVM detected (Eclipse Adoptium)");
+        assertThat(out.toString()).contains("[OK] HotSpot-compatible JVM detected (Eclipse Adoptium)");
 
         out.reset();
         DoctorCommand.checkJvmVendor("IBM Corporation", "Eclipse OpenJ9 VM", ps);

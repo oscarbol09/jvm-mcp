@@ -44,14 +44,14 @@ public class DoctorCommand implements Callable<Integer> {
         System.out.println("Checking Attach API Capabilities...");
         try {
             var jvms = attachService.listJvms();
-            System.out.println("[\u2713] Attach API is functioning.");
-            System.out.println("[\u2713] Found " + jvms.size() + " local Java processes accessible to user '" + System.getProperty("user.name") + "'.");
+            System.out.println("[OK] Attach API is functioning.");
+            System.out.println("[OK] Found " + jvms.size() + " local Java processes accessible to user '" + System.getProperty("user.name") + "'.");
             
             if (jvms.isEmpty()) {
                 System.out.println("\nNote: No Java processes found. Ensure your target applications are running as the same OS user.");
             }
         } catch (Exception e) {
-            System.out.println("[\u2717] Attach API failed to initialize: " + e.getMessage());
+            System.out.println("[ERROR] Attach API failed to initialize: " + e.getMessage());
             System.out.println("    Resolution: Ensure you are running this CLI as the same user as the target JVM.");
             return 1;
         }
@@ -66,7 +66,7 @@ public class DoctorCommand implements Callable<Integer> {
         if (combined.contains("openj9") || combined.contains("semeru") || combined.contains("ibm")) {
             out.println("[!] Detected OpenJ9 / IBM JVM. HotSpot Attach API (jdk.attach) has limited compatibility. Use Actuator HTTP mode if local attach fails.");
         } else {
-            out.println("[\u2713] HotSpot-compatible JVM detected (" + (vendor != null && !vendor.isBlank() ? vendor : "Standard") + "). Dynamic Attach API fully supported.");
+            out.println("[OK] HotSpot-compatible JVM detected (" + (vendor != null && !vendor.isBlank() ? vendor : "Standard") + "). Dynamic Attach API fully supported.");
         }
     }
 
@@ -89,7 +89,7 @@ public class DoctorCommand implements Callable<Integer> {
             try {
                 String val = java.nio.file.Files.readString(ptracePath).trim();
                 if ("0".equals(val)) {
-                    out.println("[\u2713] Linux yama/ptrace_scope is 0 (classic ptrace permissions; unrestricted same-user attach).");
+                    out.println("[OK] Linux yama/ptrace_scope is 0 (classic ptrace permissions; unrestricted same-user attach).");
                 } else {
                     out.println("[!] Linux yama/ptrace_scope is set to " + val + ". Non-child attach requires target JVM to allow ptrace or matching UID/CAP_SYS_PTRACE capability.");
                 }
