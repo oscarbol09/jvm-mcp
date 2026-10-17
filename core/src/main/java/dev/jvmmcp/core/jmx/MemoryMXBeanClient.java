@@ -94,9 +94,8 @@ public class MemoryMXBeanClient implements MemoryDiagnosticPort {
             String name = pool.name().toLowerCase();
             if (name.contains("metaspace") || name.contains("compressed class space")) {
                 MemoryUsageInfo usage = pool.usage();
-                double poolMax = usage.maxBytes() > 0 ? usage.maxBytes() : usage.committedBytes();
-                if (poolMax > 0) {
-                    double ratio = (double) usage.usedBytes() / poolMax;
+                if (usage.maxBytes() > 0) {
+                    double ratio = (double) usage.usedBytes() / usage.maxBytes();
                     if (ratio > maxMetaspaceRatio) {
                         maxMetaspaceRatio = ratio;
                     }

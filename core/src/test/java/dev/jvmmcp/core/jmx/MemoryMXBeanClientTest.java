@@ -120,4 +120,96 @@ class MemoryMXBeanClientTest {
         MemoryPressure zeroPressure = memoryClient.evaluatePressure(zeroCommitted, List.of(), List.of(), 10000L);
         assertThat(zeroPressure.level()).isEqualTo(MemoryPressureLevel.NORMAL);
     }
+
+    @Test
+    @DisplayName("evaluatePressure ignores high committed utilization for unbounded Metaspace")
+    void shouldIgnoreCommittedUtilizationForUnboundedMetaspace() {
+        MemoryUsageInfo normalHeap = new MemoryUsageInfo(100, 200, 500, 1000, 20.0, 200.0, 1000.0);
+        MemoryPoolInfo unboundedMetaspace = pool("Metaspace", usage(99, 100, -1));
+
+        MemoryPressure pressure = memoryClient.evaluatePressure(
+            normalHeap,
+            List.of(unboundedMetaspace),
+            List.of(),
+            10000L
+        );
+
+        assertThat(pressure.level()).isEqualTo(MemoryPressureLevel.NORMAL);
+        assertThat(pressure.heapUsageRatio()).isEqualTo(0.2);
+        assertThat(pressure.recommendation()).doesNotContain("Metaspace");
+    }
+
+    @Test
+    @DisplayName("evaluatePressure flags bounded Metaspace and class space pressure")
+    void shouldFlagBoundedMetaspaceAndClassSpacePressure() {
+        MemoryUsageInfo normalHeap = new MemoryUsageInfo(100, 200, 500, 1000, 20.0, 200.0, 1000.0);
+        MemoryPoolInfo boundedMetaspace = pool("Metaspace", usage(960, 1000, 1000));
+        MemoryPressure metaspacePressure = memoryClient.evaluatePressure(
+            normalHeap,
+            List.of(boundedMetaspace),
+            List.of(),
+            10000L
+        );
+
+        assertThat(metaspacePressure.level()).isEqualTo(MemoryPressureLevel.CRITICAL);
+        assertThat(metaspacePressure.heapUsageRatio()).isEqualTo(0.96);
+        assertThat(metaspacePressure.recommendation()).contains("Metaspace");
+
+        MemoryPoolInfo unboundedMetaspace = pool("Metaspace", usage(99, 100, -1));
+        MemoryPoolInfo boundedClassSpace = pool("Compressed Class Space", usage(96, 100, 100));
+        MemoryPressure classSpacePressure = memoryClient.evaluatePressure(
+            normalHeap,
+            List.of(unboundedMetaspace, boundedClassSpace),
+            List.of(),
+            10000L
+        );
+
+        assertThat(classSpacePressure.level()).isEqualTo(MemoryPressureLevel.CRITICAL);
+        assertThat(classSpacePressure.heapUsageRatio()).isEqualTo(0.96);
+        assertThat(classSpacePressure.recommendation()).contains("Metaspace/Class Space");
+    }
+
+    @Test
+    @DisplayName("evaluatePressure ignores zero and undefined Metaspace limits while preserving heap and GC pressure")
+    void shouldIgnoreZeroMetaspaceLimitsAndPreserveHeapAndGcPressure() {
+        MemoryUsageInfo normalHeap = new MemoryUsageInfo(100, 200, 500, 1000, 20.0, 200.0, 1000.0);
+        MemoryPoolInfo zeroMetaspace = pool("Metaspace", usage(0, 0, -1));
+        MemoryPoolInfo zeroLimitClassSpace = pool("Compressed Class Space", usage(99, 100, 0));
+        MemoryPressure zeroPressure = memoryClient.evaluatePressure(
+            normalHeap,
+            List.of(zeroMetaspace, zeroLimitClassSpace),
+            List.of(),
+            10000L
+        );
+        assertThat(zeroPressure.level()).isEqualTo(MemoryPressureLevel.NORMAL);
+
+        MemoryPoolInfo unboundedMetaspace = pool("Metaspace", usage(99, 100, -1));
+        MemoryPressure heapPressure = memoryClient.evaluatePressure(
+            new MemoryUsageInfo(100, 960, 1000, 1000, 96.0, 96.0, 100.0),
+            List.of(unboundedMetaspace),
+            List.of(),
+            10000L
+        );
+        assertThat(heapPressure.level()).isEqualTo(MemoryPressureLevel.CRITICAL);
+        assertThat(heapPressure.recommendation()).contains("Heap utilization");
+
+        MemoryPressure gcPressure = memoryClient.evaluatePressure(
+            normalHeap,
+            List.of(unboundedMetaspace),
+            List.of(new GarbageCollectorInfo("G1 Old", 10, 2000, new String[]{"G1 Old Gen"})),
+            10000L
+        );
+        assertThat(gcPressure.level()).isEqualTo(MemoryPressureLevel.CRITICAL);
+        assertThat(gcPressure.recommendation()).contains("GC Lifetime Overhead");
+        assertThat(gcPressure.totalGcTimeMs()).isEqualTo(2000);
+        assertThat(gcPressure.totalGcCount()).isEqualTo(10);
+    }
+
+    private MemoryPoolInfo pool(String name, MemoryUsageInfo usage) {
+        return new MemoryPoolInfo(name, "NON_HEAP", usage, usage);
+    }
+
+    private MemoryUsageInfo usage(long used, long committed, long max) {
+        return new MemoryUsageInfo(0, used, committed, max, 0.0, used, max);
+    }
 }
