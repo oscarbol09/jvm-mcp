@@ -62,6 +62,66 @@ class SpringBeansParserTest {
         assertThat(orderService.get().scope()).isEqualTo("singleton");
         assertThat(orderService.get().aliases()).containsExactly("orderSvc");
         assertThat(orderService.get().dependencies()).containsExactly("orderRepository", "paymentClient");
+        assertThat(orderService.get().resource())
+            .isEqualTo("class path resource [com/example/service/OrderService.class]");
+
+        SpringBeanDetail paymentClient = report.getAllBeans().stream()
+            .filter(b -> "paymentClient".equals(b.name()))
+            .findFirst()
+            .orElseThrow();
+        assertThat(paymentClient.resource()).isNull();
+    }
+
+    @Test
+    @DisplayName("parse converts non-string parent ids and resources to strings")
+    void shouldConvertNonStringParentIdsAndResources() {
+        Map<String, Object> payload = Map.of(
+            "contexts", Map.of(
+                "numericContext", Map.of(
+                    "parentId", 42,
+                    "beans", Map.of("numericResource", Map.of(
+                        "aliases", java.util.List.of("numericAlias"),
+                        "scope", "prototype",
+                        "type", "com.example.NumericResource",
+                        "resource", 17,
+                        "dependencies", java.util.List.of("numericDependency")
+                    ))
+                ),
+                "booleanContext", Map.of(
+                    "parentId", true,
+                    "beans", Map.of("booleanResource", Map.of(
+                        "type", "com.example.BooleanResource",
+                        "resource", false
+                    ))
+                ),
+                "objectContext", Map.of(
+                    "parentId", Map.of("tenant", "blue"),
+                    "beans", Map.of("objectResource", Map.of(
+                        "type", "com.example.ObjectResource",
+                        "resource", Map.of("path", "generated")
+                    ))
+                )
+            )
+        );
+
+        SpringBeansReport report = parser.parseMap(3L, "JMX", payload);
+
+        assertThat(report.totalBeans()).isEqualTo(3);
+        assertThat(report.contexts()).extracting("parentId")
+            .containsExactlyInAnyOrder("42", "true", "{tenant=blue}");
+
+        SpringBeanDetail numeric = report.getAllBeans().stream()
+            .filter(bean -> bean.name().equals("numericResource"))
+            .findFirst()
+            .orElseThrow();
+        assertThat(numeric.resource()).isEqualTo("17");
+        assertThat(numeric.aliases()).containsExactly("numericAlias");
+        assertThat(numeric.scope()).isEqualTo("prototype");
+        assertThat(numeric.type()).isEqualTo("com.example.NumericResource");
+        assertThat(numeric.dependencies()).containsExactly("numericDependency");
+
+        assertThat(report.getAllBeans()).extracting(SpringBeanDetail::resource)
+            .containsExactlyInAnyOrder("17", "false", "{path=generated}");
     }
 
     @Test
@@ -120,6 +180,8 @@ class SpringBeansParserTest {
         SpringBeansReport directReport = parser.parse(1L, "TEST", directBeans);
         assertThat(directReport.totalBeans()).isEqualTo(1);
         assertThat(directReport.getAllBeans().get(0).name()).isEqualTo("directService");
+        assertThat(directReport.contexts().get(0).parentId()).isNull();
+        assertThat(directReport.getAllBeans().get(0).resource()).isNull();
 
         // Flat map structure
         Map<String, Object> flatMap = Map.of(
@@ -146,6 +208,8 @@ class SpringBeansParserTest {
             .orElseThrow();
         assertThat(full.aliases()).containsExactly("alias1");
         assertThat(full.dependencies()).containsExactly("dep1");
+        assertThat(full.resource()).isNull();
+        assertThat(flatReport.contexts().get(0).parentId()).isNull();
     }
 
     @Test

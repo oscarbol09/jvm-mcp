@@ -35,7 +35,7 @@ public class SpringBeansParser {
             for (Map.Entry<?, ?> entry : contextsMap.entrySet()) {
                 String contextId = Objects.toString(entry.getKey(), "default");
                 if (entry.getValue() instanceof Map<?, ?> contextData) {
-                    String parentId = (String) contextData.get("parentId");
+                    String parentId = Objects.toString(contextData.get("parentId"), null);
                     Object beansObj = contextData.get("beans");
                     List<SpringBeanDetail> beans = parseBeansMap(beansObj);
                     totalBeans += beans.size();
@@ -69,7 +69,7 @@ public class SpringBeansParser {
                 List<String> aliases = toStringList(data.get("aliases"));
                 String scope = Objects.toString(data.get("scope"), "singleton");
                 String type = Objects.toString(data.get("type"), "unknown");
-                String resource = (String) data.get("resource");
+                String resource = Objects.toString(data.get("resource"), null);
                 List<String> dependencies = toStringList(data.get("dependencies"));
 
                 beans.add(new SpringBeanDetail(beanName, aliases, scope, type, resource, dependencies));
