@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Accurate Project Positioning**:
   - Updated documentation to emphasize "Zero runtime framework overhead with self-contained packaging and zero target-application modifications" over generic "zero-dependency" claims.
 
+### Fixed
+- **Defensive JSON Parsing in `SimpleJson`**: Malformed numbers (`-`, `1.`, `1e`, `-1.5e-`) and truncated or non-hexadecimal `\u` escapes now fail with a positioned `IllegalArgumentException` instead of leaking `NumberFormatException`; non-ASCII digits are no longer routed into the number parser.
+
 ## [1.1.0] - 2026-10-11
 
 ### Added

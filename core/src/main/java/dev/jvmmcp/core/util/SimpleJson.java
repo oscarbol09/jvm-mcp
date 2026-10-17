@@ -156,7 +156,7 @@ public final class SimpleJson {
             return parseBoolean(tokenizer);
         } else if (c == 'n') {
             return parseNull(tokenizer);
-        } else if (c == '-' || Character.isDigit(c)) {
+        } else if (c == '-' || isAsciiDigit(c)) {
             return parseNumber(tokenizer);
         }
 
@@ -259,9 +259,23 @@ public final class SimpleJson {
                     case 'r' -> sb.append('\r');
                     case 't' -> sb.append('\t');
                     case 'u' -> {
+                        int hexStart = tokenizer.getIndex();
                         StringBuilder hex = new StringBuilder(4);
-                        for (int i = 0; i < 4 && tokenizer.hasMore(); i++) {
-                            hex.append(tokenizer.consume());
+                        for (int i = 0; i < 4; i++) {
+                            if (!tokenizer.hasMore()) {
+                                throw new IllegalArgumentException(
+                                    "Invalid unicode escape at position " + hexStart
+                                        + ": expected 4 hexadecimal digits but the input ended after " + hex.length()
+                                );
+                            }
+                            char digit = tokenizer.consume();
+                            if (!isHexDigit(digit)) {
+                                throw new IllegalArgumentException(
+                                    "Invalid unicode escape at position " + (tokenizer.getIndex() - 1)
+                                        + ": '" + digit + "' is not a hexadecimal digit"
+                                );
+                            }
+                            hex.append(digit);
                         }
                         sb.append((char) Integer.parseInt(hex.toString(), 16));
                     }
@@ -296,16 +310,20 @@ public final class SimpleJson {
         if (tokenizer.peek() == '-') {
             tokenizer.consume();
         }
-        while (tokenizer.hasMore() && Character.isDigit(tokenizer.peek())) {
-            tokenizer.consume();
+        if (consumeDigits(tokenizer) == 0) {
+            throw new IllegalArgumentException(
+                "Invalid number at position " + start + ": expected at least one digit after '-'"
+            );
         }
 
         boolean isFloatingPoint = false;
         if (tokenizer.hasMore() && tokenizer.peek() == '.') {
             isFloatingPoint = true;
             tokenizer.consume();
-            while (tokenizer.hasMore() && Character.isDigit(tokenizer.peek())) {
-                tokenizer.consume();
+            if (consumeDigits(tokenizer) == 0) {
+                throw new IllegalArgumentException(
+                    "Invalid number at position " + start + ": expected at least one digit after the decimal point"
+                );
             }
         }
 
@@ -315,8 +333,10 @@ public final class SimpleJson {
             if (tokenizer.hasMore() && (tokenizer.peek() == '+' || tokenizer.peek() == '-')) {
                 tokenizer.consume();
             }
-            while (tokenizer.hasMore() && Character.isDigit(tokenizer.peek())) {
-                tokenizer.consume();
+            if (consumeDigits(tokenizer) == 0) {
+                throw new IllegalArgumentException(
+                    "Invalid number at position " + start + ": expected at least one digit in the exponent"
+                );
             }
         }
 
@@ -333,6 +353,23 @@ public final class SimpleJson {
         } catch (NumberFormatException e) {
             return Double.parseDouble(numStr);
         }
+    }
+
+    private static int consumeDigits(Tokenizer tokenizer) {
+        int consumed = 0;
+        while (tokenizer.hasMore() && isAsciiDigit(tokenizer.peek())) {
+            tokenizer.consume();
+            consumed++;
+        }
+        return consumed;
+    }
+
+    private static boolean isAsciiDigit(char c) {
+        return c >= '0' && c <= '9';
+    }
+
+    private static boolean isHexDigit(char c) {
+        return isAsciiDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
     }
 
     private static final class Tokenizer {

@@ -2,6 +2,9 @@ package dev.jvmmcp.core.util;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
 import java.util.Map;
@@ -187,6 +190,90 @@ class SimpleJsonTest {
         assertThatThrownBy(() -> SimpleJson.parse("\"valid string\" extra"))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("Trailing content");
+    }
+
+    @ParameterizedTest(name = "Reject malformed number ''{0}''")
+    @ValueSource(strings = {"-", "{\"val\":-}", "[-,1]", "1.", "[1.]", "1e", "1e+", "-1.5e-", "-.5"})
+    @DisplayName("parse should reject malformed numbers as JSON errors instead of leaking NumberFormatException")
+    void shouldRejectMalformedNumbers(String json) {
+        assertThatThrownBy(() -> SimpleJson.parse(json))
+            .as("parsing %s", json)
+            .isExactlyInstanceOf(IllegalArgumentException.class) // NumberFormatException is a subclass, so the type must match exactly
+            .hasMessageContaining("Invalid number")
+            .hasMessageContaining("position");
+    }
+
+    @Test
+    @DisplayName("parse should report the position of a bare minus token")
+    void shouldReportPositionOfBareMinus() {
+        // index 0='{', 1='"', 2='v', 3='a', 4='l', 5='"', 6=':', 7='-'
+        assertThatThrownBy(() -> SimpleJson.parse("{\"val\":-}"))
+            .isExactlyInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("position 7");
+    }
+
+    @ParameterizedTest(name = "Reject malformed unicode escape in ''{0}''")
+    @ValueSource(strings = {"\"\\u00zz\"", "\"\\u12\"", "\"\\uZZZZ\"", "\"\\u00\"",
+                            "{\"k\":\"\\u0g00\"}", "{\"k\":\"\\u"})
+    @DisplayName("parse should reject malformed \\u escapes as JSON errors instead of leaking NumberFormatException")
+    void shouldRejectMalformedUnicodeEscapes(String json) {
+        assertThatThrownBy(() -> SimpleJson.parse(json))
+            .as("parsing %s", json)
+            .isExactlyInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Invalid unicode escape")
+            .hasMessageContaining("position");
+    }
+
+    @Test
+    @DisplayName("parse should pinpoint the offending character inside a \\u escape")
+    void shouldPinpointOffendingHexDigit() {
+        assertThatThrownBy(() -> SimpleJson.parse("\"\\u00zz\""))
+            .isExactlyInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("position 5")
+            .hasMessageContaining("'z'");
+    }
+
+    @Test
+    @DisplayName("parse should not route non-ASCII digits into the number parser")
+    void shouldRejectNonAsciiDigits() {
+        // U+0661 ARABIC-INDIC DIGIT ONE satisfies Character.isDigit but is never valid in JSON
+        assertThatThrownBy(() -> SimpleJson.parse("{\"val\":\u0661}"))
+            .isExactlyInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Unexpected character");
+    }
+
+    @ParameterizedTest(name = "Parse valid number ''{0}'' as ''{1}''")
+    @CsvSource({
+        "0, 0",
+        "-1, -1",
+        "  -42  , -42",
+        "2147483647, 2147483647",
+        "1.5, 1.5",
+        "-0.125, -0.125",
+        "-1.5e-3, -0.0015",
+        "2E3, 2000.0"
+    })
+    @DisplayName("parse should still accept every valid JSON number shape")
+    void shouldParseValidNumbers(String json, String expected) {
+        Object parsed = SimpleJson.parse(json);
+        assertThat(parsed).isInstanceOf(Number.class);
+        Number number = (Number) parsed;
+        if (expected.contains(".")) {
+            assertThat(number.doubleValue()).isEqualTo(Double.parseDouble(expected));
+        } else {
+            assertThat(number.longValue()).isEqualTo(Long.parseLong(expected));
+        }
+    }
+
+    @Test
+    @DisplayName("parse should decode valid \\u escapes next to numbers")
+    void shouldDecodeValidUnicodeEscapes() {
+        assertThat(SimpleJson.parse("\"\\u0041\\u00e9\\u4f60\"")).isEqualTo("A\u00e9\u4f60");
+        Map<String, Object> parsed = SimpleJson.parseObject(
+            "{\"name\":\"caf\\u00e9\",\"count\":-3,\"ratio\":1.25e2}");
+        assertThat(parsed).containsEntry("name", "caf\u00e9");
+        assertThat(parsed.get("count")).isEqualTo(-3);
+        assertThat(((Number) parsed.get("ratio")).doubleValue()).isEqualTo(125.0);
     }
 
     public record SampleRecord(String title, int count) {}
