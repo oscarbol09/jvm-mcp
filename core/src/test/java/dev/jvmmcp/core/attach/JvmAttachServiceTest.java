@@ -8,6 +8,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -114,6 +117,32 @@ class JvmAttachServiceTest {
             assertThat(JvmAttachService.isCrossUser(userA, empty)).isFalse();
             assertThat(JvmAttachService.isCrossUser(empty, userB)).isFalse();
             assertThat(JvmAttachService.isCrossUser(empty, empty)).isFalse();
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"Windows 10", "Windows 11", "Windows Server 2022", "Linux", "Mac OS X", "Darwin"})
+        @ResourceLock("java.lang.System.properties")
+        @DisplayName("should ignore account name casing only on Windows")
+        void shouldCompareUsersAccordingToPlatform(String osName) {
+            String originalOsName = System.getProperty("os.name");
+            try {
+                System.setProperty("os.name", osName);
+                var current = java.util.Optional.of("DOMAIN\\Alice");
+                var sameAccount = java.util.Optional.of("domain\\alice");
+                var differentUser = java.util.Optional.of("DOMAIN\\Bob");
+                var differentDomain = java.util.Optional.of("OTHER\\Alice");
+
+                assertThat(JvmAttachService.isCrossUser(current, sameAccount))
+                    .isEqualTo(!osName.startsWith("Windows"));
+                assertThat(JvmAttachService.isCrossUser(current, differentUser)).isTrue();
+                assertThat(JvmAttachService.isCrossUser(current, differentDomain)).isTrue();
+            } finally {
+                if (originalOsName == null) {
+                    System.clearProperty("os.name");
+                } else {
+                    System.setProperty("os.name", originalOsName);
+                }
+            }
         }
 
         @Test

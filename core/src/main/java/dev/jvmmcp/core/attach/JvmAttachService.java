@@ -125,6 +125,9 @@ public class JvmAttachService {
 
     static boolean isCrossUser(java.util.Optional<String> currentUser, java.util.Optional<String> targetUser) {
         if (currentUser.isPresent() && targetUser.isPresent()) {
+            if (System.getProperty("os.name", "").startsWith("Windows")) {
+                return !currentUser.get().equalsIgnoreCase(targetUser.get());
+            }
             return !currentUser.get().equals(targetUser.get());
         }
         return false;
