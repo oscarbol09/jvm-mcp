@@ -237,6 +237,7 @@ The server exposes 14 diagnostic tools to AI assistants:
 
 ## Contributing & Governance
 
+- [Discussions](https://github.com/oscarbol09/jvm-mcp/discussions): Ask questions, share MCP setups, and brainstorm ideas.
 - [ROADMAP.md](ROADMAP.md): Milestones and active development phases.
 - [CONTRIBUTING.md](CONTRIBUTING.md): Local environment setup, module architecture, and guide for adding MCP tools.
 - [SECURITY.md](SECURITY.md): Vulnerability reporting policy and defense boundaries.

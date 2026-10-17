@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Ask a Question / Community Support
+    url: https://github.com/oscarbol09/jvm-mcp/discussions/categories/q-a
+    about: Ask questions, get help with setup, or troubleshoot JVM attachment and Actuator issues.
+  - name: 💡 Brainstorm Ideas & RFCs
+    url: https://github.com/oscarbol09/jvm-mcp/discussions/categories/ideas
+    about: Discuss new features, diagnostic ideas, or architectural proposals before filing an issue.
+  - name: 📣 Show and Tell
+    url: https://github.com/oscarbol09/jvm-mcp/discussions/categories/show-and-tell
+    about: Share your MCP configuration, workflows, or custom agent setups with the community.
