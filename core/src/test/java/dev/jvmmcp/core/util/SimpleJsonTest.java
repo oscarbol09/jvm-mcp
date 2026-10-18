@@ -3,16 +3,112 @@ package dev.jvmmcp.core.util;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalDouble;
+import java.util.OptionalInt;
+import java.util.OptionalLong;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class SimpleJsonTest {
+
+    @ParameterizedTest
+    @MethodSource("optionalValues")
+    @DisplayName("toJson should serialize optionals as their contents or null")
+    void shouldSerializeOptionalValues(Object value, String expected) {
+        assertThat(SimpleJson.toJson(value)).isEqualTo(expected);
+    }
+
+    static Stream<Arguments> optionalValues() {
+        return Stream.of(
+            Arguments.of(Optional.empty(), "null"),
+            Arguments.of(Optional.of("a\"b\nc"), "\"a\\\"b\\nc\""),
+            Arguments.of(Optional.of(false), "false"),
+            Arguments.of(Optional.of(0), "0"),
+            Arguments.of(Optional.of(Optional.of("nested")), "\"nested\""),
+            Arguments.of(Optional.of(Optional.empty()), "null"),
+            Arguments.of(OptionalInt.empty(), "null"),
+            Arguments.of(OptionalInt.of(0), "0"),
+            Arguments.of(OptionalInt.of(Integer.MIN_VALUE), "-2147483648"),
+            Arguments.of(OptionalLong.empty(), "null"),
+            Arguments.of(OptionalLong.of(0), "0"),
+            Arguments.of(OptionalLong.of(Long.MAX_VALUE), "9223372036854775807"),
+            Arguments.of(OptionalDouble.empty(), "null"),
+            Arguments.of(OptionalDouble.of(0.0), "0.0"),
+            Arguments.of(OptionalDouble.of(-0.0), "-0.0"),
+            Arguments.of(OptionalDouble.of(1.25), "1.25"),
+            Arguments.of(OptionalDouble.of(Double.NaN), "null"),
+            Arguments.of(OptionalDouble.of(Double.POSITIVE_INFINITY), "null"),
+            Arguments.of(OptionalDouble.of(Double.NEGATIVE_INFINITY), "null")
+        );
+    }
+
+    public record OptionalRecord(Optional<String> name, OptionalInt count,
+                                 OptionalLong total, OptionalDouble ratio) {}
+
+    @Test
+    @DisplayName("toJson should unwrap optional record fields")
+    void shouldSerializePresentOptionalRecordFields() {
+        OptionalRecord record = new OptionalRecord(Optional.of("metrics"), OptionalInt.of(42),
+            OptionalLong.of(5000000000L), OptionalDouble.of(1.25));
+
+        assertThat(SimpleJson.toJson(record)).isEqualTo(
+            "{\"name\":\"metrics\",\"count\":42,\"total\":5000000000,\"ratio\":1.25}");
+    }
+
+    @Test
+    @DisplayName("toJson should serialize empty optional record fields as null")
+    void shouldSerializeEmptyOptionalRecordFields() {
+        OptionalRecord record = new OptionalRecord(Optional.empty(), OptionalInt.empty(),
+            OptionalLong.empty(), OptionalDouble.empty());
+
+        assertThat(SimpleJson.toJson(record)).isEqualTo(
+            "{\"name\":null,\"count\":null,\"total\":null,\"ratio\":null}");
+    }
+
+    @Test
+    @DisplayName("toJson should unwrap optionals nested in maps, lists, and arrays")
+    void shouldSerializeOptionalsInContainers() {
+        Object value = Map.of("items", Optional.of(List.of(
+            Optional.of(Map.of("enabled", Optional.of(false))),
+            new Object[] {Optional.empty(), OptionalInt.of(7), OptionalLong.of(8), OptionalDouble.of(1.25)}
+        )));
+
+        assertThat(SimpleJson.toJson(value)).isEqualTo(
+            "{\"items\":[{\"enabled\":false},[null,7,8,1.25]]}");
+    }
+
+    @Test
+    @DisplayName("toJson should not count optional wrappers toward the nesting limit")
+    void shouldPreserveSerializationDepthWhenUnwrappingOptionals() {
+        Object value = "leaf";
+        for (int i = 0; i < 100; i++) {
+            value = Optional.of(List.of(value));
+        }
+
+        assertThat(SimpleJson.toJson(value)).isEqualTo("[".repeat(100) + "\"leaf\"" + "]".repeat(100));
+    }
+
+    @Test
+    @DisplayName("toJson should still reject cycles through optional contents")
+    void shouldRejectCycleThroughOptional() {
+        List<Object> value = new ArrayList<>();
+        value.add(Optional.of(value));
+
+        assertThatThrownBy(() -> SimpleJson.toJson(value))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("depth");
+    }
 
     @Test
     @DisplayName("toJson should throw IllegalArgumentException when exceeding max depth")

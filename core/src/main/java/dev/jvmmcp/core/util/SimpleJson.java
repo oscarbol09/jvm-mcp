@@ -30,6 +30,18 @@ public final class SimpleJson {
             throw new IllegalArgumentException("Exceeded maximum serialization depth (" + MAX_SERIALIZATION_DEPTH + ")");
         }
         if (obj == null) return "null";
+        if (obj instanceof Optional<?> optional) {
+            return toJson(optional.orElse(null), depth);
+        }
+        if (obj instanceof OptionalInt optional) {
+            return optional.isPresent() ? toJson(optional.getAsInt(), depth) : "null";
+        }
+        if (obj instanceof OptionalLong optional) {
+            return optional.isPresent() ? toJson(optional.getAsLong(), depth) : "null";
+        }
+        if (obj instanceof OptionalDouble optional) {
+            return optional.isPresent() ? toJson(optional.getAsDouble(), depth) : "null";
+        }
         if (obj instanceof String) {
             String s = (String) obj;
             StringBuilder sb = new StringBuilder(s.length() + 16);
