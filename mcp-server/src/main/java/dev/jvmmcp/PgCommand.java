@@ -30,6 +30,10 @@ public class PgCommand implements Callable<Integer> {
     @Option(names = {"--action"}, required = true, description = "Action to perform: schema, missing-indexes, slow-queries")
     private String action;
 
+    @Option(names = {"--min-table-size-mb"}, defaultValue = "1",
+        description = "Minimum table size in MiB for missing-indexes (default: 1, 0 disables the size filter)")
+    private long minTableSizeMb;
+
     @Override
     public Integer call() {
         try (PostgresSchemaReader reader = new PostgresSchemaReader(url, user, password)) {
@@ -39,7 +43,10 @@ public class PgCommand implements Callable<Integer> {
                     System.out.println(SimpleJson.toJson(info));
                 }
                 case "missing-indexes" -> {
-                    MissingIndexAnalysis analysis = reader.findMissingIndexes(schema);
+                    if (minTableSizeMb < 0 || minTableSizeMb > Long.MAX_VALUE / (1024L * 1024L)) {
+                        throw new IllegalArgumentException("--min-table-size-mb must be a non-negative integer that fits in bytes");
+                    }
+                    MissingIndexAnalysis analysis = reader.findMissingIndexes(schema, minTableSizeMb * 1024L * 1024L);
                     System.out.println(SimpleJson.toJson(analysis));
                 }
                 case "slow-queries" -> {

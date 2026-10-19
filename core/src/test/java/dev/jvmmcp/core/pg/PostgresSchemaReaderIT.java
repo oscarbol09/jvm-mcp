@@ -81,7 +81,7 @@ class PostgresSchemaReaderIT {
         // large_table should appear because it exceeds 10MB and we did a Seq Scan
         assertThat(analysis.candidates()).extracting(MissingIndexCandidate::tableName).contains("large_table");
         
-        // users and orders MUST NOT appear, even if they had seq scans, because they are < 10MB
+        // users and orders stay below the default 1 MiB threshold, even if they had seq scans
         assertThat(analysis.candidates()).extracting(MissingIndexCandidate::tableName).doesNotContain("users", "orders");
     }
 

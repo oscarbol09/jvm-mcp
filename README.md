@@ -187,11 +187,21 @@ The server exposes 14 diagnostic tools to AI assistants:
 | `get_bean_detail` | Detailed metadata, autowired dependencies, and scope of a bean. | `pid` (number), `beanName` (string) |
 | `list_hikari_pools` | HikariCP pool metrics, active/idle connections, and leak warnings. | `pid` (number) |
 | `inspect_pg_schema` | PostgreSQL table schema, columns, row estimates, and foreign keys. | `url` (string), `schema` (string, optional) |
-| `find_missing_indexes` | High sequential scan tables with low index usage via `pg_stat_user_tables`. | `url` (string), `schema` (string, optional) |
+| `find_missing_indexes` | High sequential scan tables with low index usage via `pg_stat_user_tables`. | `url` (string), `schema` (string, optional), `minTableSizeMb` (integer, optional) |
 | `find_slow_queries` | Slow query execution profiles from `pg_stat_statements`. | `url` (string) |
 | `get_actuator_health` | Recursively parsed Spring Boot `/actuator/health` component status. | `url` (string) |
 | `get_actuator_metrics` | Batch or individual diagnostic metric values from `/actuator/metrics`. | `url` (string), `metrics` (string, optional) |
 | `get_actuator_startup` | Startup timeline and slowest beans from `/actuator/startup`. | `url` (string) |
+
+Missing-index analysis defaults to a minimum table size of 1 MiB (1,048,576 bytes).
+Set `minTableSizeMb` to `0` to include smaller tables, or choose a higher whole-number
+threshold to filter them out. The CLI exposes the same setting:
+
+```bash
+jvm-mcp pg --url "jdbc:postgresql://localhost:5432/mydb" --action missing-indexes --min-table-size-mb 0
+```
+
+Java callers can use `findMissingIndexes(schemaName, minTableSizeBytes)` for a threshold in bytes.
 
 ---
 

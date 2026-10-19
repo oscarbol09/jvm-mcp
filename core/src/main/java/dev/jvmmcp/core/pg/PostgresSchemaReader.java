@@ -17,6 +17,8 @@ import java.util.Map;
 
 public class PostgresSchemaReader implements AutoCloseable {
 
+    public static final long DEFAULT_MIN_TABLE_SIZE_BYTES = 1024L * 1024L;
+
     private static final int MAX_CACHED_POOLS = 5;
     private static final int QUERY_TIMEOUT_SECONDS = 10;
     
@@ -318,8 +320,18 @@ public class PostgresSchemaReader implements AutoCloseable {
     }
 
     public MissingIndexAnalysis findMissingIndexes(String schemaName) throws SQLException {
+        return findMissingIndexes(schemaName, DEFAULT_MIN_TABLE_SIZE_BYTES);
+    }
+
+    /**
+     * Finds scan-heavy tables at least {@code minTableSizeBytes} bytes in size.
+     * Use zero to disable the table-size filter.
+     */
+    public MissingIndexAnalysis findMissingIndexes(String schemaName, long minTableSizeBytes) throws SQLException {
+        if (minTableSizeBytes < 0) {
+            throw new IllegalArgumentException("Minimum table size must be non-negative");
+        }
         String safeSchema = validateSchemaName(schemaName);
-        // Filters out small tables (< 10MB) where PG intentionally uses Seq Scans for performance
         String sql = """
             SELECT
                 relname AS table_name,
@@ -333,7 +345,7 @@ public class PostgresSchemaReader implements AutoCloseable {
                 schemaname = ?
                 AND seq_scan > 100 AND seq_tup_read > 10000
                 AND (idx_scan IS NULL OR seq_scan > idx_scan)
-                AND pg_relation_size(relid) > 10 * 1024 * 1024
+                AND pg_relation_size(relid) >= ?
             ORDER BY
                 seq_tup_read DESC
             LIMIT 20
@@ -343,6 +355,7 @@ public class PostgresSchemaReader implements AutoCloseable {
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setQueryTimeout(QUERY_TIMEOUT_SECONDS);
             ps.setString(1, safeSchema);
+            ps.setLong(2, minTableSizeBytes);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     candidates.add(new MissingIndexCandidate(

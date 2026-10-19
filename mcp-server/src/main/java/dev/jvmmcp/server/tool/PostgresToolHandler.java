@@ -3,6 +3,7 @@ package dev.jvmmcp.server.tool;
 import dev.jvmmcp.core.pg.PostgresSchemaReader;
 import dev.jvmmcp.core.util.SimpleJson;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -61,7 +62,9 @@ public class PostgresToolHandler implements ToolHandler {
                     "type", "object",
                     "properties", Map.of(
                         "url", Map.of("type", "string", "description", "JDBC URL (e.g. jdbc:postgresql://localhost:5432/db)"),
-                        "schema", Map.of("type", "string", "description", "Target schema (default: public)")
+                        "schema", Map.of("type", "string", "description", "Target schema (default: public)"),
+                        "minTableSizeMb", Map.of("type", "integer", "minimum", 0, "default", 1,
+                            "description", "Minimum table size in MiB (default: 1, 0 disables the size filter)")
                     ),
                     "required", List.of("url")
                 )
@@ -96,7 +99,23 @@ public class PostgresToolHandler implements ToolHandler {
             } else if ("find_missing_indexes".equals(toolName)) {
                 String rawSchema = ToolArgs.getStringArg(args, "schema", false);
                 String schema = PostgresSchemaReader.validateSchemaName(rawSchema);
-                content.add(Map.of("type", "text", "text", SimpleJson.toJson(reader.findMissingIndexes(schema))));
+                long minTableSizeBytes = PostgresSchemaReader.DEFAULT_MIN_TABLE_SIZE_BYTES;
+                if (args.containsKey("minTableSizeMb")) {
+                    long minTableSizeMb = ToolArgs.getLongArg(args, "minTableSizeMb", true);
+                    boolean wholeNumber;
+                    try {
+                        wholeNumber = new BigDecimal(args.get("minTableSizeMb").toString())
+                            .compareTo(BigDecimal.valueOf(minTableSizeMb)) == 0;
+                    } catch (NumberFormatException e) {
+                        wholeNumber = false;
+                    }
+                    if (minTableSizeMb < 0 || minTableSizeMb > Long.MAX_VALUE / (1024L * 1024L)
+                        || !wholeNumber) {
+                        throw new IllegalArgumentException("Argument 'minTableSizeMb' must be a non-negative integer that fits in bytes");
+                    }
+                    minTableSizeBytes = minTableSizeMb * 1024L * 1024L;
+                }
+                content.add(Map.of("type", "text", "text", SimpleJson.toJson(reader.findMissingIndexes(schema, minTableSizeBytes))));
             } else if ("find_slow_queries".equals(toolName)) {
                 content.add(Map.of("type", "text", "text", SimpleJson.toJson(reader.findSlowQueries())));
             } else {
