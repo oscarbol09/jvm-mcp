@@ -164,10 +164,10 @@ jvm-mcp threads <pid>
 jvm-mcp beans <pid> --filter "*Service*"
 
 # Introspect PostgreSQL schema and find missing indexes via JDBC
-jvm-mcp pg --url "jdbc:postgresql://localhost:5432/mydb" --missing-indexes
+jvm-mcp pg --url "jdbc:postgresql://localhost:5432/mydb" --action missing-indexes
 
 # Query remote Spring Boot Actuator endpoints
-jvm-mcp actuator --url "http://localhost:8080" --metrics
+jvm-mcp actuator --url "http://localhost:8080" metrics
 ```
 
 ---
