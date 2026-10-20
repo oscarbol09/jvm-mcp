@@ -138,6 +138,35 @@ class DoctorCommandTest {
     }
 
     @Test
+    @DisplayName("checkJavaVersion rejects versions below 21 and accepts 21 or newer")
+    void shouldCheckJavaVersion() {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream ps = new PrintStream(out);
+
+        // Well below the minimum
+        assertThat(DoctorCommand.checkJavaVersion(Runtime.Version.parse("17"), ps)).isFalse();
+        assertThat(out.toString()).contains("[ERROR] Java 21 or higher is required (current: 17)");
+
+        // Just below the minimum
+        out.reset();
+        assertThat(DoctorCommand.checkJavaVersion(Runtime.Version.parse("20"), ps)).isFalse();
+        assertThat(out.toString()).contains("[ERROR] Java 21 or higher is required (current: 20)");
+
+        // Exactly the minimum
+        out.reset();
+        assertThat(DoctorCommand.checkJavaVersion(Runtime.Version.parse("21"), ps)).isTrue();
+        assertThat(out.toString())
+            .contains("[OK] Java version 21 meets the minimum requirement (Java 21+).")
+            .doesNotContain("[ERROR]");
+
+        // Newer than the minimum
+        out.reset();
+        assertThat(DoctorCommand.checkJavaVersion(Runtime.Version.parse("23"), ps)).isTrue();
+        assertThat(out.toString())
+            .contains("[OK] Java version 23 meets the minimum requirement (Java 21+).");
+    }
+
+    @Test
     @DisplayName("checkContainerEnvironment identifies container indicator files")
     void shouldCheckContainerEnvironment(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
         ByteArrayOutputStream out = new ByteArrayOutputStream();

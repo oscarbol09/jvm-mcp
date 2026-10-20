@@ -32,6 +32,7 @@ public class DoctorCommand implements Callable<Integer> {
         System.out.println();
 
         System.out.println("Checking JVM Runtime Compatibility...");
+        boolean javaVersionOk = checkJavaVersion(Runtime.version(), System.out);
         checkJvmVendor(System.getProperty("java.vendor", ""), System.getProperty("java.vm.name", ""), System.out);
         checkContainerEnvironment(System.out);
 
@@ -56,9 +57,23 @@ public class DoctorCommand implements Callable<Integer> {
             return 1;
         }
 
+        if (!javaVersionOk) {
+            return 1;
+        }
+
         System.out.println();
         System.out.println("Your system is ready to use JVM-MCP.");
         return 0;
+    }
+
+    static boolean checkJavaVersion(Runtime.Version version, java.io.PrintStream out) {
+        int feature = version.feature();
+        if (feature < 21) {
+            out.println("[ERROR] Java 21 or higher is required (current: " + feature + "). Virtual threads and standard features require JDK 21+.");
+            return false;
+        }
+        out.println("[OK] Java version " + feature + " meets the minimum requirement (Java 21+).");
+        return true;
     }
 
     static void checkJvmVendor(String vendor, String vmName, java.io.PrintStream out) {
