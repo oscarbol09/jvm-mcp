@@ -54,10 +54,16 @@ public class JvmAttachService {
             String mainClass = extractMainClass(displayName);
             Framework framework = FrameworkDetector.detect(displayName, mainClass);
 
-            long currentPid = currentProcessSupplier.get().pid();
+            ProcessHandle currentProcess=currentProcessSupplier.get();
+            long currentPid = currentProcess.pid();
             boolean isSelf = (pid == currentPid);
             Optional<ProcessHandle> processHandle = processLookup.apply(pid);
-            boolean isAttachable = processHandle.isPresent() && (isSelf || processHandle.get().isAlive());
+
+            boolean isAttachable = processHandle.isPresent()
+                && (isSelf || (processHandle.get().isAlive()
+                && !isCrossUser(
+                currentProcess.info().user(),
+                processHandle.get().info().user())));
 
             result.add(new JvmProcess(
                 pid,

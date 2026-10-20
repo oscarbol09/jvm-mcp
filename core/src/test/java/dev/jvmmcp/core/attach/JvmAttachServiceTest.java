@@ -2,6 +2,7 @@ package dev.jvmmcp.core.attach;
 
 import com.sun.tools.attach.AttachNotSupportedException;
 import com.sun.tools.attach.VirtualMachine;
+import com.sun.tools.attach.VirtualMachineDescriptor;
 import dev.jvmmcp.core.model.JvmProcess;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -17,12 +18,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("JVM Attach Service")
@@ -70,6 +73,52 @@ class JvmAttachServiceTest {
                 assertThat(jvms).isEmpty();
             }
         }
+
+        @Test
+        @DisplayName("should mark JVM as not attachable when owned by a different user")
+        void shouldMarkCrossUserJvmAsNotAttachable() {
+            long currentPid = 1000L;
+            long targetPid = 99999L;
+
+            ProcessHandle currentProcess = mock(ProcessHandle.class);
+            ProcessHandle.Info currentInfo = mock(ProcessHandle.Info.class);
+
+            when(currentProcess.pid()).thenReturn(currentPid);
+            when(currentProcess.info()).thenReturn(currentInfo);
+            when(currentInfo.user()).thenReturn(Optional.of("alice"));
+
+            ProcessHandle targetProcess = mock(ProcessHandle.class);
+            ProcessHandle.Info targetInfo = mock(ProcessHandle.Info.class);
+
+            when(targetProcess.isAlive()).thenReturn(true);
+            when(targetProcess.info()).thenReturn(targetInfo);
+            when(targetInfo.user()).thenReturn(Optional.of("bob"));
+
+            JvmAttachService service = new JvmAttachService(
+                pid -> pid == targetPid
+                    ? Optional.of(targetProcess)
+                    : Optional.empty(),
+                () -> currentProcess
+            );
+
+            VirtualMachineDescriptor descriptor =
+                mock(VirtualMachineDescriptor.class);
+            when(descriptor.id()).thenReturn(String.valueOf(targetPid));
+            when(descriptor.displayName()).thenReturn("org.example.Application");
+
+            try (MockedStatic<VirtualMachine> vmStatic =
+                     mockStatic(VirtualMachine.class)) {
+                vmStatic.when(VirtualMachine::list)
+                    .thenReturn(List.of(descriptor));
+
+                List<JvmProcess> jvms = service.listJvms();
+
+                assertThat(jvms).hasSize(1);
+                assertThat(jvms.get(0).pid()).isEqualTo(targetPid);
+                assertThat(jvms.get(0).isAttachable()).isFalse();
+            }
+        }
+
     }
 
     @Nested
