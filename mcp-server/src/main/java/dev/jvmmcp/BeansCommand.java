@@ -10,6 +10,7 @@ import dev.jvmmcp.core.spring.ActuatorAuth;
 import dev.jvmmcp.core.spring.ActuatorProbe;
 import dev.jvmmcp.core.spring.SpringBeansClient;
 import dev.jvmmcp.core.spring.SpringBeansParser;
+import dev.jvmmcp.core.util.SimpleJson;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -48,6 +49,9 @@ public class BeansCommand implements Callable<Integer> {
 
     @Option(names = {"--insecure", "-k"}, description = "Trust any TLS certificate (for self-signed HTTPS endpoints). Not recommended for production.")
     boolean insecure;
+
+    @Option(names = {"--json"}, description = "Output in JSON format")
+    boolean json;
 
     private final JvmAttachService attachService;
 
@@ -117,6 +121,20 @@ public class BeansCommand implements Callable<Integer> {
         if (report != null && report.discoverySource() != null && report.discoverySource().startsWith("ACTUATOR_UNREACHABLE")) {
             System.err.println("[jvm-mcp] Error: Actuator endpoint was unreachable: " + actuatorUrl);
             return 1;
+        }
+
+        if (json) {
+            if (detailBeanName != null && !detailBeanName.isBlank()) {
+                Optional<SpringBeanDetail> detailOpt = client.getBeanDetail(report, detailBeanName);
+                if (detailOpt.isEmpty()) {
+                    System.err.printf("[jvm-mcp] Bean '%s' not found in active contexts.%n", detailBeanName);
+                    return 1;
+                }
+                System.out.println(SimpleJson.toJson(detailOpt.get()));
+                return 0;
+            }
+            System.out.println(SimpleJson.toJson(report));
+            return 0;
         }
 
         if (detailBeanName != null && !detailBeanName.isBlank()) {

@@ -18,6 +18,7 @@ import java.io.OutputStream;
 import java.io.PrintStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
@@ -411,6 +412,60 @@ class BeansCommandTest {
         } finally {
             System.setErr(originalErr);
         }
+    }
+
+    @Test
+    @DisplayName("beans command with --json should output parseable JSON report without ASCII decorations")
+    void shouldOutputJsonReport() {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try {
+            System.setOut(new PrintStream(out));
+            CommandLine cmd = new CommandLine(new JvmMcp());
+            int exitCode = cmd.execute("beans", "--actuator", serverBaseUrl, "--json");
+
+            assertThat(exitCode).isZero();
+            String output = out.toString().trim();
+            assertThat(output).doesNotContain("=");
+            assertThat(output).doesNotContain("SPRING BEANS INSPECTION");
+
+            Map<String, Object> parsed = dev.jvmmcp.core.util.SimpleJson.parseObject(output);
+            assertThat(parsed).containsKey("totalBeans");
+            assertThat(parsed).containsKey("contexts");
+        } finally {
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
+    @DisplayName("beans command with --json --detail should output parseable JSON bean detail")
+    void shouldOutputJsonBeanDetail() {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try {
+            System.setOut(new PrintStream(out));
+            CommandLine cmd = new CommandLine(new JvmMcp());
+            int exitCode = cmd.execute("beans", "--actuator", serverBaseUrl, "--json", "--detail", "orderService");
+
+            assertThat(exitCode).isZero();
+            String output = out.toString().trim();
+            assertThat(output).doesNotContain("BEAN DETAIL");
+
+            Map<String, Object> parsed = dev.jvmmcp.core.util.SimpleJson.parseObject(output);
+            assertThat(parsed).containsEntry("name", "orderService");
+            assertThat(parsed).containsEntry("type", "dev.jvmmcp.samples.OrderServiceImplementation");
+        } finally {
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
+    @DisplayName("beans command with --json --detail for non-existent bean should return exit code 1")
+    void shouldFailJsonDetailWhenBeanNotFound() {
+        CommandLine cmd = new CommandLine(new JvmMcp());
+        int exitCode = cmd.execute("beans", "--actuator", serverBaseUrl, "--json", "--detail", "unknownBean");
+
+        assertThat(exitCode).isEqualTo(1);
     }
 
     @Test
