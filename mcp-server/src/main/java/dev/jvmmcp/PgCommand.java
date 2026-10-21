@@ -6,6 +6,7 @@ import dev.jvmmcp.core.util.SimpleJson;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
+import java.util.Locale;
 import java.util.concurrent.Callable;
 
 @Command(
@@ -27,7 +28,7 @@ public class PgCommand implements Callable<Integer> {
     @Option(names = {"--schema"}, defaultValue = "public", description = "Target schema (default: public)")
     private String schema;
 
-    @Option(names = {"--action"}, required = true, description = "Action to perform: schema, missing-indexes, slow-queries")
+    @Option(names = {"--action"}, required = true, description = "Action to perform: schema, missing-indexes (or missing_indexes), slow-queries (or slow_queries)")
     private String action;
 
     @Option(names = {"--min-table-size-mb"}, defaultValue = "1",
@@ -36,8 +37,13 @@ public class PgCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
+        String normalizedAction = action == null
+            ? ""
+            : action.trim()
+            .toLowerCase(Locale.ROOT)
+            .replace('_', '-');
         try (PostgresSchemaReader reader = new PostgresSchemaReader(url, user, password)) {
-            switch (action) {
+            switch (normalizedAction) {
                 case "schema" -> {
                     SchemaInfo info = reader.inspectSchema(schema);
                     System.out.println(SimpleJson.toJson(info));
@@ -54,7 +60,11 @@ public class PgCommand implements Callable<Integer> {
                     System.out.println(SimpleJson.toJson(analysis));
                 }
                 default -> {
-                    System.err.println("Unknown action: " + action + ". Use schema, missing-indexes, or slow-queries.");
+                    System.err.println(
+                        "Unknown action: " + action
+                            + ". Use schema, missing-indexes (or missing_indexes), "
+                            + "or slow-queries (or slow_queries)."
+                    );
                     return 1;
                 }
             }
