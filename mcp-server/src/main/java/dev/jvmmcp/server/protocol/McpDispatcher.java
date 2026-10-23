@@ -69,7 +69,15 @@ public class McpDispatcher {
             return Optional.of(formatInvalidRequest(req.get("id"), "Invalid Request: 'method' must be a non-empty string"));
         }
 
-        // 3. Distinguish notifications from requests
+        // 3. Validate id type
+        if (req.containsKey("id")) {
+            Object id = req.get("id");
+            if (id != null && !(id instanceof String) && !(id instanceof Number)) {
+                return Optional.of(formatInvalidRequest(null, "Invalid Request: 'id' must be a String, Number, or null"));
+            }
+        }
+
+        // 4. Distinguish notifications from requests
         boolean isNotification = !req.containsKey("id");
         if (isNotification) {
             try {
