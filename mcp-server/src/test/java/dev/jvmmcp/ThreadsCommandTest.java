@@ -2,10 +2,13 @@ package dev.jvmmcp;
 
 import dev.jvmmcp.core.attach.AttachResult;
 import dev.jvmmcp.core.attach.JvmAttachService;
+import dev.jvmmcp.core.model.BlockedThreadDetail;
+import dev.jvmmcp.core.model.ThreadStackFrame;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import picocli.CommandLine;
 import dev.jvmmcp.core.jmx.ThreadMXBeanClient;
@@ -16,8 +19,11 @@ import dev.jvmmcp.core.util.SimpleJson;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -40,9 +46,9 @@ class ThreadsCommandTest {
     void shouldFailOnMissingOrInvalidPid() {
         CommandLine cmd = new CommandLine(new JvmMcp());
 
-        int noPidExit = cmd.execute("threads");
-        int negativePidExit = cmd.execute("threads", "-1");
-        int zeroPidExit = cmd.execute("threads", "0");
+        int noPidExit = cmd.execute("threads","-d");
+        int negativePidExit = cmd.execute("threads","-d", "-1");
+        int zeroPidExit = cmd.execute("threads","-d", "0");
 
         assertThat(noPidExit).isNotZero();
         assertThat(negativePidExit).isEqualTo(1);
@@ -112,8 +118,8 @@ class ThreadsCommandTest {
 
         ThreadsCommand command = org.mockito.Mockito.spy(new ThreadsCommand(mockAttachService));
         command.pid = targetPid;
-        command.deadlocksOnly = true;
-        org.mockito.Mockito.doReturn(mockClient).when(command).createThreadMXBeanClient(org.mockito.ArgumentMatchers.any());
+        command.threadFlags.deadlocksOnly = true;
+        doReturn(mockClient).when(command).createThreadMXBeanClient(any());
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         PrintStream originalOut = System.out;
@@ -158,7 +164,7 @@ class ThreadsCommandTest {
 
         ThreadsCommand command = org.mockito.Mockito.spy(new ThreadsCommand(mockAttachService));
         command.pid = targetPid;
-        command.dump = true;
+        command.threadFlags.dump = true;
         org.mockito.Mockito.doReturn(mockClient).when(command).createThreadMXBeanClient(org.mockito.ArgumentMatchers.any());
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -239,7 +245,7 @@ class ThreadsCommandTest {
 
         ThreadsCommand command = org.mockito.Mockito.spy(new ThreadsCommand(mockAttachService));
         command.pid = targetPid;
-        command.blockedOnly = true;
+        command.threadFlags.blockedOnly = true;
         org.mockito.Mockito.doReturn(mockClient).when(command).createThreadMXBeanClient(org.mockito.ArgumentMatchers.any());
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -308,6 +314,52 @@ class ThreadsCommandTest {
         org.mockito.Mockito.verify(mockAttachService).detach(mockVm);
     }
 
+
+    @Test
+    @DisplayName("threads command with threshold-ms flag should filter blocked threads")
+    void shouldFilterBlockedThreadsByThreshold() throws Exception {
+        long targetPid = 100L;
+        when(mockAttachService.attach(String.valueOf(targetPid))).thenReturn(AttachResult.success(String.valueOf(targetPid), null));
+
+        ThreadMXBeanClient mockClient = Mockito.mock(ThreadMXBeanClient.class);
+        List<BlockedThreadDetail> blocked = List.of(
+            new BlockedThreadDetail(4L, "BlockedThread1", 500L, 0L, "Lock-A", 5L, "Owner1", List.of(
+                new ThreadStackFrame("ClassA", "methodA", "ClassA.java", 10, false)
+            )),
+            new BlockedThreadDetail(5L, "BlockedThread2", 200L, 0L, "Lock-B", 6L, "Owner2", List.of(
+                new ThreadStackFrame("ClassB", "methodB", "ClassB.java", 20, false)
+            ))
+        );
+
+        // Use lenient stubbing for setup stubbings that are not directly used
+        Mockito.lenient().when(mockClient.findBlockedThreads(300)).thenReturn(blocked.stream()
+            .filter(thread -> thread.blockedTimeMs() >= 300)
+            .toList());
+
+        ThreadsCommand command = Mockito.spy(new ThreadsCommand(mockAttachService));
+        command.pid = targetPid;
+        command.threadFlags = new ThreadFlags();
+        command.threadFlags.blockedOnly = true;
+        command.threshold = 300;
+        org.mockito.Mockito.doReturn(mockClient).when(command).createThreadMXBeanClient(org.mockito.ArgumentMatchers.any());
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try {
+            System.setOut(new PrintStream(out));
+            int exitCode = command.call();
+
+            assertThat(exitCode).isZero();
+            String output = out.toString();
+            assertThat(output).contains("BLOCKED THREADS FOR PID " + targetPid + " (1 found)");
+            assertThat(output).contains("Thread #4 [BlockedThread1]");
+            assertThat(output).contains("Blocked: 500 ms");
+            assertThat(output).doesNotContain("Thread #5 [BlockedThread2]");
+        } finally {
+            System.setOut(originalOut);
+        }
+    }
+
     @Test
     @DisplayName("threads command displays virtual thread counts in summary when available")
     void shouldDisplayVirtualThreadCountInSummary() throws Exception {
@@ -341,6 +393,44 @@ class ThreadsCommandTest {
     }
 
     @Test
+    @DisplayName("threads command should return early when no flags are specified")
+    void shouldReturnEarlyWhenNoFlagsSpecified() {
+        long targetPid = 100L;
+        when(mockAttachService.attach(String.valueOf(targetPid))).thenReturn(AttachResult.success(String.valueOf(targetPid), null));
+
+        ThreadsCommand command = new ThreadsCommand(mockAttachService);
+        command.pid = targetPid;
+        command.threadFlags = new ThreadFlags(); // No flags set
+
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        PrintStream originalErr = System.err;
+        try {
+            System.setErr(new PrintStream(err));
+            int exitCode = command.call();
+
+            assertThat(exitCode).isEqualTo(0);
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            PrintStream originalOut = System.out;
+            try {
+                System.setOut(new PrintStream(out));
+                exitCode = command.call();
+
+                assertThat(exitCode).isZero();
+                String output = out.toString();
+                assertThat(output).contains("=".repeat(80));
+                assertThat(output).contains("JVM THREAD DIAGNOSTICS FOR PID " + targetPid);
+                assertThat(output).contains("Total Threads");
+                assertThat(output).contains("RUNNABLE");
+                assertThat(output).contains("DEADLOCK STATUS");
+                assertThat(output).contains("No deadlocked threads detected.");
+            } finally {
+                System.setOut(originalOut);
+            }
+        } finally {
+            System.setErr(originalErr);
+        }
+    }
+
     @DisplayName("threads command displays virtual thread dump section when present")
     void shouldDisplayVirtualThreadDumpSection() throws Exception {
         long targetPid = 100L;
@@ -365,7 +455,7 @@ class ThreadsCommandTest {
 
         ThreadsCommand command = org.mockito.Mockito.spy(new ThreadsCommand(mockAttachService));
         command.pid = targetPid;
-        command.dump = true;
+        command.threadFlags.dump = true;
         org.mockito.Mockito.doReturn(mockClient).when(command).createThreadMXBeanClient(org.mockito.ArgumentMatchers.any());
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -407,6 +497,7 @@ class ThreadsCommandTest {
         ThreadsCommand command = org.mockito.Mockito.spy(new ThreadsCommand(mockAttachService));
         command.pid = targetPid;
         command.json = true;
+
         org.mockito.Mockito.doReturn(mockClient).when(command).createThreadMXBeanClient(org.mockito.ArgumentMatchers.any());
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
