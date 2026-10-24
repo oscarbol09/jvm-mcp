@@ -46,11 +46,12 @@ public class MemoryMXBeanClient implements MemoryDiagnosticPort {
 
         List<MemoryPoolInfo> pools = getMemoryPools();
         List<GarbageCollectorInfo> gcs = getGarbageCollectors();
+        List<BufferPoolInfo> bufferPools = getBufferPools();
 
         MemoryPressure pressure = evaluatePressure(heapUsage, pools, gcs, uptimeMs);
         ClassLoadingInfo classLoading = getClassLoadingInfo();
 
-        return new HeapSummary(pid, heapUsage, nonHeapUsage, pools, gcs, pressure, classLoading);
+        return new HeapSummary(pid, heapUsage, nonHeapUsage, pools, gcs, pressure, classLoading, bufferPools);
     }
 
     public ClassLoadingInfo getClassLoadingInfo() {
@@ -87,6 +88,22 @@ public class MemoryMXBeanClient implements MemoryDiagnosticPort {
         }
 
         return poolInfos;
+    }
+
+    public List<BufferPoolInfo> getBufferPools() throws IOException {
+        List<BufferPoolInfo> bufferPoolInfos = new ArrayList<>();
+        List<BufferPoolMXBean> bufferPoolBeans = ManagementFactory.getPlatformMXBeans(mbsc, BufferPoolMXBean.class);
+
+        for (BufferPoolMXBean bean : bufferPoolBeans) {
+            bufferPoolInfos.add(new BufferPoolInfo(
+                bean.getName(),
+                bean.getCount(),
+                bean.getTotalCapacity(),
+                bean.getMemoryUsed()
+            ));
+        }
+
+        return bufferPoolInfos;
     }
 
     public List<GarbageCollectorInfo> getGarbageCollectors() throws IOException {

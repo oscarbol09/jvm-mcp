@@ -5,6 +5,7 @@ import dev.jvmmcp.core.attach.JvmAttachService;
 import dev.jvmmcp.core.jmx.HeapHistogramReader;
 import dev.jvmmcp.core.jmx.JmxConnectionManager;
 import dev.jvmmcp.core.jmx.MemoryMXBeanClient;
+import dev.jvmmcp.core.model.BufferPoolInfo;
 import dev.jvmmcp.core.model.ClassHistogramItem;
 import dev.jvmmcp.core.model.HeapHistogram;
 import dev.jvmmcp.core.model.HeapSummary;
@@ -114,6 +115,21 @@ public class MemoryCommand implements Callable<Integer> {
                     );
                 }
 
+                System.out.println("-".repeat(80));
+                System.out.println("DIRECT AND MAPPED BUFFER POOLS");
+                System.out.printf(Locale.ROOT, "%-20s %-12s %-22s %s%n",
+                    "POOL NAME", "COUNT", "CAPACITY (MB)", "MEMORY USED (MB)");
+                System.out.println("-".repeat(80));
+
+                for (BufferPoolInfo pool : summary.bufferPools()) {
+                    System.out.printf(Locale.ROOT, "%-20s %-12s %-22s %s%n",
+                        pool.name(),
+                        pool.count() < 0 ? UNKNOWN_PERCENT_LABEL : Long.toString(pool.count()),
+                        bufferMbLabel(pool.totalCapacityBytes()),
+                        bufferMbLabel(pool.memoryUsedBytes())
+                    );
+                }
+
                 if (histogram) {
                     System.out.println("-".repeat(80));
                     System.out.printf(Locale.ROOT, "HEAP HISTOGRAM (TOP %d CLASSES)%n", topN);
@@ -180,5 +196,9 @@ public class MemoryCommand implements Callable<Integer> {
 
     private static String usedPercentLabel(MemoryUsageInfo usage) {
         return usage.maxBytes() < 0 ? UNKNOWN_PERCENT_LABEL : String.format(Locale.ROOT, "%.1f%%", usage.usedPercent());
+    }
+
+    private static String bufferMbLabel(long bytes) {
+        return bytes < 0 ? UNKNOWN_PERCENT_LABEL : String.format(Locale.ROOT, "%.2f", bytes / (1024.0 * 1024.0));
     }
 }

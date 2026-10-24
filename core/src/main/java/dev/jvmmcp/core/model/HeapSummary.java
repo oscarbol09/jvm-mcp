@@ -12,6 +12,7 @@ import java.util.List;
  * @param garbageCollectors list of garbage collector statistics
  * @param pressure evaluated JVM memory pressure
  * @param classLoading class loading statistics, or {@code null} if unavailable
+ * @param bufferPools list of direct and mapped buffer pool statistics
  */
 public record HeapSummary(
     long pid,
@@ -20,8 +21,25 @@ public record HeapSummary(
     List<MemoryPoolInfo> pools,
     List<GarbageCollectorInfo> garbageCollectors,
     MemoryPressure pressure,
-    ClassLoadingInfo classLoading
+    ClassLoadingInfo classLoading,
+    List<BufferPoolInfo> bufferPools
 ) {
+    public HeapSummary {
+        bufferPools = bufferPools == null ? List.of() : bufferPools;
+    }
+
+    public HeapSummary(
+        long pid,
+        MemoryUsageInfo heap,
+        MemoryUsageInfo nonHeap,
+        List<MemoryPoolInfo> pools,
+        List<GarbageCollectorInfo> garbageCollectors,
+        MemoryPressure pressure,
+        ClassLoadingInfo classLoading
+    ) {
+        this(pid, heap, nonHeap, pools, garbageCollectors, pressure, classLoading, List.of());
+    }
+
     public HeapSummary(
         long pid,
         MemoryUsageInfo heap,
@@ -30,6 +48,6 @@ public record HeapSummary(
         List<GarbageCollectorInfo> garbageCollectors,
         MemoryPressure pressure
     ) {
-        this(pid, heap, nonHeap, pools, garbageCollectors, pressure, null);
+        this(pid, heap, nonHeap, pools, garbageCollectors, pressure, null, List.of());
     }
 }

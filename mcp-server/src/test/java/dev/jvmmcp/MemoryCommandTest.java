@@ -6,6 +6,7 @@ import com.sun.tools.attach.spi.AttachProvider;
 import dev.jvmmcp.core.attach.AttachResult;
 import dev.jvmmcp.core.attach.JvmAttachService;
 import dev.jvmmcp.core.jmx.MemoryMXBeanClient;
+import dev.jvmmcp.core.model.BufferPoolInfo;
 import dev.jvmmcp.core.model.ClassLoadingInfo;
 import dev.jvmmcp.core.model.HeapSummary;
 import dev.jvmmcp.core.model.MemoryPoolInfo;
@@ -495,10 +496,14 @@ class MemoryCommandTest {
         MemoryUsageInfo heap = MemoryUsageInfo.from(new MemoryUsage(0, 512 * mb, 1024 * mb, 2048 * mb));
         MemoryUsageInfo nonHeap = MemoryUsageInfo.from(new MemoryUsage(0, 64 * mb, 128 * mb, 256 * mb));
         ClassLoadingInfo classLoading = new ClassLoadingInfo(9876L, 10000L, 124L);
+        List<BufferPoolInfo> bufferPools = List.of(
+            new BufferPoolInfo("direct", 1L, 1024L, 2048L),
+            new BufferPoolInfo("mapped", 2L, 4096L, 3072L)
+        );
         HeapSummary summary = new HeapSummary(
             targetPid, heap, nonHeap, List.of(), List.of(),
             new MemoryPressure(MemoryPressureLevel.NORMAL, 0.25, 0L, 0L, "Healthy"),
-            classLoading
+            classLoading, bufferPools
         );
         MemoryCommand command = new MemoryCommand(mockAttachService);
         command.pid = targetPid;
@@ -512,6 +517,7 @@ class MemoryCommandTest {
             assertThat(command.call()).isZero();
             String output = out.toString().trim();
             assertThat(output).contains("\"classLoading\":{\"loadedClassCount\":9876,\"totalLoadedClasses\":10000,\"unloadedClassCount\":124}");
+            assertThat(output).contains("\"bufferPools\":[{\"name\":\"direct\",\"count\":1,\"totalCapacityBytes\":1024,\"memoryUsedBytes\":2048},{\"name\":\"mapped\",\"count\":2,\"totalCapacityBytes\":4096,\"memoryUsedBytes\":3072}]");
         } finally {
             System.setOut(originalOut);
         }
