@@ -13,17 +13,12 @@ import java.net.Inet6Address;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.CompletionStage;
-import java.util.concurrent.Flow;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.io.IOException;
 
 /**
  * Probes a running Spring Boot application for exposed Actuator HTTP endpoints via discovered system properties.
@@ -115,66 +110,13 @@ public class ActuatorProbe {
             HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(safeUri)
                 .timeout(timeout)
-                .header("Accept", "application/json");
+                .header("Accept", "application/json")
+                .header("Accept-Encoding", "gzip, deflate");
             auth.authorizationHeader().ifPresent(value -> builder.header("Authorization", value));
             return builder;
         } catch (Exception e) {
             throw new RuntimeException("Failed to create safe request: " + e.getMessage(), e);
         }
-    }
-
-    private static HttpResponse.BodyHandler<String> limitingStringHandler(long maxBytes) {
-        return responseInfo -> {
-            responseInfo.headers().firstValueAsLong("Content-Length").ifPresent(len -> {
-                if (len > maxBytes) {
-                    throw new IllegalArgumentException("Content-Length " + len + " exceeds limit " + maxBytes);
-                }
-            });
-
-            HttpResponse.BodySubscriber<String> downstream = HttpResponse.BodySubscribers.ofString(StandardCharsets.UTF_8);
-            
-            return new HttpResponse.BodySubscriber<String>() {
-                private long totalReceived = 0;
-                private Flow.Subscription subscription;
-
-                @Override
-                public void onSubscribe(Flow.Subscription subscription) {
-                    this.subscription = subscription;
-                    downstream.onSubscribe(subscription);
-                }
-
-                @Override
-                public void onNext(List<ByteBuffer> item) {
-                    long batchSize = 0;
-                    for (ByteBuffer b : item) {
-                        batchSize += b.remaining();
-                    }
-                    totalReceived += batchSize;
-
-                    if (totalReceived > maxBytes) {
-                        subscription.cancel();
-                        downstream.onError(new IOException("Response size exceeded maximum limit of " + maxBytes + " bytes"));
-                        return;
-                    }
-                    downstream.onNext(item);
-                }
-
-                @Override
-                public void onError(Throwable throwable) {
-                    downstream.onError(throwable);
-                }
-
-                @Override
-                public void onComplete() {
-                    downstream.onComplete();
-                }
-
-                @Override
-                public CompletionStage<String> getBody() {
-                    return downstream.getBody();
-                }
-            };
-        };
     }
 
     public Optional<ProbeResult> probe(VirtualMachine vm) {
@@ -203,7 +145,7 @@ public class ActuatorProbe {
             String url = "http://127.0.0.1:" + port + path;
             try {
                 HttpRequest request = newRequest(url, Duration.ofMillis(1500)).GET().build();
-                HttpResponse<String> response = httpClient.send(request, limitingStringHandler(MAX_PAYLOAD_SIZE));
+                HttpResponse<String> response = httpClient.send(request, HttpPayloadHandlers.limitingStringHandler(MAX_PAYLOAD_SIZE));
                 if (response.statusCode() == 200 && response.body() != null && response.body().contains("beans")) {
                     return Optional.of(response.body());
                 }
@@ -219,7 +161,7 @@ public class ActuatorProbe {
         for (String targetUrl : candidateBeansUrls(baseUrl)) {
             try {
                 HttpRequest request = newRequest(targetUrl, Duration.ofSeconds(3)).GET().build();
-                HttpResponse<String> response = httpClient.send(request, limitingStringHandler(MAX_PAYLOAD_SIZE));
+                HttpResponse<String> response = httpClient.send(request, HttpPayloadHandlers.limitingStringHandler(MAX_PAYLOAD_SIZE));
                 if (response.statusCode() == 200 && response.body() != null) {
                     return Optional.of(response.body());
                 }
