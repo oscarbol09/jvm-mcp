@@ -16,9 +16,10 @@ RUN mvn clean package -B -DskipTests
 
 # Custom JRE via jlink: the stock JRE image lacks jdk.attach (Attach API)
 # Modules from .github/workflows/release.yml, plus jdk.crypto.ec for EC/X25519 TLS (HTTPS Actuator)
+# and jdk.jfr, without which the DiagnosticCommand MBean has no usable operations (self-inspection histogram)
 FROM eclipse-temurin:21-jdk-alpine AS jre-builder
 
-RUN jlink --add-modules java.base,java.management,java.net.http,java.sql,java.naming,jdk.attach,jdk.management,jdk.management.agent,java.instrument,jdk.internal.jvmstat,jdk.crypto.ec \
+RUN jlink --add-modules java.base,java.management,java.net.http,java.sql,java.naming,jdk.attach,jdk.management,jdk.management.agent,java.instrument,jdk.internal.jvmstat,jdk.crypto.ec,jdk.jfr \
           --output /javaruntime \
           --strip-debug \
           --no-man-pages \
