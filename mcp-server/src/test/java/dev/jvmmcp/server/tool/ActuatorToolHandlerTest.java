@@ -53,7 +53,7 @@ class ActuatorToolHandlerTest {
 
         assertThatThrownBy(() -> handler.execute("get_actuator_health", Map.of("url", "http://localhost:8080")))
             .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("--actuator-user and --actuator-password must be provided together");
+            .hasMessageContaining("Username and password must be provided together");
     }
 
     @Test

@@ -209,15 +209,17 @@ class ActuatorCommandTest {
     }
 
     @Test
-    @DisplayName("actuator command warns on credentials over unencrypted HTTP")
+    @DisplayName("actuator command warns on credentials over unencrypted HTTP for non-loopback host")
     void shouldWarnOnCredentialsOverHttp() {
         ByteArrayOutputStream err = new ByteArrayOutputStream();
         PrintStream originalErr = System.err;
         try {
             System.setErr(new PrintStream(err));
-            CommandLine cmd = new CommandLine(new JvmMcp());
-            String ipUrl = "http://127.0.0.1:" + server.getAddress().getPort();
-            cmd.execute("actuator", "--url", ipUrl, "--token", "secret", "health");
+            ActuatorClient mockClient = mock(ActuatorClient.class);
+            when(mockClient.getHealth()).thenReturn("{\"status\":\"UP\"}");
+
+            ActuatorCommand command = new ActuatorCommand((url, auth) -> mockClient, key -> null);
+            new CommandLine(command).execute("--url", "http://example.internal:8080", "--token", "secret", "health");
 
             assertThat(err.toString()).contains("WARNING: Sending Actuator credentials over unencrypted HTTP.");
         } finally {
@@ -236,7 +238,7 @@ class ActuatorCommandTest {
             int exitCode = cmd.execute("actuator", "--url", serverBaseUrl, "--user", "admin", "health");
 
             assertThat(exitCode).isEqualTo(1);
-            assertThat(err.toString()).contains("--actuator-user and --actuator-password must be provided together");
+            assertThat(err.toString()).contains("Username and password must be provided together");
         } finally {
             System.setErr(originalErr);
         }
@@ -448,7 +450,7 @@ class ActuatorCommandTest {
             int exitCode = new CommandLine(command).execute("--url", "http://localhost:8080", "health");
 
             assertThat(exitCode).isEqualTo(1);
-            assertThat(err.toString()).contains("Use either --actuator-token or --actuator-user/--actuator-password, not both.");
+            assertThat(err.toString()).contains("Use either bearer token or username/password credentials, not both.");
         } finally {
             System.setErr(originalErr);
         }
@@ -467,7 +469,7 @@ class ActuatorCommandTest {
             int exitCode = new CommandLine(command).execute("--url", "http://localhost:8080", "health");
 
             assertThat(exitCode).isEqualTo(1);
-            assertThat(err.toString()).contains("--actuator-user and --actuator-password must be provided together.");
+            assertThat(err.toString()).contains("Username and password must be provided together.");
         } finally {
             System.setErr(originalErr);
         }
@@ -486,7 +488,56 @@ class ActuatorCommandTest {
             int exitCode = new CommandLine(command).execute("--url", "http://localhost:8080", "health");
 
             assertThat(exitCode).isEqualTo(1);
-            assertThat(err.toString()).contains("--actuator-user and --actuator-password must be provided together.");
+            assertThat(err.toString()).contains("Username and password must be provided together.");
+        } finally {
+            System.setErr(originalErr);
+        }
+    }
+
+    @Test
+    @DisplayName("actuator command accepts --actuator-user and --actuator-password as valid flag aliases")
+    void shouldAcceptActuatorAuthFlagAliases() {
+        ActuatorClient mockClient = mock(ActuatorClient.class);
+        when(mockClient.getHealth()).thenReturn("{\"status\":\"UP\"}");
+
+        AtomicReference<ActuatorAuth> capturedAuth = new AtomicReference<>();
+        ActuatorCommand command = new ActuatorCommand((url, auth) -> {
+            capturedAuth.set(auth);
+            return mockClient;
+        }, key -> null);
+
+        int exitCode = new CommandLine(command).execute(
+            "--url", "http://127.0.0.1:8080",
+            "--actuator-user", "alias_user",
+            "--actuator-password", "alias_pass",
+            "health"
+        );
+
+        assertThat(exitCode).isZero();
+        assertThat(capturedAuth.get()).isNotNull();
+        assertThat(capturedAuth.get().user()).isEqualTo("alias_user");
+        assertThat(capturedAuth.get().password()).isEqualTo("alias_pass");
+    }
+
+    @Test
+    @DisplayName("actuator command does not print unencrypted HTTP warning for loopback IP addresses")
+    void shouldNotWarnForLoopbackIpAddresses() {
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        PrintStream originalErr = System.err;
+        try {
+            System.setErr(new PrintStream(err));
+            ActuatorClient mockClient = mock(ActuatorClient.class);
+            when(mockClient.getHealth()).thenReturn("{\"status\":\"UP\"}");
+
+            ActuatorCommand command = new ActuatorCommand((url, auth) -> mockClient, key -> null);
+            int exitCode = new CommandLine(command).execute(
+                "--url", "http://127.0.0.1:8080",
+                "--token", "secret-token",
+                "health"
+            );
+
+            assertThat(exitCode).isZero();
+            assertThat(err.toString()).doesNotContain("WARNING: Sending Actuator credentials over unencrypted HTTP.");
         } finally {
             System.setErr(originalErr);
         }

@@ -84,7 +84,8 @@ public final class SimpleJson {
             boolean first = true;
             for (Map.Entry<?, ?> entry : map.entrySet()) {
                 if (!first) sb.append(",");
-                sb.append(toJson(entry.getKey().toString(), depth + 1)).append(":").append(toJson(entry.getValue(), depth + 1));
+                String keyStr = entry.getKey() != null ? entry.getKey().toString() : "null";
+                sb.append(toJson(keyStr, depth + 1)).append(":").append(toJson(entry.getValue(), depth + 1));
                 first = false;
             }
             return sb.append("}").toString();

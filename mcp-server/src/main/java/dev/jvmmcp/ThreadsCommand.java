@@ -5,6 +5,7 @@ import dev.jvmmcp.core.attach.JvmAttachService;
 import dev.jvmmcp.core.jmx.JmxConnectionManager;
 import dev.jvmmcp.core.jmx.ThreadMXBeanClient;
 import dev.jvmmcp.core.model.*;
+import dev.jvmmcp.core.util.SimpleJson;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -28,6 +29,9 @@ public class ThreadsCommand implements Callable<Integer> {
 
     @Option(names = {"--dump", "-D"}, description = "Display full thread dump with stack traces")
     boolean dump;
+
+    @Option(names = {"--json"}, description = "Output thread summary in JSON format")
+    boolean json;
 
     @Option(names = {"--blocked", "-b"}, description = "List only blocked threads")
     boolean blockedOnly;
@@ -57,11 +61,20 @@ public class ThreadsCommand implements Callable<Integer> {
                 return 1;
             }
 
-            try (JmxConnectionManager jmxManager = attachResult.virtualMachine().isPresent() 
-                    ? JmxConnectionManager.connect(attachResult.virtualMachine().get(), pid) 
-                    : JmxConnectionManager.connectLocal()) {
+            com.sun.tools.attach.VirtualMachine vm = attachResult.virtualMachine().orElse(null);
+            boolean[] jmxManagerOwnsVm = {false};
+            try {
+                try (JmxConnectionManager jmxManager = vm != null 
+                        ? JmxConnectionManager.connect(vm, pid) 
+                        : JmxConnectionManager.connectLocal()) {
+                    jmxManagerOwnsVm[0] = true;
 
-                ThreadMXBeanClient client = createThreadMXBeanClient(jmxManager);
+                    ThreadMXBeanClient client = createThreadMXBeanClient(jmxManager);
+
+                if (json) {
+                    System.out.println(SimpleJson.toJson(client.getThreadSummary(pid)));
+                    return 0;
+                }
 
                 if (deadlocksOnly) {
                     printDeadlocks(client);
@@ -82,6 +95,14 @@ public class ThreadsCommand implements Callable<Integer> {
                 printDeadlocks(client);
                 return 0;
             }
+        } finally {
+            if (vm != null && !jmxManagerOwnsVm[0]) {
+                try {
+                    attachService.detach(vm);
+                } catch (Exception ignored) {
+                }
+            }
+        }
 
         } catch (Exception e) {
             System.err.println("[jvm-mcp] Error querying thread metrics: " + e.getMessage());
@@ -101,6 +122,9 @@ public class ThreadsCommand implements Callable<Integer> {
             summary.runnableCount(), summary.waitingCount());
         System.out.printf("TIMED_WAITING : %-6d BLOCKED : %-6d%n", 
             summary.timedWaitingCount(), summary.blockedCount());
+        if (summary.virtualThreads() != null) {
+            System.out.printf("Virtual Threads: %d%n", summary.virtualThreads().totalCount());
+        }
     }
 
     private void printDeadlocks(ThreadMXBeanClient client) throws Exception {
@@ -171,6 +195,19 @@ public class ThreadsCommand implements Callable<Integer> {
                 System.out.println("    at " + frame);
             }
             System.out.println();
+        }
+
+        if (dump.virtualThreads() != null && !dump.virtualThreads().isEmpty()) {
+            System.out.println("-".repeat(80));
+            System.out.printf(" VIRTUAL THREADS (%d found)%n", dump.virtualThreads().size());
+            System.out.println("-".repeat(80));
+            for (ThreadDetail t : dump.virtualThreads()) {
+                System.out.printf("\"%s\" #%d [%s]%n", t.threadName(), t.threadId(), t.state());
+                for (ThreadStackFrame frame : t.stackTrace()) {
+                    System.out.println("    at " + frame);
+                }
+                System.out.println();
+            }
         }
     }
 

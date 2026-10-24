@@ -474,4 +474,17 @@ class BeansCommandTest {
         BeansCommand command = new BeansCommand();
         assertThat(command).isNotNull();
     }
+
+    @Test
+    @DisplayName("beans command reads Actuator credentials from environment variables")
+    void shouldReadAuthFromEnvironmentVariables() {
+        Map<String, String> env = Map.of(
+            "ACTUATOR_USER", "env_user",
+            "ACTUATOR_PASSWORD", "env_pass"
+        );
+        BeansCommand cmd = new BeansCommand(new JvmAttachService(), env::get);
+        cmd.actuatorUrl = serverBaseUrl;
+        int exitCode = cmd.call();
+        assertThat(exitCode).isZero();
+    }
 }

@@ -75,7 +75,11 @@ public class PostgresToolHandler implements ToolHandler {
                 "inputSchema", Map.of(
                     "type", "object",
                     "properties", Map.of(
-                        "url", Map.of("type", "string", "description", "JDBC URL (e.g. jdbc:postgresql://localhost:5432/db)")
+                        "url", Map.of("type", "string", "description", "JDBC URL (e.g. jdbc:postgresql://localhost:5432/db)"),
+                        "limit", Map.of("type", "integer", "minimum", 1,
+                            "maximum", PostgresSchemaReader.MAX_SLOW_QUERY_LIMIT,
+                            "default", PostgresSchemaReader.DEFAULT_SLOW_QUERY_LIMIT,
+                            "description", "Maximum number of slow queries to return (default: 20, max: 100)")
                     ),
                     "required", List.of("url")
                 )
@@ -117,7 +121,9 @@ public class PostgresToolHandler implements ToolHandler {
                 }
                 content.add(Map.of("type", "text", "text", SimpleJson.toJson(reader.findMissingIndexes(schema, minTableSizeBytes))));
             } else if ("find_slow_queries".equals(toolName)) {
-                content.add(Map.of("type", "text", "text", SimpleJson.toJson(reader.findSlowQueries())));
+                int limit = ToolArgs.getIntArg(args, "limit", PostgresSchemaReader.DEFAULT_SLOW_QUERY_LIMIT,
+                    1, PostgresSchemaReader.MAX_SLOW_QUERY_LIMIT);
+                content.add(Map.of("type", "text", "text", SimpleJson.toJson(reader.findSlowQueries(limit))));
             } else {
                 throw new IllegalArgumentException("Unknown postgres tool: " + toolName);
             }

@@ -7,12 +7,15 @@ import dev.jvmmcp.core.port.HikariDiagnosticPort;
 import javax.management.MBeanServerConnection;
 import javax.management.ObjectName;
 import java.io.IOException;
+import java.lang.System.Logger;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
 public class HikariMXBeanClient implements HikariDiagnosticPort {
+
+    private static final Logger LOGGER = System.getLogger(HikariMXBeanClient.class.getName());
 
     private static final String HIKARI_POOL_DOMAIN = "com.zaxxer.hikari";
 
@@ -50,7 +53,7 @@ public class HikariMXBeanClient implements HikariDiagnosticPort {
                 try {
                     pools.add(readPool(poolName));
                 } catch (IOException e) {
-                    System.err.println("[jvm-mcp] Skipping unreadable HikariCP pool " + poolName + ": " + e.getMessage());
+                    LOGGER.log(Logger.Level.WARNING, "Skipping unreadable HikariCP pool {0}: {1}", poolName, e.getMessage());
                 }
             }
 

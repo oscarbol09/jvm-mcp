@@ -53,16 +53,25 @@ jobs:
             suffix: linux-aarch64
           - os: macos-latest
             suffix: macos-aarch64
-          - os: macos-13
+          - os: macos-15-intel
             suffix: macos-amd64
           - os: windows-latest
             suffix: windows-amd64
+    env:
+      MAVEN_OPTS: >-
+        -Dhttp.keepAlive=false
+        -Dmaven.wagon.http.pool=false
+        -Dmaven.wagon.http.retryHandler.count=3
+        -Dmaven.wagon.http.retryHandler.requestSentEnabled=true
+        -Daether.connector.http.retryHandler.count=3
+        -Daether.connector.connectTimeout=30000
+        -Daether.connector.requestTimeout=60000
     steps:
       - name: Checkout Source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
 
       - name: Set up JDK 21
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v4.7.0
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v4.7.0
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -70,7 +79,7 @@ jobs:
 
       - name: Build Fat JAR
         shell: bash
-        run: ./mvnw clean package -B
+        run: ./mvnw clean package -B -DskipTests
 
       - name: Build Native Distribution Package
         shell: bash
@@ -101,6 +110,7 @@ jobs:
                      --main-jar "$JAR_NAME" \
                      --main-class dev.jvmmcp.JvmMcp \
                      --runtime-image custom-jre \
+                     --win-console \
                      --dest build-out
             cd build-out
             7z a "../jvm-mcp-${MATRIX_SUFFIX}.zip" jvm-mcp
@@ -190,7 +200,7 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Calculate Checksums & Synchronize Homebrew Formula
+      - name: Calculate Checksums, Homebrew Formula & Scoop Manifest
         env:
           INPUT_TAG: ${{ inputs.tag_name }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
@@ -213,15 +223,16 @@ jobs:
           cat checksums.txt
           cd ..
 
-          # Populate Homebrew Formula with release version and computed SHA-256 sums
+          # Populate Homebrew Formula and Scoop manifest with release version and computed SHA-256 sums
           TAG="${INPUT_TAG:-$GITHUB_REF_NAME}"
           VERSION="${TAG#v}"
-          echo "Synchronizing Homebrew formula for version ${VERSION}..."
+          echo "Synchronizing Homebrew formula and Scoop manifest for version ${VERSION}..."
 
           MACOS_AARCH64_SHA=$(cat artifacts/jvm-mcp-macos-aarch64.tar.gz.sha256 2>/dev/null | awk '{print $1}' || echo "")
           MACOS_AMD64_SHA=$(cat artifacts/jvm-mcp-macos-amd64.tar.gz.sha256 2>/dev/null | awk '{print $1}' || echo "")
           LINUX_AMD64_SHA=$(cat artifacts/jvm-mcp-linux-amd64.tar.gz.sha256 2>/dev/null | awk '{print $1}' || echo "")
           LINUX_AARCH64_SHA=$(cat artifacts/jvm-mcp-linux-aarch64.tar.gz.sha256 2>/dev/null | awk '{print $1}' || echo "")
+          WINDOWS_AMD64_SHA=$(cat artifacts/jvm-mcp-windows-amd64.zip.sha256 2>/dev/null | awk '{print $1}' || echo "")
 
           sed -i "s/version \".*\"/version \"${VERSION}\"/" homebrew/jvm-mcp.rb
           [ -n "$MACOS_AARCH64_SHA" ] && sed -i "s/REPLACE_WITH_MACOS_AARCH64_SHA256/${MACOS_AARCH64_SHA}/" homebrew/jvm-mcp.rb
@@ -233,6 +244,13 @@ jobs:
           echo "Generated artifacts/jvm-mcp.rb:"
           cat artifacts/jvm-mcp.rb
 
+          sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" scoop/jvm-mcp.json
+          [ -n "$WINDOWS_AMD64_SHA" ] && sed -i "s/\"hash\": \".*\"/\"hash\": \"${WINDOWS_AMD64_SHA}\"/" scoop/jvm-mcp.json
+
+          cp scoop/jvm-mcp.json artifacts/jvm-mcp.json
+          echo "Generated artifacts/jvm-mcp.json:"
+          cat artifacts/jvm-mcp.json
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
@@ -240,3 +258,39 @@ jobs:
           files: |
             artifacts/*
           generate_release_notes: true
+
+      - name: Synchronize Package Manifests to Tap Repository
+        if: success()
+        env:
+          INPUT_TAG: ${{ inputs.tag_name }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${INPUT_TAG:-$GITHUB_REF_NAME}"
+          echo "Checking tap synchronization capability for ${TAG}..."
+          TAP_REPO="oscarbol09/homebrew-tap"
+          TMP_TAP="$(mktemp -d)"
+
+          if git clone "https://x-access-token:${TAP_TOKEN}@github.com/${TAP_REPO}.git" "$TMP_TAP" 2>/dev/null; then
+            mkdir -p "$TMP_TAP/Formula" "$TMP_TAP/bucket"
+            cp artifacts/jvm-mcp.rb "$TMP_TAP/Formula/jvm-mcp.rb"
+            cp artifacts/jvm-mcp.json "$TMP_TAP/bucket/jvm-mcp.json"
+            cd "$TMP_TAP"
+            git config user.name "Oscarbol09"
+            git config user.email "omaderabolano@correo.unicordoba.edu.co"
+            git add Formula/jvm-mcp.rb bucket/jvm-mcp.json
+            if ! git diff-index --quiet HEAD; then
+              git commit -m "chore(release): sync Homebrew formula and Scoop manifest for ${TAG}"
+              if git push origin main 2>/dev/null; then
+                echo "Successfully synchronized ${TAG} manifests to ${TAP_REPO}."
+              else
+                echo "Notice: Could not push to ${TAP_REPO}. Configure HOMEBREW_TAP_TOKEN with repo scope if automated sync is desired."
+              fi
+            else
+              echo "Tap manifests are already up to date."
+            fi
+            cd -
+            rm -rf "$TMP_TAP"
+          else
+            echo "Notice: Could not clone ${TAP_REPO}. Manifests remain available as release assets."
+          fi

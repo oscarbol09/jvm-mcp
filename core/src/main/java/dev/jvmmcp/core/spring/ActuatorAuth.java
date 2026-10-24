@@ -31,10 +31,10 @@ public record ActuatorAuth(String user, String password, String bearerToken, boo
         boolean hasToken = notBlank(bearerToken);
 
         if (hasToken && (hasUser || hasPassword)) {
-            return Optional.of("Use either --actuator-token or --actuator-user/--actuator-password, not both.");
+            return Optional.of("Use either bearer token or username/password credentials, not both.");
         }
         if (hasUser != hasPassword) {
-            return Optional.of("--actuator-user and --actuator-password must be provided together.");
+            return Optional.of("Username and password must be provided together.");
         }
         return Optional.empty();
     }

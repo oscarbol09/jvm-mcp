@@ -213,6 +213,44 @@ class SpringBeansParserTest {
     }
 
     @Test
+    @DisplayName("parse reads aliases and dependencies returned as Object[] over JMX")
+    void shouldParseObjectArrayAliasesAndDependencies() {
+        Map<String, Object> payload = Map.of(
+            "contexts", Map.of(
+                "application", Map.of(
+                    "beans", Map.of("orderService", Map.of(
+                        "type", "com.example.OrderService",
+                        "aliases", new Object[]{"orderSvc"},
+                        "dependencies", new Object[]{"orderRepository", "paymentClient"}
+                    ))
+                )
+            )
+        );
+
+        SpringBeanDetail bean = parser.parseMap(1L, "JMX", payload).getAllBeans().get(0);
+
+        assertThat(bean.aliases()).containsExactly("orderSvc");
+        assertThat(bean.dependencies()).containsExactly("orderRepository", "paymentClient");
+    }
+
+    @Test
+    @DisplayName("parse skips null elements and stringifies values in Object[] aliases and dependencies")
+    void shouldSkipNullElementsInObjectArrays() {
+        Map<String, Object> payload = Map.of(
+            "beans", Map.of("paymentClient", Map.of(
+                "type", "com.example.PaymentClient",
+                "aliases", new Object[]{null, "payments"},
+                "dependencies", new Object[]{"httpClient", null, 42}
+            ))
+        );
+
+        SpringBeanDetail bean = parser.parseMap(1L, "JMX", payload).getAllBeans().get(0);
+
+        assertThat(bean.aliases()).containsExactly("payments");
+        assertThat(bean.dependencies()).containsExactly("httpClient", "42");
+    }
+
+    @Test
     @DisplayName("parse returns empty report for null or blank inputs")
     void shouldHandleNullAndBlankInputs() {
         SpringBeansReport nullJson = parser.parse(1L, "TEST", null);

@@ -122,5 +122,21 @@ class McpTransportTest {
         assertThat(exitCode).isZero();
         assertThat(out.toString(StandardCharsets.UTF_8)).contains("-32700");
     }
+
+    @Test
+    @DisplayName("start wraps non-UTF8 PrintStream to force UTF-8 output")
+    void testStartForcesUtf8PrintStream() {
+        ToolRegistry registry = new ToolRegistry();
+        McpDispatcher dispatcher = new McpDispatcher(registry);
+        McpTransport transport = new McpTransport(dispatcher);
+
+        ByteArrayInputStream in = new ByteArrayInputStream("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n".getBytes(StandardCharsets.UTF_8));
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream isoStream = new PrintStream(out, true, java.nio.charset.StandardCharsets.ISO_8859_1);
+
+        int exitCode = transport.start(in, (java.io.OutputStream) isoStream);
+        assertThat(exitCode).isZero();
+        assertThat(out.toString(StandardCharsets.UTF_8)).contains("\"result\":{}");
+    }
 }
 

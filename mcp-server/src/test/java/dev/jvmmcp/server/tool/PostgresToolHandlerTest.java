@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -153,7 +154,7 @@ class PostgresToolHandlerTest {
     }
 
     static Stream<Object> invalidMinimumTableSizes() {
-        return Stream.of(-1, 1.5, new BigDecimal("0.01"), new BigDecimal("5.0000000000000000001"), "5", true, null,
+        return Stream.of(-1, 1.5, new BigDecimal("0.01"), new BigDecimal("5.0000000000000000001"), "not-a-number", true, null,
             8796093022208L, Long.MAX_VALUE, new BigInteger("9223372036854775808"),
             Double.NaN, Double.POSITIVE_INFINITY);
     }
@@ -178,7 +179,7 @@ class PostgresToolHandlerTest {
     @Test
     @DisplayName("find_slow_queries executes properly")
     void testFindSlowQueries() throws Exception {
-        when(mockReader.findSlowQueries()).thenReturn(new PostgresModels.SlowQueryAnalysis(true, List.of(
+        when(mockReader.findSlowQueries(20)).thenReturn(new PostgresModels.SlowQueryAnalysis(true, List.of(
             new PostgresModels.SlowQueryInfo("SELECT * FROM big_table", 10L, 500.0, 50.0, 1000L)
         )));
 
@@ -189,7 +190,33 @@ class PostgresToolHandlerTest {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
         assertThat(content.get(0).get("text").toString()).contains("SELECT * FROM big_table");
-        verify(mockReader).findSlowQueries();
+        verify(mockReader).findSlowQueries(20);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"5, 5", "100, 100", "500, 100", "0, 1"})
+    @DisplayName("find_slow_queries passes the limit argument, clamped to between 1 and 100")
+    void testFindSlowQueriesLimit(int requested, int expected) throws Exception {
+        when(mockReader.findSlowQueries(expected)).thenReturn(new PostgresModels.SlowQueryAnalysis(true, List.of()));
+
+        PostgresToolHandler handler = new PostgresToolHandler((url, user, pass) -> mockReader);
+        handler.execute("find_slow_queries", Map.of("url", "jdbc:postgresql://localhost:5432/mydb", "limit", requested));
+
+        verify(mockReader).findSlowQueries(expected);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void slowQueryLimitIsAnOptionalBoundedIntegerInToolSchema() {
+        PostgresToolHandler handler = new PostgresToolHandler((url, user, pass) -> mockReader);
+        Map<String, Object> definition = handler.toolDefinitions().stream()
+            .filter(tool -> "find_slow_queries".equals(tool.get("name"))).findFirst().orElseThrow();
+        Map<String, Object> schema = (Map<String, Object>) definition.get("inputSchema");
+        Map<String, Object> limit = (Map<String, Object>) ((Map<String, Object>) schema.get("properties")).get("limit");
+
+        assertThat(limit).containsEntry("type", "integer")
+            .containsEntry("minimum", 1).containsEntry("maximum", 100).containsEntry("default", 20);
+        assertThat((List<String>) schema.get("required")).containsExactly("url");
     }
 
     @Test

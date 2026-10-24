@@ -43,7 +43,7 @@ Before writing code, please review these foundational design decisions:
 ./mvnw clean verify
 
 # Run CLI locally
-java -jar mcp-server/target/jvm-mcp-server-1.1.0-SNAPSHOT.jar list
+java -jar mcp-server/target/jvm-mcp-server-1.1.1.jar list
 ```
 
 ---

@@ -1,3 +1,4 @@
+
 package dev.jvmmcp;
 
 import dev.jvmmcp.core.pg.PostgresModels.*;
@@ -6,6 +7,7 @@ import dev.jvmmcp.core.util.SimpleJson;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
+import java.util.Locale;
 import java.util.concurrent.Callable;
 import java.util.function.Function;
 
@@ -49,12 +51,20 @@ public class PgCommand implements Callable<Integer> {
     @Option(names = {"--schema"}, defaultValue = "public", description = "Target schema (default: public)")
     private String schema;
 
-    @Option(names = {"--action"}, required = true, description = "Action to perform: schema, missing-indexes, slow-queries")
+    @Option(
+        names = {"--action"},
+        required = true,
+        description = "Action to perform: schema, missing-indexes (or missing_indexes), slow-queries (or slow_queries)"
+    )
     private String action;
 
     @Option(names = {"--min-table-size-mb"}, defaultValue = "1",
         description = "Minimum table size in MiB for missing-indexes (default: 1, 0 disables the size filter)")
     private long minTableSizeMb;
+
+    @Option(names = {"--limit"}, defaultValue = "20",
+        description = "Maximum number of slow queries to return for slow-queries (default: 20, max: 100)")
+    private int limit;
 
     @Override
     public Integer call() {
@@ -74,8 +84,13 @@ public class PgCommand implements Callable<Integer> {
             effectivePassword = envPassword != null ? envPassword : envProvider.apply("PG_PASSWORD");
         }
 
-        try (PostgresSchemaReader reader = readerFactory.create(url, effectiveUser, effectivePassword)) {
-            switch (action) {
+        String normalizedAction = action == null
+            ? ""
+            : action.trim().toLowerCase(Locale.ROOT).replace('_', '-');
+
+        try (PostgresSchemaReader reader =
+                 readerFactory.create(url, effectiveUser, effectivePassword)) {
+            switch (normalizedAction) {
                 case "schema" -> {
                     SchemaInfo info = reader.inspectSchema(schema);
                     System.out.println(SimpleJson.toJson(info));
@@ -84,15 +99,20 @@ public class PgCommand implements Callable<Integer> {
                     if (minTableSizeMb < 0 || minTableSizeMb > Long.MAX_VALUE / (1024L * 1024L)) {
                         throw new IllegalArgumentException("--min-table-size-mb must be a non-negative integer that fits in bytes");
                     }
-                    MissingIndexAnalysis analysis = reader.findMissingIndexes(schema, minTableSizeMb * 1024L * 1024L);
+                    MissingIndexAnalysis analysis =
+                        reader.findMissingIndexes(schema, minTableSizeMb * 1024L * 1024L);
                     System.out.println(SimpleJson.toJson(analysis));
                 }
                 case "slow-queries" -> {
-                    SlowQueryAnalysis analysis = reader.findSlowQueries();
+                    SlowQueryAnalysis analysis = reader.findSlowQueries(limit);
                     System.out.println(SimpleJson.toJson(analysis));
                 }
                 default -> {
-                    System.err.println("Unknown action: " + action + ". Use schema, missing-indexes, or slow-queries.");
+                    System.err.println(
+                        "Unknown action: " + action
+                            + ". Use schema, missing-indexes (or missing_indexes), "
+                            + "or slow-queries (or slow_queries)."
+                    );
                     return 1;
                 }
             }

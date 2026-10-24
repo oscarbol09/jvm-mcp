@@ -54,18 +54,28 @@ public class BeansCommand implements Callable<Integer> {
     boolean json;
 
     private final JvmAttachService attachService;
+    private final java.util.function.Function<String, String> envProvider;
 
     public BeansCommand() {
-        this.attachService = new JvmAttachService();
+        this(new JvmAttachService(), System::getenv);
     }
 
     public BeansCommand(JvmAttachService attachService) {
+        this(attachService, System::getenv);
+    }
+
+    public BeansCommand(JvmAttachService attachService, java.util.function.Function<String, String> envProvider) {
         this.attachService = attachService;
+        this.envProvider = envProvider != null ? envProvider : System::getenv;
     }
 
     @Override
     public Integer call() {
-        ActuatorAuth auth = new ActuatorAuth(actuatorUser, actuatorPassword, actuatorToken, insecure);
+        String effectiveToken = actuatorToken != null ? actuatorToken : envProvider.apply("ACTUATOR_TOKEN");
+        String effectiveUser = actuatorUser != null ? actuatorUser : envProvider.apply("ACTUATOR_USER");
+        String effectivePassword = actuatorPassword != null ? actuatorPassword : envProvider.apply("ACTUATOR_PASSWORD");
+
+        ActuatorAuth auth = new ActuatorAuth(effectiveUser, effectivePassword, effectiveToken, insecure);
         Optional<String> authError = auth.validate();
         if (authError.isPresent()) {
             System.err.println("[jvm-mcp] Error: " + authError.get());

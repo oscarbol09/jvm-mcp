@@ -11,8 +11,14 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -20,6 +26,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ActuatorClientTest {
 
     private HttpServer server;
+    private ExecutorService serverExecutor;
     private int port;
     private ActuatorClient client;
 
@@ -55,6 +62,8 @@ class ActuatorClientTest {
     @BeforeEach
     void setUp() throws IOException {
         server = HttpServer.create(new InetSocketAddress(0), 0);
+        serverExecutor = Executors.newCachedThreadPool();
+        server.setExecutor(serverExecutor);
         
         server.createContext("/actuator/health", exchange -> {
             String response = "{\"status\":\"UP\"}";
@@ -133,6 +142,9 @@ class ActuatorClientTest {
     void tearDown() {
         if (server != null) {
             server.stop(0);
+        }
+        if (serverExecutor != null) {
+            serverExecutor.shutdownNow();
         }
     }
 
@@ -261,6 +273,145 @@ class ActuatorClientTest {
         assertThatThrownBy(() -> new ActuatorClient("http://localhost:8080/actuator#section", ActuatorAuth.NONE))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("SSRF Protection: URI fragments not permitted");
+    }
+
+    @Test
+    void testGzipResponseDecompression() throws IOException {
+        String json = "{\"status\":\"UP\",\"details\":{\"diskSpace\":{\"status\":\"UP\"}}}";
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.GZIPOutputStream gzos = new java.util.zip.GZIPOutputStream(baos)) {
+            gzos.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+        byte[] gzippedBytes = baos.toByteArray();
+
+        server.createContext("/actuator/compressed-health", exchange -> {
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.getResponseHeaders().set("Content-Encoding", "gzip");
+            exchange.sendResponseHeaders(200, gzippedBytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(gzippedBytes);
+            }
+        });
+
+        String result = client.fetchEndpoint("/actuator/compressed-health");
+        assertThat(result).isEqualTo(json);
+    }
+
+    @Test
+    void testBatchMetricsPreservesSuccessfulMetricsWhenOneStalls() {
+        // Warm up connection to ensure jvm.memory.used completes well before timeout
+        client.getMetric("jvm.memory.used");
+
+        CountDownLatch releaseLatch = new CountDownLatch(1);
+        CountDownLatch requestReceivedLatch = new CountDownLatch(1);
+        String stalledContext = "/actuator/metrics/stalled.one";
+
+        server.createContext(stalledContext, exchange -> {
+            requestReceivedLatch.countDown();
+            try {
+                releaseLatch.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            byte[] response = "{\"value\":999}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(response);
+            }
+        });
+
+        try {
+            long start = System.nanoTime();
+            String res = client.getMetricsBatch(List.of("jvm.memory.used", "stalled.one"), Duration.ofMillis(500));
+            long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+
+            assertThat(elapsedMillis).isLessThan(4000);
+            assertThat(res).startsWith("{").endsWith("}");
+            assertThat(res).contains("\"jvm.memory.used\"");
+            assertThat(res).contains("12345");
+            assertThat(res).contains("\"stalled.one\": {\"error\": \"Request timed out\"}");
+        } finally {
+            releaseLatch.countDown();
+            server.removeContext(stalledContext);
+        }
+    }
+
+    @Test
+    void testBatchMetricsReturnsTimeoutErrorsWhenAllRequestsStall() {
+        CountDownLatch releaseLatch = new CountDownLatch(1);
+        String stalledContext1 = "/actuator/metrics/stalled.alpha";
+        String stalledContext2 = "/actuator/metrics/stalled.beta";
+
+        server.createContext(stalledContext1, exchange -> {
+            try {
+                releaseLatch.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            byte[] response = "{\"value\":1}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(response);
+            }
+        });
+
+        server.createContext(stalledContext2, exchange -> {
+            try {
+                releaseLatch.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            byte[] response = "{\"value\":2}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(response);
+            }
+        });
+
+        try {
+            long start = System.nanoTime();
+            String res = client.getMetricsBatch(List.of("stalled.alpha", "stalled.beta"), Duration.ofMillis(200));
+            long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+
+            assertThat(elapsedMillis).isLessThan(3000);
+            assertThat(res).startsWith("{").endsWith("}");
+            assertThat(res).contains("\"stalled.alpha\": {\"error\": \"Request timed out\"}");
+            assertThat(res).contains("\"stalled.beta\": {\"error\": \"Request timed out\"}");
+        } finally {
+            releaseLatch.countDown();
+            server.removeContext(stalledContext1);
+            server.removeContext(stalledContext2);
+        }
+    }
+
+    @Test
+    void testBatchMetricsTimeoutPreservesSpecialCharacterEscaping() {
+        CountDownLatch releaseLatch = new CountDownLatch(1);
+        String rawMetricName = "stalled\"with\"quotes";
+        String stalledContext = "/actuator/metrics/" + rawMetricName;
+
+        server.createContext(stalledContext, exchange -> {
+            try {
+                releaseLatch.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            byte[] response = "{\"value\":1}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(response);
+            }
+        });
+
+        try {
+            String res = client.getMetricsBatch(List.of(rawMetricName), Duration.ofMillis(200));
+            assertThat(res).startsWith("{").endsWith("}");
+            assertThat(res).contains("\"stalled\\\"with\\\"quotes\"");
+            assertThat(res).contains("{\"error\": \"Request timed out\"}");
+        } finally {
+            releaseLatch.countDown();
+            server.removeContext(stalledContext);
+        }
     }
 }
 

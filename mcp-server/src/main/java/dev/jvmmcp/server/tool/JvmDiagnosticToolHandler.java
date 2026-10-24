@@ -146,7 +146,7 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
                 } else if ("get_thread_diagnostics".equals(toolName)) {
                     try (ThreadMXBeanClient threadClient = new ThreadMXBeanClient(jmxManager.getMBeanServerConnection())) {
                         content.add(Map.of("type", "text", "text", SimpleJson.toJson(threadClient.getThreadSummary(pid))));
-                        content.add(Map.of("type", "text", "text", "Deadlock Report: " + SimpleJson.toJson(threadClient.detectDeadlocks())));
+                        content.add(Map.of("type", "text", "text", SimpleJson.toJson(threadClient.detectDeadlocks())));
                     }
                 } else if ("get_thread_dump".equals(toolName)) {
                     try (ThreadMXBeanClient threadClient = new ThreadMXBeanClient(jmxManager.getMBeanServerConnection())) {

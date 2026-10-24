@@ -24,6 +24,7 @@ class PostgresSchemaReaderIT {
     );
 
     private static PostgresSchemaReader reader;
+    private static String cleanJdbcUrl;
 
     @BeforeAll
     static void setUp() throws Exception {
@@ -52,7 +53,9 @@ class PostgresSchemaReaderIT {
             stmt.execute("ANALYZE large_table");
         }
 
-        reader = new PostgresSchemaReader(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+        String rawUrl = postgres.getJdbcUrl();
+        cleanJdbcUrl = rawUrl.contains("?") ? rawUrl.substring(0, rawUrl.indexOf('?')) : rawUrl;
+        reader = new PostgresSchemaReader(cleanJdbcUrl, postgres.getUsername(), postgres.getPassword());
     }
 
     @AfterAll
@@ -89,7 +92,7 @@ class PostgresSchemaReaderIT {
     void testLruDataSourceEviction() throws Exception {
         // We simulate 6 distinct logical DBs by appending an application_name param
         for (int i = 1; i <= 6; i++) {
-            String dynamicUrl = postgres.getJdbcUrl() + "&ApplicationName=tenant_" + i;
+            String dynamicUrl = cleanJdbcUrl + "?ApplicationName=tenant_" + i;
             PostgresSchemaReader dynamicReader = new PostgresSchemaReader(dynamicUrl, postgres.getUsername(), postgres.getPassword());
             dynamicReader.inspectSchema("public"); // triggers getConnection()
         }

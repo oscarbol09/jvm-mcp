@@ -64,21 +64,118 @@ Distributed as a standalone multi-platform bundle with a stripped custom runtime
 
 Pre-built standalone distributions include a minimal modular JRE via `jlink` (Linux/macOS) and `jpackage` (Windows). No pre-installed JDK is required on the host system.
 
-### One-Line Universal Installer (Linux & macOS)
+### Recommended: Automated One-Line Installers
 
+#### Linux & macOS
 ```bash
 curl -fsSL https://raw.githubusercontent.com/oscarbol09/jvm-mcp/main/install.sh | bash
 ```
+*Options supported: `--version <v1.1.0>`, `--uninstall`, `--install-dir <dir>`, `--bin-dir <dir>`.*
 
-The script automatically detects your platform architecture (`linux-amd64`, `linux-aarch64`, `macos-aarch64`, `macos-amd64`), verifies the cryptographic SHA-256 checksum against the release manifest, and unpacks `jvm-mcp` into `~/.local/bin`.
+#### Windows (PowerShell)
 
-### Homebrew (macOS & Linux)
-
-```bash
-brew install oscarbol09/tap/jvm-mcp
+Quick install:
+```powershell
+irm https://raw.githubusercontent.com/oscarbol09/jvm-mcp/main/install.ps1 | iex
 ```
 
-### Pre-Compiled Standalone Archives
+Custom installation with arguments (specific version or custom directory):
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/oscarbol09/jvm-mcp/main/install.ps1))) -Version 1.1.1 -InstallDir "$env:LOCALAPPDATA\jvm-mcp"
+```
+
+---
+
+### Package Managers
+
+#### Homebrew (macOS & Linux)
+```bash
+brew tap oscarbol09/tap
+brew install jvm-mcp
+```
+*(Or direct formula install: `brew install https://github.com/oscarbol09/jvm-mcp/releases/latest/download/jvm-mcp.rb`)*
+
+#### Scoop (Windows)
+```powershell
+scoop bucket add oscarbol09 https://github.com/oscarbol09/homebrew-tap.git
+scoop install jvm-mcp
+```
+*(Or single-step direct install: `scoop install https://raw.githubusercontent.com/oscarbol09/homebrew-tap/main/bucket/jvm-mcp.json`)*
+
+---
+
+### Verification: First Step After Installation
+
+Immediately after installation, run the diagnostic tool to verify Java HotSpot runtime compatibility, user process boundaries, and Dynamic Attach API capabilities:
+
+```bash
+jvm-mcp doctor
+```
+
+Expected output:
+```text
+JVM-MCP Doctor
+--------------
+OS Name:       Linux / macOS / Windows
+[OK] Java version 21 meets the minimum requirement (Java 21+).
+[OK] HotSpot-compatible JVM detected. Dynamic Attach API fully supported.
+[OK] Attach API is functioning.
+[OK] Found local Java processes accessible to user.
+
+Your system is ready to use JVM-MCP.
+```
+
+---
+
+### Operating System Permissions & Troubleshooting
+
+| Platform / Environment | Requirement & Operational Guidance |
+| :--- | :--- |
+| **All Platforms (User Isolation)** | Target JVM processes must run under the **same operating system user** as `jvm-mcp`. For security reasons, cross-user process attachment is blocked by JVM runtime specifications. |
+| **Linux (`ptrace_scope`)** | Linux kernel YAMA restrictions may restrict dynamic attachment. Ensure `/proc/sys/kernel/yama/ptrace_scope` is `0` or grant `CAP_SYS_PTRACE`. |
+| **Docker Containers** | When monitoring processes inside containers, run with `--pid=host` to share the host process namespace and `--cap-add=SYS_PTRACE`. |
+| **macOS (SIP & Hardened Runtime)** | macOS process security requires `jvm-mcp` to run under the same interactive user session. |
+| **Headless / Remote Spring Boot** | When dynamic Attach API is restricted by environment security policies, use **Actuator Remote Mode** (`get_actuator_health`, `get_actuator_metrics`) via standard HTTP/HTTPS without requiring local Attach API access. |
+
+---
+
+### Updating & Uninstallation
+
+#### Updating
+- **Linux & macOS**: Re-run the installer: `curl -fsSL https://raw.githubusercontent.com/oscarbol09/jvm-mcp/main/install.sh | bash`
+- **Homebrew**: `brew update && brew upgrade jvm-mcp`
+- **Windows (PowerShell)**: Re-run: `irm https://raw.githubusercontent.com/oscarbol09/jvm-mcp/main/install.ps1 | iex`
+- **Scoop**: `scoop update jvm-mcp`
+
+#### Uninstallation
+- **Linux & macOS**:
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/oscarbol09/jvm-mcp/main/uninstall.sh | bash
+  # Or: ./install.sh --uninstall
+  ```
+- **Windows (PowerShell)**:
+  ```powershell
+  irm https://raw.githubusercontent.com/oscarbol09/jvm-mcp/main/uninstall.ps1 | iex
+  # Or: .\install.ps1 -Uninstall
+  ```
+- **Homebrew**: `brew uninstall jvm-mcp`
+- **Scoop**: `scoop uninstall jvm-mcp`
+
+---
+
+### Alternative Channels
+
+#### Docker / OCI Container (GHCR)
+
+The official container image is optimized for remote diagnostic workflows (inspecting PostgreSQL schemas and Spring Boot Actuator endpoints over network):
+
+```bash
+docker run -i --rm ghcr.io/oscarbol09/jvm-mcp:1.1.1 serve
+```
+
+> **Note on Local Attach API**: The container runs under an unprivileged user (`jvmuser`, UID 10001) with a minimal JRE. Dynamic Attach API inspection of host processes from inside Docker requires host PID namespace sharing (`--pid=host`), `CAP_SYS_PTRACE`, and matching user boundaries. For local JVM introspection, pre-compiled standalone archives or native installers are recommended.
+
+#### Pre-Compiled Standalone Archives
 
 Download release packages and corresponding `.sha256` checksums from [GitHub Releases](https://github.com/oscarbol09/jvm-mcp/releases):
 
@@ -98,7 +195,7 @@ tar -xzf jvm-mcp-linux-amd64.tar.gz
 ./jvm-mcp --version
 ```
 
-### Building From Source
+#### Building From Source (Developers)
 
 Requires JDK 21+ and Git:
 ```bash
@@ -107,7 +204,7 @@ cd jvm-mcp
 ./mvnw clean package -DskipTests
 
 # Run the packaged fat JAR directly:
-java -jar mcp-server/target/jvm-mcp-server-1.1.0-SNAPSHOT.jar --version
+java -jar mcp-server/target/jvm-mcp-server-1.1.1.jar --version
 ```
 
 ---
@@ -129,7 +226,7 @@ Add `jvm-mcp` to your `claude_desktop_config.json`:
 }
 ```
 
-*(If running from the repository fat JAR directly: `"command": "java", "args": ["-jar", "/path/to/jvm-mcp-server-1.1.0-SNAPSHOT.jar", "serve"]`)*
+*(If running from the repository fat JAR directly: `"command": "java", "args": ["-jar", "/path/to/jvm-mcp-server-1.1.1.jar", "serve"]`)*
 
 ### Cursor / Windsurf
 
@@ -188,7 +285,7 @@ The server exposes 14 diagnostic tools to AI assistants:
 | `list_hikari_pools` | HikariCP pool metrics, active/idle connections, and leak warnings. | `pid` (number) |
 | `inspect_pg_schema` | PostgreSQL table schema, columns, row estimates, and foreign keys. | `url` (string), `schema` (string, optional) |
 | `find_missing_indexes` | High sequential scan tables with low index usage via `pg_stat_user_tables`. | `url` (string), `schema` (string, optional), `minTableSizeMb` (integer, optional) |
-| `find_slow_queries` | Slow query execution profiles from `pg_stat_statements`. | `url` (string) |
+| `find_slow_queries` | Slow query execution profiles from `pg_stat_statements`. | `url` (string), `limit` (integer, optional) |
 | `get_actuator_health` | Recursively parsed Spring Boot `/actuator/health` component status. | `url` (string) |
 | `get_actuator_metrics` | Batch or individual diagnostic metric values from `/actuator/metrics`. | `url` (string), `metrics` (string, optional) |
 | `get_actuator_startup` | Startup timeline and slowest beans from `/actuator/startup`. | `url` (string) |
@@ -202,6 +299,13 @@ jvm-mcp pg --url "jdbc:postgresql://localhost:5432/mydb" --action missing-indexe
 ```
 
 Java callers can use `findMissingIndexes(schemaName, minTableSizeBytes)` for a threshold in bytes.
+
+Slow-query analysis returns the 20 statements with the highest mean execution time by default.
+Set `limit` (or `--limit` on the CLI) to return between 1 and 100 of them:
+
+```bash
+jvm-mcp pg --url "jdbc:postgresql://localhost:5432/mydb" --action slow-queries --limit 5
+```
 
 ---
 

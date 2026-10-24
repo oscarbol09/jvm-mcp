@@ -50,10 +50,17 @@ public final class ToolArgs {
             return 0L;
         }
         Object val = args.get(key);
-        if (!(val instanceof Number)) {
-            throw new IllegalArgumentException("Argument '" + key + "' must be a number");
+        if (val instanceof Number n) {
+            return n.longValue();
         }
-        return ((Number) val).longValue();
+        if (val instanceof String s && !s.isBlank()) {
+            try {
+                return Long.parseLong(s.trim());
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Argument '" + key + "' must be a number, got: " + s);
+            }
+        }
+        throw new IllegalArgumentException("Argument '" + key + "' must be a number");
     }
 
     public static long getPositiveLongArg(Map<String, Object> args, String key, boolean required) {
@@ -69,10 +76,18 @@ public final class ToolArgs {
             return defaultValue;
         }
         Object val = args.get(key);
-        if (!(val instanceof Number)) {
+        int parsed;
+        if (val instanceof Number n) {
+            parsed = n.intValue();
+        } else if (val instanceof String s && !s.isBlank()) {
+            try {
+                parsed = Integer.parseInt(s.trim());
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Argument '" + key + "' must be a number, got: " + s);
+            }
+        } else {
             throw new IllegalArgumentException("Argument '" + key + "' must be a number");
         }
-        int parsed = ((Number) val).intValue();
         if (parsed < min) {
             return min;
         }

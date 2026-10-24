@@ -382,5 +382,17 @@ class SimpleJsonTest {
         assertThat(json).contains("\"title\":\"metrics\"");
         assertThat(json).contains("\"count\":42");
     }
+
+    @Test
+    @DisplayName("toJson should serialize Map with null key as \"null\" key without throwing NullPointerException")
+    void shouldSerializeMapWithNullKeyAsNullString() {
+        java.util.Map<String, Object> mapWithNullKey = new java.util.HashMap<>();
+        mapWithNullKey.put(null, "valueForNull");
+        mapWithNullKey.put("normalKey", 123);
+
+        String json = SimpleJson.toJson(mapWithNullKey);
+        assertThat(json).contains("\"null\":\"valueForNull\"");
+        assertThat(json).contains("\"normalKey\":123");
+    }
 }
 

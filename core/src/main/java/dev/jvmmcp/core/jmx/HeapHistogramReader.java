@@ -111,7 +111,7 @@ public class HeapHistogramReader {
                         int rank = Integer.parseInt(rankStr);
                         long instances = Long.parseLong(parts[1]);
                         long bytes = Long.parseLong(parts[2]);
-                        String className = parts[3];
+                        String className = normalizeClassName(parts[3]);
 
                         parsedTotalInstances += instances;
                         parsedTotalBytes += bytes;
@@ -131,5 +131,38 @@ public class HeapHistogramReader {
 
         double totalMb = totalBytes / (1024.0 * 1024.0);
         return new HeapHistogram(pid, totalInstances, totalBytes, Math.round(totalMb * 100.0) / 100.0, items);
+    }
+
+    /**
+     * Rewrites a JVM array descriptor, as {@code GC.class_histogram} prints it, as a Java type name:
+     * {@code [B} becomes {@code byte[]}, {@code [[Ljava.lang.Object;} becomes {@code java.lang.Object[][]}.
+     * A trailing module, such as {@code (java.base@21.0.3)}, is kept. Anything else is returned as given.
+     */
+    static String normalizeClassName(String raw) {
+        if (raw == null || !raw.startsWith("[")) {
+            return raw;
+        }
+        int space = raw.indexOf(' ');
+        String descriptor = space < 0 ? raw : raw.substring(0, space);
+        String rest = space < 0 ? "" : raw.substring(space);
+        int dimensions = 0;
+        while (dimensions < descriptor.length() && descriptor.charAt(dimensions) == '[') {
+            dimensions++;
+        }
+        String element = descriptor.substring(dimensions);
+        String type = switch (element) {
+            case "B" -> "byte";
+            case "C" -> "char";
+            case "D" -> "double";
+            case "F" -> "float";
+            case "I" -> "int";
+            case "J" -> "long";
+            case "S" -> "short";
+            case "Z" -> "boolean";
+            default -> element.length() > 2 && element.startsWith("L") && element.endsWith(";")
+                ? element.substring(1, element.length() - 1)
+                : null;
+        };
+        return type == null ? raw : type + "[]".repeat(dimensions) + rest;
     }
 }

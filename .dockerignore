@@ -1,0 +1,9 @@
+target/
+**/target/
+.git/
+.github/
+.idea/
+*.iml
+.DS_Store
+homebrew/
+scoop/

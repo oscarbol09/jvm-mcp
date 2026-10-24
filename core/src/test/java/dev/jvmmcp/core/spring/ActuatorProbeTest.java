@@ -132,6 +132,40 @@ class ActuatorProbeTest {
     }
 
     @Test
+    @DisplayName("probe finds a port given only as a --server.port argument in sun.java.command")
+    void shouldProbePortFromCommandLineArgument() throws Exception {
+        server.createContext("/actuator/beans", exchange -> {
+            byte[] body = BEANS_PAYLOAD.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            try (java.io.OutputStream os = exchange.getResponseBody()) {
+                os.write(body);
+            }
+        });
+        server.start();
+
+        Properties sysProps = new Properties();
+        sysProps.setProperty("sun.java.command", "my-service.jar --spring.profiles.active=prod --server.port=" + port);
+        when(virtualMachine.getSystemProperties()).thenReturn(sysProps);
+        when(virtualMachine.getAgentProperties()).thenReturn(new Properties());
+
+        Optional<ActuatorProbe.ProbeResult> result = new ActuatorProbe().probe(virtualMachine);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().url()).contains(":" + port + "/actuator/beans");
+    }
+
+    @Test
+    @DisplayName("portsFromCommandLine reads --/-D server and management ports, management first")
+    void shouldReadPortsFromCommandLine() {
+        assertThat(ActuatorProbe.portsFromCommandLine("my-service.jar --server.port=8085")).containsExactly("8085");
+        assertThat(ActuatorProbe.portsFromCommandLine("my-service.jar --server.port=8085 --management.server.port=9095"))
+            .containsExactly("9095", "8085");
+        assertThat(ActuatorProbe.portsFromCommandLine("com.example.App -Dserver.port=7070")).containsExactly("7070");
+        assertThat(ActuatorProbe.portsFromCommandLine("app.jar --my.server.port=1 --server.portal=2 --server.port")).isEmpty();
+        assertThat(ActuatorProbe.portsFromCommandLine(null)).isEmpty();
+    }
+
+    @Test
     @DisplayName("probe handles getSystemProperties throwing exception gracefully")
     void shouldHandleVmPropertiesException() throws Exception {
         when(virtualMachine.getSystemProperties()).thenThrow(new IOException("Attach read failure"));

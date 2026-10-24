@@ -37,7 +37,12 @@ public class McpTransport {
     }
 
     public int start(InputStream in, OutputStream out) {
-        PrintStream printStream = out instanceof PrintStream ps ? ps : new PrintStream(out, true, StandardCharsets.UTF_8);
+        PrintStream printStream;
+        if (out instanceof PrintStream ps && StandardCharsets.UTF_8.equals(ps.charset())) {
+            printStream = ps;
+        } else {
+            printStream = new PrintStream(out, true, StandardCharsets.UTF_8);
+        }
         return start(in, printStream);
     }
 
@@ -45,41 +50,51 @@ public class McpTransport {
 
     public int start(InputStream in, PrintStream out) {
         ExecutorService executor = customExecutor != null ? customExecutor : Executors.newVirtualThreadPerTaskExecutor();
-        try (BoundedLineReader reader = new BoundedLineReader(in, MAX_REQUEST_BYTES)) {
-            while (true) {
-                String line;
-                try {
-                    line = reader.readLine();
-                } catch (LineTooLargeException e) {
-                    System.err.println("[jvm-mcp] Request rejected: " + e.getMessage());
-                    sendResponse(out, dispatcher.formatParseError("Request exceeds maximum size limit of " + MAX_REQUEST_BYTES + " bytes"));
-                    continue;
-                }
-
-                if (line == null) {
-                    break;
-                }
-                if (line.trim().isEmpty()) {
-                    continue;
-                }
-                final String requestLine = line;
-                executor.submit(() -> {
+        try {
+            try (BoundedLineReader reader = new BoundedLineReader(in, MAX_REQUEST_BYTES)) {
+                while (true) {
+                    String line;
                     try {
-                        Optional<Map<String, Object>> response = dispatcher.dispatch(requestLine);
-                        response.ifPresent(resp -> sendResponse(out, resp));
-                    } catch (Exception e) {
-                        System.err.println("[jvm-mcp] Error processing request: " + e.getMessage());
-                        sendResponse(out, dispatcher.formatParseError(e.getMessage()));
+                        line = reader.readLine();
+                    } catch (LineTooLargeException e) {
+                        System.err.println("[jvm-mcp] Request rejected: " + e.getMessage());
+                        sendResponse(out, dispatcher.formatParseError("Request exceeds maximum size limit of " + MAX_REQUEST_BYTES + " bytes"));
+                        continue;
                     }
-                });
-            }
-            executor.shutdown();
-            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
-                executor.shutdownNow();
+
+                    if (line == null) {
+                        break;
+                    }
+                    if (line.trim().isEmpty()) {
+                        continue;
+                    }
+                    final String requestLine = line;
+                    executor.submit(() -> {
+                        try {
+                            Optional<Map<String, Object>> response = dispatcher.dispatch(requestLine);
+                            response.ifPresent(resp -> sendResponse(out, resp));
+                        } catch (Exception e) {
+                            System.err.println("[jvm-mcp] Error processing request: " + e.getMessage());
+                            sendResponse(out, dispatcher.formatParseError(e.getMessage()));
+                        }
+                    });
+                }
             }
         } catch (Exception e) {
             System.err.println("[jvm-mcp] Fatal server error: " + e.getMessage());
             return 1;
+        } finally {
+            if (customExecutor == null) {
+                executor.shutdown();
+                try {
+                    if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                        executor.shutdownNow();
+                    }
+                } catch (InterruptedException ie) {
+                    executor.shutdownNow();
+                    Thread.currentThread().interrupt();
+                }
+            }
         }
 
         return 0;

@@ -15,11 +15,18 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
+import javax.management.MBeanServerConnection;
+import javax.management.ObjectName;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class ThreadMXBeanClientTest {
 
@@ -71,6 +78,23 @@ class ThreadMXBeanClientTest {
     }
 
     @Test
+    @DisplayName("getThreadSummary returns zero state counts when getAllThreadIds returns null")
+    void shouldSummarizeWhenThreadIdsAreNull() throws Exception {
+        MBeanServerConnection mbsc = mock(MBeanServerConnection.class);
+        ObjectName threading = new ObjectName(ManagementFactory.THREAD_MXBEAN_NAME);
+        when(mbsc.isInstanceOf(any(), anyString())).thenReturn(true);
+        when(mbsc.getAttribute(threading, "ThreadCount")).thenReturn(3);
+        when(mbsc.getAttribute(threading, "DaemonThreadCount")).thenReturn(1);
+        when(mbsc.getAttribute(threading, "PeakThreadCount")).thenReturn(4);
+        when(mbsc.getAttribute(threading, "TotalStartedThreadCount")).thenReturn(9L);
+        when(mbsc.getAttribute(threading, "AllThreadIds")).thenReturn(null);
+
+        ThreadSummary summary = new ThreadMXBeanClient(mbsc).getThreadSummary(42L);
+
+        assertThat(summary).isEqualTo(new ThreadSummary(42L, 3, 1, 4, 9L, 0, 0, 0, 0));
+    }
+
+    @Test
     @DisplayName("getThreadDump should capture formatted thread stack frames")
     void shouldCaptureStructuredThreadDump() throws IOException {
         long currentPid = ProcessHandle.current().pid();
@@ -82,6 +106,34 @@ class ThreadMXBeanClientTest {
 
         boolean hasStackTrace = dump.threads().stream().anyMatch(t -> !t.stackTrace().isEmpty());
         assertThat(hasStackTrace).isTrue();
+    }
+
+    @Test
+    @DisplayName("getThreadDump marks virtualThreads as empty list when virtual thread reader returns zero threads")
+    void shouldReturnEmptyVirtualThreadsWhenReaderReturnsZero() throws IOException {
+        VirtualThreadDumpReader mockReader = org.mockito.Mockito.mock(VirtualThreadDumpReader.class);
+        org.mockito.Mockito.when(mockReader.readVirtualThreads(org.mockito.ArgumentMatchers.any()))
+            .thenReturn(Optional.of(List.of()));
+
+        ThreadMXBeanClient client = new ThreadMXBeanClient(connectionManager.getMBeanServerConnection(), mockReader);
+        ThreadDump dump = client.getThreadDump(42L);
+
+        assertThat(dump.virtualThreads()).isNotNull().isEmpty();
+        assertThat(dump.threads()).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("getThreadDump marks virtualThreads as null when virtual thread reader returns empty or is unavailable")
+    void shouldReturnNullVirtualThreadsWhenReaderUnavailable() throws IOException {
+        VirtualThreadDumpReader mockReader = org.mockito.Mockito.mock(VirtualThreadDumpReader.class);
+        org.mockito.Mockito.when(mockReader.readVirtualThreads(org.mockito.ArgumentMatchers.any()))
+            .thenReturn(Optional.empty());
+
+        ThreadMXBeanClient client = new ThreadMXBeanClient(connectionManager.getMBeanServerConnection(), mockReader);
+        ThreadDump dump = client.getThreadDump(42L);
+
+        assertThat(dump.virtualThreads()).isNull();
+        assertThat(dump.threads()).isNotEmpty();
     }
 
     @Test

@@ -6,6 +6,7 @@ import dev.jvmmcp.core.attach.JvmAttachService;
 import dev.jvmmcp.core.jmx.JmxConnectionManager;
 import dev.jvmmcp.core.model.Framework;
 import dev.jvmmcp.core.model.JvmProcess;
+import dev.jvmmcp.core.util.SimpleJson;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -142,7 +143,10 @@ class JvmDiagnosticToolHandlerTest {
         assertThat(result.get("isError")).isNull();
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
-        assertThat(content.get(0).get("text").toString()).contains("heapUsage");
+        assertThat(content.get(0).get("text").toString())
+            .contains("heapUsage")
+            .contains("classLoading")
+            .contains("loadedClassCount");
     }
 
     @Test
@@ -161,7 +165,11 @@ class JvmDiagnosticToolHandlerTest {
         List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
         assertThat(content).hasSize(2);
         assertThat(content.get(0).get("text").toString()).contains("totalCount");
-        assertThat(content.get(1).get("text").toString()).contains("Deadlock Report:");
+        // Both blocks are plain JSON, so a client can parse each one (#92).
+        assertThat(SimpleJson.parseObject(content.get(0).get("text").toString())).containsKey("totalCount");
+        Map<String, Object> deadlocks = SimpleJson.parseObject(content.get(1).get("text").toString());
+        assertThat(deadlocks).containsEntry("status", "NONE");
+        assertThat(deadlocks).containsKey("deadlockCount");
     }
 
     @Test

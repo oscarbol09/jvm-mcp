@@ -178,6 +178,15 @@ public class JvmAttachService {
             command = command.substring(5).trim();
         }
 
+        // Java 9+ modular launches name "module/Main" after -m, --module or --module=
+        if (command.startsWith("-m ")) {
+            command = command.substring(3).trim();
+        } else if (command.startsWith("--module ")) {
+            command = command.substring(9).trim();
+        } else if (command.startsWith("--module=")) {
+            command = command.substring(9).trim();
+        }
+
         // 1. Is it a JAR execution? Look for ".jar" before arguments.
         int jarIndex = command.toLowerCase().indexOf(".jar ");
         if (jarIndex != -1) {

@@ -88,8 +88,12 @@ public class SpringBeansParser {
                 .map(Object::toString)
                 .toList();
         }
-        if (obj instanceof String[] arr) {
-            return Arrays.asList(arr);
+        // JMX returns array attributes as Object[]; String[] is also matched here.
+        if (obj instanceof Object[] arr) {
+            return Arrays.stream(arr)
+                .filter(Objects::nonNull)
+                .map(Object::toString)
+                .toList();
         }
         return List.of();
     }

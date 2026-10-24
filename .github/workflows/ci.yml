@@ -63,7 +63,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up JDK ${{ matrix.java }}
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v5.0.0
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v5.0.0
         with:
           java-version: ${{ matrix.java }}
           distribution: 'temurin'
@@ -71,7 +71,7 @@ jobs:
 
       - name: Cache Docker image for Postgres
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/docker-cache
           key: docker-postgres-15-alpine-v1

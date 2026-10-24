@@ -213,6 +213,35 @@ class SpringBeansToolHandlerTest {
     }
 
     @Test
+    @DisplayName("get_bean_detail returns descriptive error and isError true when bean is not found")
+    void testGetBeanDetailNotFound() throws Exception {
+        when(mockAttachService.attach("123")).thenReturn(AttachResult.success("123", null));
+        SpringBeansReport report = new SpringBeansReport(123, "JMX", 1, List.of(
+            new SpringContextBeans("root", null, 0, List.of())
+        ));
+        when(mockBeansClient.inspectBeansWithJmxProvider(eq(123L), any(), any(), any())).thenAnswer(invocation -> {
+            SpringBeansClient.JmxConnectionProvider provider = invocation.getArgument(2);
+            provider.connect().close();
+            return report;
+        });
+        when(mockBeansClient.getBeanDetail(report, "missingBean")).thenReturn(Optional.empty());
+
+        SpringBeansToolHandler handler = new SpringBeansToolHandler(
+            mockAttachService,
+            mockBeansClient,
+            (vm, p) -> JmxConnectionManager.connectLocal()
+        );
+
+        Map<String, Object> result = handler.execute("get_bean_detail", Map.of("pid", 123, "beanName", "missingBean"));
+        assertThat(result.get("isError")).isEqualTo(true);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
+        assertThat(content).hasSize(1);
+        assertThat(content.get(0).get("text").toString())
+            .contains("Bean not found: 'missingBean'", "list_spring_beans");
+    }
+
+    @Test
     @DisplayName("get_bean_detail throws when beanName is missing")
     void testGetBeanDetailMissingName() {
         when(mockAttachService.attach("123")).thenReturn(AttachResult.success("123", null));

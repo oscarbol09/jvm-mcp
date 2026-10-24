@@ -40,13 +40,13 @@ public class ActuatorCommand implements Callable<Integer> {
     @Option(names = {"--url"}, required = true, description = "Target Actuator Base URL (e.g. http://localhost:8080)")
     private String url;
 
-    @Option(names = "--user", description = "Basic Auth username")
+    @Option(names = {"--user", "--actuator-user"}, description = "Basic Auth username")
     private String user;
 
-    @Option(names = "--password", description = "Basic Auth password")
+    @Option(names = {"--password", "--actuator-password"}, description = "Basic Auth password")
     private String password;
 
-    @Option(names = "--token", description = "Bearer token")
+    @Option(names = {"--token", "--actuator-token"}, description = "Bearer token")
     private String token;
 
     @Option(names = "--insecure", description = "Disable TLS certificate validation")
@@ -81,7 +81,7 @@ public class ActuatorCommand implements Callable<Integer> {
                 throw new IllegalArgumentException(error);
             });
 
-            if (auth.hasCredentials() && !url.startsWith("https") && !url.contains("localhost")) {
+            if (auth.hasCredentials() && !url.startsWith("https") && !isLoopbackUrl(url)) {
                 System.err.println("WARNING: Sending Actuator credentials over unencrypted HTTP.");
             }
 
@@ -97,7 +97,11 @@ public class ActuatorCommand implements Callable<Integer> {
             } else if (endpoint.toLowerCase().startsWith("metrics/")) {
                 String metricName = endpoint.substring("metrics/".length());
                 if (metricName.contains(",")) {
-                    result = client.getMetricsBatch(java.util.Arrays.asList(metricName.split(",")));
+                    java.util.List<String> metricList = java.util.Arrays.stream(metricName.split(","))
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .toList();
+                    result = client.getMetricsBatch(metricList);
                 } else {
                     result = client.getMetric(metricName);
                 }
@@ -111,6 +115,31 @@ public class ActuatorCommand implements Callable<Integer> {
         } catch (Exception e) {
             System.err.println("Error inspecting Actuator: " + e.getMessage());
             return 1;
+        }
+    }
+
+    private static boolean isLoopbackUrl(String url) {
+        if (url == null) return false;
+        try {
+            java.net.URI uri = java.net.URI.create(url.trim());
+            String host = uri.getHost();
+            if (host == null) return false;
+            String cleanHost = host.startsWith("[") && host.endsWith("]") ? host.substring(1, host.length() - 1) : host;
+            if (cleanHost.equalsIgnoreCase("localhost")
+                || cleanHost.equals("127.0.0.1")
+                || cleanHost.equals("::1")
+                || cleanHost.equals("0:0:0:0:0:0:0:1")) {
+                return true;
+            }
+            java.net.InetAddress[] addrs = java.net.InetAddress.getAllByName(cleanHost);
+            for (java.net.InetAddress addr : addrs) {
+                if (!addr.isLoopbackAddress()) {
+                    return false;
+                }
+            }
+            return addrs.length > 0;
+        } catch (Exception e) {
+            return false;
         }
     }
 }

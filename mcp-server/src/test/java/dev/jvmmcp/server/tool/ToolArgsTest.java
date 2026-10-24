@@ -67,11 +67,13 @@ class ToolArgsTest {
         Map<String, Object> args = Map.of(
             "intVal", 10,
             "longVal", 5000000000L,
-            "doubleVal", 99.0
+            "doubleVal", 99.0,
+            "strLong", "123456"
         );
         assertThat(ToolArgs.getLongArg(args, "intVal", true)).isEqualTo(10L);
         assertThat(ToolArgs.getLongArg(args, "longVal", false)).isEqualTo(5000000000L);
         assertThat(ToolArgs.getLongArg(args, "doubleVal", false)).isEqualTo(99L);
+        assertThat(ToolArgs.getLongArg(args, "strLong", false)).isEqualTo(123456L);
     }
 
     @Test
@@ -90,12 +92,17 @@ class ToolArgsTest {
     }
 
     @Test
-    @DisplayName("getLongArg throws exception for non-number values")
+    @DisplayName("getLongArg throws exception for non-number values and invalid strings")
     void testGetLongArgInvalidType() {
-        Map<String, Object> args = Map.of("str", "1234");
+        Map<String, Object> args = Map.of("str", "not-a-number");
         assertThatThrownBy(() -> ToolArgs.getLongArg(args, "str", false))
             .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("Argument 'str' must be a number");
+            .hasMessageContaining("must be a number");
+
+        Map<String, Object> nonStringArgs = Map.of("bool", true);
+        assertThatThrownBy(() -> ToolArgs.getLongArg(nonStringArgs, "bool", false))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("must be a number");
     }
 
     @Test
@@ -129,6 +136,14 @@ class ToolArgsTest {
 
         // Within bounds
         assertThat(ToolArgs.getIntArg(Map.of("limit", 250), "limit", 100, 1, 1000)).isEqualTo(250);
+
+        // Numeric string support
+        assertThat(ToolArgs.getIntArg(Map.of("limit", "250"), "limit", 100, 1, 1000)).isEqualTo(250);
+
+        // Invalid numeric string
+        assertThatThrownBy(() -> ToolArgs.getIntArg(Map.of("limit", "invalid"), "limit", 100, 1, 1000))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("must be a number");
     }
 
     @Test

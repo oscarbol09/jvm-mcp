@@ -102,7 +102,15 @@ public class SpringBeansToolHandler implements ToolHandler {
                 content.add(Map.of("type", "text", "text", SimpleJson.toJson(report)));
             } else if ("get_bean_detail".equals(toolName)) {
                 String beanName = ToolArgs.getStringArg(args, "beanName", true);
-                content.add(Map.of("type", "text", "text", SimpleJson.toJson(beansClient.getBeanDetail(report, beanName).orElse(null))));
+                var detailOpt = beansClient.getBeanDetail(report, beanName);
+                if (detailOpt.isPresent()) {
+                    content.add(Map.of("type", "text", "text", SimpleJson.toJson(detailOpt.get())));
+                } else {
+                    return Map.of(
+                        "content", List.of(Map.of("type", "text", "text", "Bean not found: '" + beanName + "'. Use 'list_spring_beans' to inspect registered bean names in this ApplicationContext.")),
+                        "isError", true
+                    );
+                }
             } else {
                 throw new IllegalArgumentException("Unknown Spring Beans tool: " + toolName);
             }

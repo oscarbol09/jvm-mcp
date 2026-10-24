@@ -11,6 +11,8 @@ import picocli.CommandLine;
 import dev.jvmmcp.core.jmx.ThreadMXBeanClient;
 import dev.jvmmcp.core.model.DeadlockReport;
 import dev.jvmmcp.core.model.ThreadDump;
+import dev.jvmmcp.core.model.ThreadSummary;
+import dev.jvmmcp.core.util.SimpleJson;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -290,6 +292,98 @@ class ThreadsCommandTest {
         assertThat(command).isNotNull();
     }
 
+    @Test
+    @DisplayName("detaches VirtualMachine when JMX connection fails")
+    void shouldDetachWhenJmxConnectFails() throws Exception {
+        long targetPid = 999999L;
+        MemoryCommandTest.StubVirtualMachine mockVm = new MemoryCommandTest.StubVirtualMachine(false);
+        when(mockAttachService.attach(String.valueOf(targetPid)))
+            .thenReturn(AttachResult.success(String.valueOf(targetPid), mockVm));
+
+        ThreadsCommand command = new ThreadsCommand(mockAttachService);
+        command.pid = targetPid;
+
+        int exitCode = command.call();
+        assertThat(exitCode).isEqualTo(1);
+        org.mockito.Mockito.verify(mockAttachService).detach(mockVm);
+    }
+
+    @Test
+    @DisplayName("threads command displays virtual thread counts in summary when available")
+    void shouldDisplayVirtualThreadCountInSummary() throws Exception {
+        long targetPid = 100L;
+        when(mockAttachService.attach(String.valueOf(targetPid))).thenReturn(AttachResult.success(String.valueOf(targetPid), null));
+
+        ThreadMXBeanClient mockClient = org.mockito.Mockito.mock(ThreadMXBeanClient.class);
+        dev.jvmmcp.core.model.ThreadSummary summary = new dev.jvmmcp.core.model.ThreadSummary(
+            targetPid, 10, 2, 12, 50L, 5, 0, 3, 2,
+            new dev.jvmmcp.core.model.VirtualThreadSummary(42)
+        );
+        when(mockClient.getThreadSummary(targetPid)).thenReturn(summary);
+        when(mockClient.detectDeadlocks()).thenReturn(DeadlockReport.none());
+
+        ThreadsCommand command = org.mockito.Mockito.spy(new ThreadsCommand(mockAttachService));
+        command.pid = targetPid;
+        org.mockito.Mockito.doReturn(mockClient).when(command).createThreadMXBeanClient(org.mockito.ArgumentMatchers.any());
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try {
+            System.setOut(new PrintStream(out));
+            Integer exitCode = command.call();
+
+            assertThat(exitCode).isZero();
+            String output = out.toString();
+            assertThat(output).contains("Virtual Threads: 42");
+        } finally {
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
+    @DisplayName("threads command displays virtual thread dump section when present")
+    void shouldDisplayVirtualThreadDumpSection() throws Exception {
+        long targetPid = 100L;
+        when(mockAttachService.attach(String.valueOf(targetPid))).thenReturn(AttachResult.success(String.valueOf(targetPid), null));
+
+        ThreadMXBeanClient mockClient = org.mockito.Mockito.mock(ThreadMXBeanClient.class);
+        ThreadDump dump = new ThreadDump(
+            targetPid,
+            java.time.Instant.now(),
+            1,
+            java.util.List.of(
+                new dev.jvmmcp.core.model.ThreadDetail(1L, "main", "RUNNABLE", null, null, null, 0L, 0L, 0L, 0L, false, false, java.util.List.of())
+            ),
+            java.util.List.of(
+                new dev.jvmmcp.core.model.ThreadDetail(
+                    99L, "vthread-test", "VIRTUAL", null, null, null, 0L, 0L, 0L, 0L, false, false,
+                    java.util.List.of(new dev.jvmmcp.core.model.ThreadStackFrame("pkg.Task", "run", "Task.java", 15, false))
+                )
+            )
+        );
+        when(mockClient.getThreadDump(targetPid)).thenReturn(dump);
+
+        ThreadsCommand command = org.mockito.Mockito.spy(new ThreadsCommand(mockAttachService));
+        command.pid = targetPid;
+        command.dump = true;
+        org.mockito.Mockito.doReturn(mockClient).when(command).createThreadMXBeanClient(org.mockito.ArgumentMatchers.any());
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try {
+            System.setOut(new PrintStream(out));
+            Integer exitCode = command.call();
+
+            assertThat(exitCode).isZero();
+            String output = out.toString();
+            assertThat(output).contains("VIRTUAL THREADS (1 found)");
+            assertThat(output).contains("\"vthread-test\" #99 [VIRTUAL]");
+            assertThat(output).contains("at pkg.Task.run(Task.java:15)");
+        } finally {
+            System.setOut(originalOut);
+        }
+    }
+
     /**
      * Extracts the printed dump block of a single thread, from its {@code "name" #id [STATE]} header
      * up to the blank line that terminates the block.
@@ -300,5 +394,32 @@ class ThreadsCommandTest {
         String blankLine = System.lineSeparator() + System.lineSeparator();
         int end = output.indexOf(blankLine, start);
         return end < 0 ? output.substring(start) : output.substring(start, end);
+    }
+    @Test
+    @DisplayName("threads command should output only a JSON summary with --json")
+    void shouldOutputJsonThreadSummary() throws Exception {
+        long targetPid = 100L;
+        when(mockAttachService.attach(String.valueOf(targetPid))).thenReturn(AttachResult.success(String.valueOf(targetPid), null));
+        ThreadMXBeanClient mockClient = org.mockito.Mockito.mock(ThreadMXBeanClient.class);
+        ThreadSummary summary = new ThreadSummary(targetPid, 10, 2, 12, 50L, 5, 0, 3, 2);
+        when(mockClient.getThreadSummary(targetPid)).thenReturn(summary);
+
+        ThreadsCommand command = org.mockito.Mockito.spy(new ThreadsCommand(mockAttachService));
+        command.pid = targetPid;
+        command.json = true;
+        org.mockito.Mockito.doReturn(mockClient).when(command).createThreadMXBeanClient(org.mockito.ArgumentMatchers.any());
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try {
+            System.setOut(new PrintStream(out));
+            assertThat(command.call()).isZero();
+            String output = out.toString().trim();
+            assertThat(SimpleJson.parse(output)).isInstanceOf(java.util.Map.class);
+            assertThat(output).contains("\"pid\":100").doesNotContain("JVM THREAD DIAGNOSTICS", "DEADLOCK STATUS", "====");
+            org.mockito.Mockito.verify(mockClient, org.mockito.Mockito.never()).detectDeadlocks();
+        } finally {
+            System.setOut(originalOut);
+        }
     }
 }

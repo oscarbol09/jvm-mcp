@@ -224,6 +224,21 @@ class McpDispatcherTest {
     }
 
     @Test
+    @DisplayName("dispatch returns -32600 when id type is not a string, number or null")
+    void testInvalidIdType() {
+        String line = "{\"jsonrpc\":\"2.0\",\"id\":[1, 2],\"method\":\"ping\"}";
+        Optional<Map<String, Object>> response = dispatcher.dispatch(line);
+
+        assertThat(response).isPresent();
+        Map<String, Object> resp = response.get();
+        assertThat(resp.get("id")).isNull();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> error = (Map<String, Object>) resp.get("error");
+        assertThat(error.get("code")).isEqualTo(-32600);
+        assertThat(error.get("message").toString()).contains("Invalid Request: 'id' must be a String, Number, or null");
+    }
+
+    @Test
     @DisplayName("dispatch supports requests with explicit id: null")
     void testExplicitNullId() {
         String line = "{\"jsonrpc\":\"2.0\",\"id\":null,\"method\":\"ping\"}";

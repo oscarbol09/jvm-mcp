@@ -6,6 +6,7 @@ import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static com.tngtech.archunit.library.GeneralCodingRules.NO_CLASSES_SHOULD_ACCESS_STANDARD_STREAMS;
 
 @AnalyzeClasses(packages = "dev.jvmmcp.core", importOptions = ImportOption.DoNotIncludeTests.class)
 public class CoreArchitectureTest {
@@ -33,4 +34,8 @@ public class CoreArchitectureTest {
             "dev.jvmmcp.core.spring.."
         )
         .because("Domain model records must remain pure DTOs without coupling to reader/service infrastructure");
+
+    @ArchTest
+    static final ArchRule coreMustNotWriteToStandardStreams = NO_CLASSES_SHOULD_ACCESS_STANDARD_STREAMS
+        .because("The MCP server speaks JSON-RPC over stdio, so core must log through System.Logger instead of writing to System.out or System.err");
 }

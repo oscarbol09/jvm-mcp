@@ -1,6 +1,7 @@
 package dev.jvmmcp.core.pg;
 
 import dev.jvmmcp.core.pg.PostgresModels.*;
+import dev.jvmmcp.core.util.SensitiveDataRedactor;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
@@ -13,11 +14,14 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public class PostgresSchemaReader implements AutoCloseable {
 
     public static final long DEFAULT_MIN_TABLE_SIZE_BYTES = 1024L * 1024L;
+    public static final int DEFAULT_SLOW_QUERY_LIMIT = 20;
+    public static final int MAX_SLOW_QUERY_LIMIT = 100;
 
     private static final int MAX_CACHED_POOLS = 5;
     private static final int QUERY_TIMEOUT_SECONDS = 10;
@@ -111,11 +115,16 @@ public class PostgresSchemaReader implements AutoCloseable {
         if (query != null && !query.isBlank()) {
             String lower = query.toLowerCase();
             if (lower.contains("socketfactory") ||
+                lower.contains("socketfactoryarg") ||
                 lower.contains("sslfactory") ||
+                lower.contains("sslfactoryarg") ||
                 lower.contains("sslrootcert") ||
                 lower.contains("sslcert") ||
                 lower.contains("sslkey") ||
                 lower.contains("sslpasswordcallback") ||
+                lower.contains("loggerfile") ||
+                lower.contains("loggerlevel") ||
+                lower.contains("allowencodingchanges") ||
                 lower.contains("options=") ||
                 lower.contains("sslmode=disable")) {
                 throw new IllegalArgumentException("Security Protection: Dangerous JDBC connection parameter detected in URL: " + query);
@@ -131,7 +140,9 @@ public class PostgresSchemaReader implements AutoCloseable {
         if (trimmed.length() > 63 || !trimmed.matches("^[a-zA-Z_][a-zA-Z0-9_]*$")) {
             throw new IllegalArgumentException("Invalid schema name: must be a valid SQL identifier (alphanumeric and underscore, starting with letter/underscore, max 63 chars)");
         }
-        return trimmed;
+        // PostgreSQL folds unquoted identifiers to lowercase, and the catalogs this name is
+        // compared against store them that way: "Sales" names the schema sales.
+        return trimmed.toLowerCase(Locale.ROOT);
     }
 
     private static String buildCacheKey(String jdbcUrl, String username, String password) {
@@ -372,6 +383,15 @@ public class PostgresSchemaReader implements AutoCloseable {
     }
 
     public SlowQueryAnalysis findSlowQueries() throws SQLException {
+        return findSlowQueries(DEFAULT_SLOW_QUERY_LIMIT);
+    }
+
+    /**
+     * Finds the slowest statements by mean execution time, returning at most {@code limit}
+     * of them. The limit is clamped to between 1 and {@link #MAX_SLOW_QUERY_LIMIT}.
+     */
+    public SlowQueryAnalysis findSlowQueries(int limit) throws SQLException {
+        int effectiveLimit = slowQueryLimit(limit);
         boolean hasExtension = false;
         try (Connection conn = getConnection()) {
             try (Statement stmt = conn.createStatement()) {
@@ -411,12 +431,13 @@ public class PostgresSchemaReader implements AutoCloseable {
                     dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
                 ORDER BY
                     compatible_mean_time DESC
-                LIMIT 20
+                LIMIT ?
                 """;
             List<SlowQueryInfo> slowQueries = new ArrayList<>();
-            try (Statement stmt = conn.createStatement()) {
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
                 stmt.setQueryTimeout(QUERY_TIMEOUT_SECONDS);
-                try (ResultSet rs = stmt.executeQuery(sql)) {
+                stmt.setInt(1, effectiveLimit);
+                try (ResultSet rs = stmt.executeQuery()) {
                     while (rs.next()) {
                         String rawQuery = rs.getString("query");
                         String sanitizedQuery = sanitizeQuery(rawQuery);
@@ -436,9 +457,15 @@ public class PostgresSchemaReader implements AutoCloseable {
         }
     }
 
-    private static String sanitizeQuery(String query) {
+    static int slowQueryLimit(int limit) {
+        return Math.clamp(limit, 1, MAX_SLOW_QUERY_LIMIT);
+    }
+
+    static String sanitizeQuery(String query) {
         if (query == null) return null;
-        // Redact literals in password statements or tokens
-        return query.replaceAll("(?i)(password\\s*(?:=|with)\\s*)'[^']*'", "$1'***'");
+        // Redact literals in password statements, then every credential pattern the other
+        // tool outputs are scrubbed for (bearer and basic tokens, API keys, JWTs, JDBC URLs).
+        String sanitized = query.replaceAll("(?i)(password\\s*(?:=|with)\\s*)'[^']*'", "$1'***'");
+        return SensitiveDataRedactor.redact(sanitized);
     }
 }

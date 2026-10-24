@@ -4,7 +4,12 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509ExtendedTrustManager;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.lang.System.Logger;
 import java.net.Socket;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -22,12 +27,16 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.InflaterInputStream;
 
 /**
  * Lightweight HTTP client for reading Spring Boot Actuator endpoints (health, metrics, startup, etc.).
  * Supports basic and bearer authentication.
  */
 public class ActuatorClient {
+
+    private static final Logger LOGGER = System.getLogger(ActuatorClient.class.getName());
 
     private static final long MAX_PAYLOAD_SIZE = 30L * 1024 * 1024; // 30MB
     private final String baseUrl;
@@ -102,7 +111,7 @@ public class ActuatorClient {
             .connectTimeout(Duration.ofMillis(3000))
             .followRedirects(HttpClient.Redirect.NEVER);
         if (auth.insecure()) {
-            System.err.println("[jvm-mcp] WARNING: Insecure TLS mode enabled for Actuator. Server certificate verification is disabled.");
+            LOGGER.log(Logger.Level.WARNING, "Insecure TLS mode enabled for Actuator. Server certificate verification is disabled.");
             builder.sslContext(trustAllSslContext());
         }
         return builder.build();
@@ -132,7 +141,8 @@ public class ActuatorClient {
         HttpRequest.Builder builder = HttpRequest.newBuilder()
             .uri(URI.create(url))
             .timeout(Duration.ofSeconds(5))
-            .header("Accept", "application/json");
+            .header("Accept", "application/json")
+            .header("Accept-Encoding", "gzip, deflate");
         auth.authorizationHeader().ifPresent(value -> builder.header("Authorization", value));
         return builder;
     }
@@ -145,7 +155,8 @@ public class ActuatorClient {
                 }
             });
 
-            HttpResponse.BodySubscriber<String> downstream = HttpResponse.BodySubscribers.ofString(StandardCharsets.UTF_8);
+            String encoding = responseInfo.headers().firstValue("Content-Encoding").orElse(null);
+            HttpResponse.BodySubscriber<byte[]> byteSubscriber = HttpResponse.BodySubscribers.ofByteArray();
             
             return new HttpResponse.BodySubscriber<String>() {
                 private long totalReceived = 0;
@@ -154,7 +165,7 @@ public class ActuatorClient {
                 @Override
                 public void onSubscribe(Flow.Subscription subscription) {
                     this.subscription = subscription;
-                    downstream.onSubscribe(subscription);
+                    byteSubscriber.onSubscribe(subscription);
                 }
 
                 @Override
@@ -167,28 +178,59 @@ public class ActuatorClient {
 
                     if (totalReceived > maxBytes) {
                         subscription.cancel();
-                        downstream.onError(new IOException("Response size exceeded maximum limit of " + maxBytes + " bytes"));
+                        byteSubscriber.onError(new IOException("Response size exceeded maximum limit of " + maxBytes + " bytes"));
                         return;
                     }
-                    downstream.onNext(item);
+                    byteSubscriber.onNext(item);
                 }
 
                 @Override
                 public void onError(Throwable throwable) {
-                    downstream.onError(throwable);
+                    byteSubscriber.onError(throwable);
                 }
 
                 @Override
                 public void onComplete() {
-                    downstream.onComplete();
+                    byteSubscriber.onComplete();
                 }
 
                 @Override
                 public CompletionStage<String> getBody() {
-                    return downstream.getBody();
+                    return byteSubscriber.getBody().thenApply(bytes -> {
+                        try {
+                            return decodeResponseBody(bytes, encoding, maxBytes);
+                        } catch (IOException e) {
+                            throw new UncheckedIOException(e);
+                        }
+                    });
                 }
             };
         };
+    }
+
+    private static String decodeResponseBody(byte[] bytes, String encoding, long maxUncompressedBytes) throws IOException {
+        if (bytes == null || bytes.length == 0) {
+            return "";
+        }
+        InputStream is = new ByteArrayInputStream(bytes);
+        if ("gzip".equalsIgnoreCase(encoding)) {
+            is = new GZIPInputStream(is);
+        } else if ("deflate".equalsIgnoreCase(encoding)) {
+            is = new InflaterInputStream(is);
+        }
+        try (InputStream in = is; ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+            byte[] buf = new byte[8192];
+            int read;
+            long total = 0;
+            while ((read = in.read(buf)) != -1) {
+                total += read;
+                if (total > maxUncompressedBytes) {
+                    throw new IOException("Decompressed response size exceeded maximum limit of " + maxUncompressedBytes + " bytes");
+                }
+                baos.write(buf, 0, read);
+            }
+            return baos.toString(StandardCharsets.UTF_8);
+        }
     }
 
     /**
@@ -264,18 +306,36 @@ public class ActuatorClient {
         return fetchEndpoint("/actuator/metrics/" + java.net.URLEncoder.encode(metricName, StandardCharsets.UTF_8));
     }
 
+    private record MetricBatchTask(
+        String name,
+        CompletableFuture<HttpResponse<String>> httpFuture,
+        CompletableFuture<String> resultFuture
+    ) {}
+
     public String getMetricsBatch(List<String> metricNames) {
+        return getMetricsBatch(metricNames, Duration.ofSeconds(10));
+    }
+
+    String getMetricsBatch(List<String> metricNames, Duration timeout) {
         if (metricNames == null || metricNames.isEmpty()) {
             return getMetrics();
         }
 
-        List<CompletableFuture<String>> futures = metricNames.stream()
+        Duration effectiveTimeout = (timeout == null || timeout.isNegative() || timeout.isZero())
+            ? Duration.ofSeconds(10)
+            : timeout;
+        long timeoutMillis = Math.max(1L, effectiveTimeout.toMillis());
+
+        List<MetricBatchTask> tasks = metricNames.stream()
             .map(name -> {
                 String encodedName = java.net.URLEncoder.encode(name.trim(), StandardCharsets.UTF_8);
                 String targetUrl = baseUrl + "/actuator/metrics/" + encodedName;
                 HttpRequest request = newRequest(targetUrl).GET().build();
 
-                return httpClient.sendAsync(request, limitingStringHandler(MAX_PAYLOAD_SIZE))
+                CompletableFuture<HttpResponse<String>> httpFuture =
+                    httpClient.sendAsync(request, limitingStringHandler(MAX_PAYLOAD_SIZE));
+
+                CompletableFuture<String> resultFuture = httpFuture
                     .thenApply(response -> {
                         String jsonKey = dev.jvmmcp.core.util.SimpleJson.toJson(name);
                         if (response.statusCode() == 200) {
@@ -287,24 +347,58 @@ public class ActuatorClient {
                         }
                     })
                     .exceptionally(ex -> {
-                        System.err.println("Failed to fetch metric " + name + ": " + ex.getMessage());
+                        Throwable cause = ex instanceof java.util.concurrent.CompletionException ? ex.getCause() : ex;
+                        if (cause instanceof java.util.concurrent.CancellationException
+                                || cause instanceof java.util.concurrent.TimeoutException
+                                || cause instanceof java.net.http.HttpTimeoutException) {
+                            return dev.jvmmcp.core.util.SimpleJson.toJson(name) + ": {\"error\": \"Request timed out\"}";
+                        }
+                        LOGGER.log(Logger.Level.WARNING, "Failed to fetch metric {0}: {1}", name, ex.getMessage());
                         return dev.jvmmcp.core.util.SimpleJson.toJson(name) + ": {\"error\": \"Failed to fetch\"}"; 
                     });
+
+                return new MetricBatchTask(name, httpFuture, resultFuture);
             })
             .toList();
 
-        CompletableFuture<Void> allFutures = CompletableFuture.allOf(
-            futures.toArray(new CompletableFuture[0])
-        ).orTimeout(10, TimeUnit.SECONDS);
+        CompletableFuture<?>[] resultFutures = tasks.stream()
+            .map(MetricBatchTask::resultFuture)
+            .toArray(CompletableFuture[]::new);
+
+        CompletableFuture<Void> allFutures = CompletableFuture.allOf(resultFutures)
+            .orTimeout(timeoutMillis, TimeUnit.MILLISECONDS);
 
         try {
             allFutures.join();
         } catch (Exception ex) {
-            System.err.println("Batch metrics operation timed out: " + ex.getMessage());
+            if (ex.getCause() instanceof InterruptedException || Thread.currentThread().isInterrupted()) {
+                Thread.currentThread().interrupt();
+            }
+            LOGGER.log(Logger.Level.WARNING, "Batch metrics operation timed out: {0}", ex.getMessage());
         }
 
-        return futures.stream()
-            .map(CompletableFuture::join)
+        for (MetricBatchTask task : tasks) {
+            if (!task.resultFuture.isDone()) {
+                task.resultFuture.complete(
+                    dev.jvmmcp.core.util.SimpleJson.toJson(task.name) + ": {\"error\": \"Request timed out\"}"
+                );
+                try {
+                    task.httpFuture.cancel(true);
+                } catch (Exception ignored) {
+                }
+            }
+        }
+
+        return tasks.stream()
+            .map(task -> {
+                try {
+                    return task.resultFuture.getNow(
+                        dev.jvmmcp.core.util.SimpleJson.toJson(task.name) + ": {\"error\": \"Request timed out\"}"
+                    );
+                } catch (Exception e) {
+                    return dev.jvmmcp.core.util.SimpleJson.toJson(task.name) + ": {\"error\": \"Failed to fetch\"}";
+                }
+            })
             .filter(Objects::nonNull)
             .collect(Collectors.joining(", ", "{", "}"));
     }

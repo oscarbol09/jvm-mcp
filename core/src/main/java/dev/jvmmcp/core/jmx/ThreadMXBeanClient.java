@@ -19,12 +19,18 @@ import dev.jvmmcp.core.port.ThreadDiagnosticPort;
 public class ThreadMXBeanClient implements ThreadDiagnosticPort {
 
     private final MBeanServerConnection mbsc;
+    private final VirtualThreadDumpReader virtualThreadReader;
 
     public ThreadMXBeanClient(MBeanServerConnection mbsc) {
+        this(mbsc, new VirtualThreadDumpReader(mbsc));
+    }
+
+    public ThreadMXBeanClient(MBeanServerConnection mbsc, VirtualThreadDumpReader virtualThreadReader) {
         if (mbsc == null) {
             throw new IllegalArgumentException("MBeanServerConnection cannot be null.");
         }
         this.mbsc = mbsc;
+        this.virtualThreadReader = virtualThreadReader;
     }
 
     public ThreadSummary getThreadSummary(long pid) throws IOException {
@@ -40,7 +46,11 @@ public class ThreadMXBeanClient implements ThreadDiagnosticPort {
         long totalStarted = threadMXBean.getTotalStartedThreadCount();
 
         long[] threadIds = threadMXBean.getAllThreadIds();
-        
+        if (threadIds == null) {
+            // a proxy to a restricted or exiting JVM can return null instead of an empty array
+            threadIds = new long[0];
+        }
+
         int runnable = 0;
         int blocked = 0;
         int waiting = 0;
@@ -66,6 +76,15 @@ public class ThreadMXBeanClient implements ThreadDiagnosticPort {
             }
         }
 
+        VirtualThreadSummary virtualThreads = null;
+        if (virtualThreadReader != null) {
+            try {
+                virtualThreads = virtualThreadReader.readVirtualThreadSummary(threadIds).orElse(null);
+            } catch (Exception ignored) {
+                // Keep virtualThreads as null to explicitly signal unavailable/unsupported
+            }
+        }
+
         return new ThreadSummary(
             pid,
             totalCount,
@@ -75,7 +94,8 @@ public class ThreadMXBeanClient implements ThreadDiagnosticPort {
             runnable,
             blocked,
             waiting,
-            timedWaiting
+            timedWaiting,
+            virtualThreads
         );
     }
 
@@ -96,7 +116,17 @@ public class ThreadMXBeanClient implements ThreadDiagnosticPort {
             .map(ThreadDetail::from)
             .toList();
 
-        return new ThreadDump(pid, Instant.now(), threadDetails.size(), threadDetails);
+        List<ThreadDetail> virtualThreads = null;
+        if (virtualThreadReader != null) {
+            try {
+                long[] threadIds = threadMXBean.getAllThreadIds();
+                virtualThreads = virtualThreadReader.readVirtualThreads(threadIds).orElse(null);
+            } catch (Exception ignored) {
+                virtualThreads = null;
+            }
+        }
+
+        return new ThreadDump(pid, Instant.now(), threadDetails.size(), threadDetails, virtualThreads);
     }
 
     public DeadlockReport detectDeadlocks() throws IOException {

@@ -6,7 +6,6 @@ import javax.management.MBeanServerConnection;
 import javax.management.remote.JMXConnector;
 import javax.management.remote.JMXConnectorFactory;
 import javax.management.remote.JMXServiceURL;
-import java.io.File;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.util.Properties;
@@ -46,7 +45,9 @@ public class JmxConnectionManager implements AutoCloseable {
 
         String connectorAddress = resolveConnectorAddress(vm);
         if (connectorAddress == null || connectorAddress.isBlank()) {
-            throw new IOException("Failed to obtain JMX local connector address for PID " + pid);
+            throw new IOException("Failed to establish local JMX connection to JVM process " + pid +
+                ". The local management agent could not be started or resolved " +
+                "(ensure target JVM allows dynamic attachment and has not disabled dynamic agent loading).");
         }
 
         JMXServiceURL url = new JMXServiceURL(connectorAddress);
@@ -71,7 +72,7 @@ public class JmxConnectionManager implements AutoCloseable {
                 return connectorAddress;
             }
         } catch (Exception ignored) {
-            // Fallback to loading management agent jar if startLocalManagementAgent fails
+            // Ignored: the caller reports a clear error if no address can be resolved
         }
 
         // Re-check agent properties
@@ -79,20 +80,6 @@ public class JmxConnectionManager implements AutoCloseable {
         connectorAddress = agentProps.getProperty("com.sun.management.jmxremote.localConnectorAddress");
         if (connectorAddress != null && !connectorAddress.isBlank()) {
             return connectorAddress;
-        }
-
-        // Fallback: load management-agent.jar from java.home
-        String javaHome = vm.getSystemProperties().getProperty("java.home");
-        String agentPath = javaHome + File.separator + "lib" + File.separator + "management-agent.jar";
-        File agentFile = new File(agentPath);
-        if (agentFile.exists()) {
-            try {
-                vm.loadAgent(agentFile.getAbsolutePath(), "com.sun.management.jmxremote");
-                agentProps = vm.getAgentProperties();
-                return agentProps.getProperty("com.sun.management.jmxremote.localConnectorAddress");
-            } catch (Exception e) {
-                throw new IOException("Failed to load management-agent.jar for PID: " + e.getMessage(), e);
-            }
         }
 
         return null;

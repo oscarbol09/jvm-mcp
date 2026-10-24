@@ -102,9 +102,13 @@ public class ActuatorToolHandler implements ToolHandler {
             String metricsParam = ToolArgs.getStringArg(args, "metrics", false);
             if (metricsParam != null && !metricsParam.isBlank()) {
                 if (metricsParam.contains(",")) {
-                    content.add(Map.of("type", "text", "text", client.getMetricsBatch(Arrays.asList(metricsParam.split(",")))));
+                    List<String> metricList = Arrays.stream(metricsParam.split(","))
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .toList();
+                    content.add(Map.of("type", "text", "text", client.getMetricsBatch(metricList)));
                 } else {
-                    content.add(Map.of("type", "text", "text", client.getMetric(metricsParam)));
+                    content.add(Map.of("type", "text", "text", client.getMetric(metricsParam.trim())));
                 }
             } else {
                 content.add(Map.of("type", "text", "text", client.getMetrics()));

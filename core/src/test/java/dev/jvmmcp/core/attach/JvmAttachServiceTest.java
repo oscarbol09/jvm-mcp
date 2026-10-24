@@ -329,6 +329,15 @@ class JvmAttachServiceTest {
             assertThat(attachService.extractMainClass("-jar C:\\apps\\demo.jar")).isEqualTo("demo.jar");
             assertThat(attachService.extractMainClass("org.example.Application --spring.profiles.active=dev")).isEqualTo("org.example.Application");
         }
+
+        @Test
+        @DisplayName("extractMainClass reports the module/Main descriptor of a modular launch, not the flag")
+        void shouldExtractMainClassOfModularLaunch() {
+            assertThat(attachService.extractMainClass("-m my.module/com.foo.Main")).isEqualTo("my.module/com.foo.Main");
+            assertThat(attachService.extractMainClass("--module my.module/com.foo.Main --port 8080")).isEqualTo("my.module/com.foo.Main");
+            assertThat(attachService.extractMainClass("--module=my.module/com.foo.Main")).isEqualTo("my.module/com.foo.Main");
+            assertThat(attachService.extractMainClass("-m my.module")).isEqualTo("my.module");
+        }
     }
 
     @Nested

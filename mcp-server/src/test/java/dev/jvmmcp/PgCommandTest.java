@@ -39,6 +39,64 @@ class PgCommandTest {
         }
     }
 
+
+    @Test
+    void acceptsSnakeCaseMissingIndexesAction() throws Exception {
+        try (var readers = mockConstruction(PostgresSchemaReader.class, (reader, context) ->
+            when(reader.findMissingIndexes(anyString(), anyLong()))
+                .thenReturn(new PostgresModels.MissingIndexAnalysis(List.of())))) {
+
+            int exitCode = new CommandLine(new JvmMcp()).execute(
+                "pg", "--url", "jdbc:postgresql://localhost:5432/db",
+                "--action", "missing_indexes"
+            );
+
+            assertThat(exitCode).isZero();
+            verify(readers.constructed().getFirst())
+                .findMissingIndexes("public", 1024L * 1024);
+        }
+    }
+
+    @Test
+    void acceptsUppercaseSlowQueriesAction() throws Exception {
+        try (var readers = mockConstruction(PostgresSchemaReader.class)) {
+            int exitCode = new CommandLine(new JvmMcp()).execute(
+                "pg", "--url", "jdbc:postgresql://localhost:5432/db",
+                "--action", "SLOW-QUERIES"
+            );
+
+            assertThat(exitCode).isZero();
+            verify(readers.constructed().getFirst()).findSlowQueries(20);
+        }
+    }
+
+    @Test
+    void passesLimitToSlowQueries() throws Exception {
+        try (var readers = mockConstruction(PostgresSchemaReader.class)) {
+            int exitCode = new CommandLine(new JvmMcp()).execute(
+                "pg", "--url", "jdbc:postgresql://localhost:5432/db",
+                "--action", "slow-queries", "--limit", "5"
+            );
+
+            assertThat(exitCode).isZero();
+            verify(readers.constructed().getFirst()).findSlowQueries(5);
+        }
+    }
+
+    @Test
+    void acceptsCapitalizedSchemaAction() throws Exception {
+        try (var readers = mockConstruction(PostgresSchemaReader.class)) {
+            int exitCode = new CommandLine(new JvmMcp()).execute(
+                "pg", "--url", "jdbc:postgresql://localhost:5432/db",
+                "--action", "Schema"
+            );
+
+            assertThat(exitCode).isZero();
+            verify(readers.constructed().getFirst()).inspectSchema("public");
+        }
+    }
+
+
     @ParameterizedTest
     @ValueSource(longs = {0, 5, 4096})
     void missingIndexesConvertsMiBWithoutIntegerOverflow(long megabytes) throws Exception {

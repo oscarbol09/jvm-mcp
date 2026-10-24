@@ -3,6 +3,8 @@ package dev.jvmmcp.core.jmx;
 import dev.jvmmcp.core.model.HeapHistogram;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -52,6 +54,34 @@ class HeapHistogramReaderTest {
         assertThat(histogram.topClasses().get(0).instances()).isEqualTo(45231L);
         assertThat(histogram.topClasses().get(0).bytes()).isEqualTo(5427720L);
         assertThat(histogram.topClasses().get(0).megabytes()).isPositive();
+        assertThat(histogram.topClasses().get(2).className()).isEqualTo("byte[] (java.base@21.0.3)");
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+        "[B|byte[]",
+        "[C|char[]",
+        "[D|double[]",
+        "[F|float[]",
+        "[I|int[]",
+        "[J|long[]",
+        "[S|short[]",
+        "[Z|boolean[]",
+        "[Ljava.lang.String;|java.lang.String[]",
+        "[Lcom.example.User;|com.example.User[]",
+        "[[B|byte[][]",
+        "[[Ljava.lang.Object;|java.lang.Object[][]",
+        "[B (java.base@21.0.3)|byte[] (java.base@21.0.3)",
+        "[Ljava.lang.String; (java.base@21.0.3)|java.lang.String[] (java.base@21.0.3)",
+        "java.lang.String (java.base@21.0.3)|java.lang.String (java.base@21.0.3)",
+        "com.example.OrderService|com.example.OrderService",
+        "[|[",
+        "[X|[X",
+        "[Ljava.lang.String|[Ljava.lang.String"
+    })
+    @DisplayName("normalizeClassName turns JVM array descriptors into Java type names and leaves the rest alone")
+    void shouldNormalizeArrayDescriptors(String raw, String expected) {
+        assertThat(HeapHistogramReader.normalizeClassName(raw)).isEqualTo(expected);
     }
 
     @Test

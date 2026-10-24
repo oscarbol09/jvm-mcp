@@ -41,7 +41,7 @@ class JvmMcpTest {
 
         assertThat(exitCode).isZero();
         assertThat(out.toString()).contains(JvmMcp.getVersion());
-        assertThat(out.toString()).contains("1.1.0-SNAPSHOT");
+        assertThat(out.toString()).contains("1.1.1");
     }
 
     @Test
@@ -86,12 +86,12 @@ class JvmMcpTest {
     @DisplayName("resolveVersion should fall back to default when properties contain placeholder or are empty")
     void shouldFallbackToDefaultWhenPlaceholderOrEmpty() {
         java.io.ByteArrayInputStream inWithPlaceholder = new java.io.ByteArrayInputStream("version=${project.version}\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        assertThat(JvmMcp.resolveVersion(null, inWithPlaceholder)).isEqualTo("1.1.0-SNAPSHOT");
+        assertThat(JvmMcp.resolveVersion(null, inWithPlaceholder)).isEqualTo("1.1.1");
 
         java.io.ByteArrayInputStream emptyIn = new java.io.ByteArrayInputStream("".getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        assertThat(JvmMcp.resolveVersion(null, emptyIn)).isEqualTo("1.1.0-SNAPSHOT");
+        assertThat(JvmMcp.resolveVersion(null, emptyIn)).isEqualTo("1.1.1");
 
-        assertThat(JvmMcp.resolveVersion(null, null)).isEqualTo("1.1.0-SNAPSHOT");
+        assertThat(JvmMcp.resolveVersion(null, null)).isEqualTo("1.1.1");
     }
 
     @Test

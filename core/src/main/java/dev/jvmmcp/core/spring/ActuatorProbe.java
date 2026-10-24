@@ -22,6 +22,8 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Flow;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.io.IOException;
 
 /**
@@ -252,6 +254,11 @@ public class ActuatorProbe {
         return List.of(base + "/actuator/beans", base + "/beans");
     }
 
+    // `java -jar app.jar --server.port=8085` sets no system property: the port is only in the
+    // command line, which HotSpot exposes as sun.java.command.
+    private static final Pattern COMMAND_LINE_PORT =
+        Pattern.compile("(?:^|\\s)(?:--|-D)(management\\.server\\.port|server\\.port)=(\\S+)");
+
     /**
      * Returns candidate ports mapped to a "probably TLS" hint derived from
      * {@code server.ssl.enabled} / {@code management.server.ssl.enabled}.
@@ -275,6 +282,13 @@ public class ActuatorProbe {
 
             addPortFromProperty(ports, agentProps.getProperty("management.server.port"), mgmtSsl);
             addPortFromProperty(ports, agentProps.getProperty("server.port"), serverSsl);
+
+            // Command-line ports do not say which server they belong to once extracted,
+            // so hint TLS if either server is configured for it.
+            boolean anySsl = serverSsl || mgmtSsl;
+            for (String port : portsFromCommandLine(sysProps.getProperty("sun.java.command"))) {
+                addPortFromProperty(ports, port, anySsl);
+            }
         } catch (Exception ignored) {}
 
         ports.putIfAbsent(8080, false);
@@ -282,6 +296,24 @@ public class ActuatorProbe {
         ports.putIfAbsent(9090, false);
 
         return ports;
+    }
+
+    /**
+     * The {@code --management.server.port=} and {@code --server.port=} values (or their {@code -D}
+     * forms) in a command line, management ports first, as the system properties are read.
+     */
+    static List<String> portsFromCommandLine(String command) {
+        if (command == null) {
+            return List.of();
+        }
+        List<String> management = new ArrayList<>();
+        List<String> server = new ArrayList<>();
+        Matcher m = COMMAND_LINE_PORT.matcher(command);
+        while (m.find()) {
+            (m.group(1).startsWith("management") ? management : server).add(m.group(2));
+        }
+        management.addAll(server);
+        return management;
     }
 
     private void addPortFromProperty(Map<Integer, Boolean> ports, String portStr, boolean sslHint) {
