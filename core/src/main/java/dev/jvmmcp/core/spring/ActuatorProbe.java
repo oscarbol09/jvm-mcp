@@ -6,6 +6,7 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509ExtendedTrustManager;
+import java.net.ConnectException;
 import java.net.Socket;
 import java.net.URI;
 import java.net.InetAddress;
@@ -180,11 +181,14 @@ public class ActuatorProbe {
             return Optional.empty();
         }
 
-        Set<Integer> candidatePorts = extractCandidatePorts(vm);
-        for (int port : candidatePorts) {
-            Optional<String> json = probePort(port);
-            if (json.isPresent()) {
-                return Optional.of(new ProbeResult("http://127.0.0.1:" + port + "/actuator/beans", json.get()));
+        Map<Integer, Boolean> candidatePorts = extractCandidatePorts(vm);
+        for (Map.Entry<Integer, Boolean> candidate : candidatePorts.entrySet()) {
+            int port = candidate.getKey();
+            Optional<ProbeHit> hit = probePortInternal(port, candidate.getValue());
+            if (hit.isPresent()) {
+                return Optional.of(new ProbeResult(
+                    hit.get().scheme() + "://127.0.0.1:" + port + "/actuator/beans",
+                    hit.get().body()));
             }
         }
 
@@ -192,21 +196,32 @@ public class ActuatorProbe {
     }
 
     public Optional<String> probePort(int port) {
+        return probePortInternal(port, false).map(ProbeHit::body);
+    }
+
+    private Optional<ProbeHit> probePortInternal(int port, boolean preferHttps) {
         String[] candidatePaths = {
             "/actuator/beans",
             "/beans"
         };
+        // Try the scheme hinted by system properties first; always fall back to the other one.
+        List<String> schemes = preferHttps ? List.of("https", "http") : List.of("http", "https");
 
-        for (String path : candidatePaths) {
-            String url = "http://127.0.0.1:" + port + path;
-            try {
-                HttpRequest request = newRequest(url, Duration.ofMillis(1500)).GET().build();
-                HttpResponse<String> response = httpClient.send(request, limitingStringHandler(MAX_PAYLOAD_SIZE));
-                if (response.statusCode() == 200 && response.body() != null && response.body().contains("beans")) {
-                    return Optional.of(response.body());
+        for (String scheme : schemes) {
+            for (String path : candidatePaths) {
+                String url = scheme + "://127.0.0.1:" + port + path;
+                try {
+                    HttpRequest request = newRequest(url, Duration.ofMillis(1500)).GET().build();
+                    HttpResponse<String> response = httpClient.send(request, limitingStringHandler(MAX_PAYLOAD_SIZE));
+                    if (response.statusCode() == 200 && response.body() != null && response.body().contains("beans")) {
+                        return Optional.of(new ProbeHit(scheme, response.body()));
+                    }
+                } catch (ConnectException e) {
+                    // Nothing is listening on this port, so the other scheme would fail too.
+                    return Optional.empty();
+                } catch (Exception ignored) {
+                    // TLS mismatch, timeout, etc. mean this scheme/path did not work; keep trying
                 }
-            } catch (Exception ignored) {
-                // Connection refused or timeout means port/endpoint is not accessible
             }
         }
 
@@ -237,39 +252,54 @@ public class ActuatorProbe {
         return List.of(base + "/actuator/beans", base + "/beans");
     }
 
-    private Set<Integer> extractCandidatePorts(VirtualMachine vm) {
-        Set<Integer> ports = new LinkedHashSet<>();
+    /**
+     * Returns candidate ports mapped to a "probably TLS" hint derived from
+     * {@code server.ssl.enabled} / {@code management.server.ssl.enabled}.
+     * The hint only controls which scheme is tried first; both are always attempted.
+     */
+    private Map<Integer, Boolean> extractCandidatePorts(VirtualMachine vm) {
+        Map<Integer, Boolean> ports = new LinkedHashMap<>();
         try {
             Properties sysProps = vm.getSystemProperties();
             Properties agentProps = vm.getAgentProperties();
 
-            addPortFromProperty(ports, sysProps.getProperty("management.server.port"));
-            addPortFromProperty(ports, sysProps.getProperty("server.port"));
-            addPortFromProperty(ports, sysProps.getProperty("local.management.port"));
-            addPortFromProperty(ports, sysProps.getProperty("local.server.port"));
+            boolean serverSsl = isTrue(sysProps.getProperty("server.ssl.enabled"));
+            String mgmtSslProp = sysProps.getProperty("management.server.ssl.enabled");
+            // The management server inherits the main server's TLS setting unless overridden
+            boolean mgmtSsl = mgmtSslProp != null ? isTrue(mgmtSslProp) : serverSsl;
 
-            addPortFromProperty(ports, agentProps.getProperty("management.server.port"));
-            addPortFromProperty(ports, agentProps.getProperty("server.port"));
+            addPortFromProperty(ports, sysProps.getProperty("management.server.port"), mgmtSsl);
+            addPortFromProperty(ports, sysProps.getProperty("server.port"), serverSsl);
+            addPortFromProperty(ports, sysProps.getProperty("local.management.port"), mgmtSsl);
+            addPortFromProperty(ports, sysProps.getProperty("local.server.port"), serverSsl);
+
+            addPortFromProperty(ports, agentProps.getProperty("management.server.port"), mgmtSsl);
+            addPortFromProperty(ports, agentProps.getProperty("server.port"), serverSsl);
         } catch (Exception ignored) {}
 
-        ports.add(8080);
-        ports.add(8081);
-        ports.add(9090);
+        ports.putIfAbsent(8080, false);
+        ports.putIfAbsent(8081, false);
+        ports.putIfAbsent(9090, false);
 
         return ports;
     }
 
-    private void addPortFromProperty(Set<Integer> ports, String portStr) {
+    private void addPortFromProperty(Map<Integer, Boolean> ports, String portStr, boolean sslHint) {
         if (portStr != null && !portStr.isBlank()) {
             try {
                 int port = Integer.parseInt(portStr.trim());
                 if (port > 0 && port <= 65535) {
-                    ports.add(port);
+                    ports.merge(port, sslHint, Boolean::logicalOr);
                 }
             } catch (NumberFormatException ignored) {}
         }
     }
 
-    public record ProbeResult(String url, String rawJson) {}
-}
+    private static boolean isTrue(String value) {
+        return value != null && Boolean.parseBoolean(value.trim());
+    }
 
+    public record ProbeResult(String url, String rawJson) {}
+
+    private record ProbeHit(String scheme, String body) {}
+}

@@ -1,6 +1,8 @@
 package dev.jvmmcp.core.spring;
 
 import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpsConfigurator;
+import com.sun.net.httpserver.HttpsServer;
 import com.sun.tools.attach.VirtualMachine;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -10,14 +12,19 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.X509ExtendedTrustManager;
 import java.io.IOException;
+import java.io.InputStream;
 import java.lang.reflect.Constructor;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.Optional;
@@ -33,6 +40,7 @@ class ActuatorProbeTest {
     private static final String NON_BEANS_PAYLOAD = "<html><body>Welcome</body></html>";
 
     private HttpServer server;
+    private HttpsServer httpsServer;
     private int port;
 
     @Mock
@@ -49,6 +57,37 @@ class ActuatorProbeTest {
         if (server != null) {
             server.stop(0);
         }
+        if (httpsServer != null) {
+            httpsServer.stop(0);
+        }
+    }
+
+    /**
+     * Starts a local HTTPS server (self-signed test keystore) that serves the beans payload
+     * on /actuator/beans, and returns its port.
+     */
+    private int startHttpsBeansServer() throws Exception {
+        KeyStore ks = KeyStore.getInstance("PKCS12");
+        try (InputStream in = ActuatorProbeTest.class.getResourceAsStream("/actuator-test-keystore.p12")) {
+            assertThat(in).as("test keystore resource").isNotNull();
+            ks.load(in, "changeit".toCharArray());
+        }
+        KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+        kmf.init(ks, "changeit".toCharArray());
+        SSLContext ctx = SSLContext.getInstance("TLS");
+        ctx.init(kmf.getKeyManagers(), null, null);
+
+        httpsServer = HttpsServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        httpsServer.setHttpsConfigurator(new HttpsConfigurator(ctx));
+        httpsServer.createContext("/actuator/beans", exchange -> {
+            byte[] body = BEANS_PAYLOAD.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            try (java.io.OutputStream os = exchange.getResponseBody()) {
+                os.write(body);
+            }
+        });
+        httpsServer.start();
+        return httpsServer.getAddress().getPort();
     }
 
     @Test
@@ -87,6 +126,7 @@ class ActuatorProbeTest {
         Optional<ActuatorProbe.ProbeResult> result = probe.probe(virtualMachine);
 
         assertThat(result).isPresent();
+        assertThat(result.get().url()).startsWith("http://127.0.0.1:" + port);
         assertThat(result.get().url()).contains(":" + port + "/actuator/beans");
         assertThat(result.get().rawJson()).isEqualTo(BEANS_PAYLOAD);
     }
@@ -270,5 +310,90 @@ class ActuatorProbeTest {
                 .hasMessageContaining("Unable to initialise insecure TLS context");
         }
     }
-}
 
+    // ---------------------------------------------------------------------
+    // Issue #88: HTTPS-secured Actuator discovery
+    // ---------------------------------------------------------------------
+
+    @Test
+    @DisplayName("probePort discovers an HTTPS actuator when insecure is enabled")
+    void shouldDiscoverHttpsEndpointWhenInsecure() throws Exception {
+        int httpsPort = startHttpsBeansServer();
+
+        ActuatorProbe probe = new ActuatorProbe(new ActuatorAuth(null, null, null, true));
+        Optional<String> json = probe.probePort(httpsPort);
+
+        assertThat(json).isPresent();
+        assertThat(json.get()).isEqualTo(BEANS_PAYLOAD);
+    }
+
+    @Test
+    @DisplayName("probe reports an https:// URL when TLS is hinted via management.server.ssl.enabled")
+    void shouldReportHttpsUrlFromSslHint() throws Exception {
+        int httpsPort = startHttpsBeansServer();
+
+        Properties sysProps = new Properties();
+        sysProps.setProperty("management.server.port", String.valueOf(httpsPort));
+        sysProps.setProperty("management.server.ssl.enabled", "true");
+        when(virtualMachine.getSystemProperties()).thenReturn(sysProps);
+        when(virtualMachine.getAgentProperties()).thenReturn(new Properties());
+
+        ActuatorProbe probe = new ActuatorProbe(new ActuatorAuth(null, null, null, true));
+        Optional<ActuatorProbe.ProbeResult> result = probe.probe(virtualMachine);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().url()).isEqualTo("https://127.0.0.1:" + httpsPort + "/actuator/beans");
+        assertThat(result.get().rawJson()).isEqualTo(BEANS_PAYLOAD);
+    }
+
+    @Test
+    @DisplayName("probe finds HTTPS actuator even without an SSL hint (fallback)")
+    void shouldFallBackToHttpsWithoutHint() throws Exception {
+        int httpsPort = startHttpsBeansServer();
+
+        Properties sysProps = new Properties();
+        sysProps.setProperty("server.port", String.valueOf(httpsPort));
+        when(virtualMachine.getSystemProperties()).thenReturn(sysProps);
+        when(virtualMachine.getAgentProperties()).thenReturn(new Properties());
+
+        ActuatorProbe probe = new ActuatorProbe(new ActuatorAuth(null, null, null, true));
+        Optional<ActuatorProbe.ProbeResult> result = probe.probe(virtualMachine);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().url()).startsWith("https://127.0.0.1:" + httpsPort);
+    }
+
+    @Test
+    @DisplayName("management port inherits server.ssl.enabled when not overridden")
+    void shouldInheritServerSslHintForManagementPort() throws Exception {
+        int httpsPort = startHttpsBeansServer();
+
+        Properties sysProps = new Properties();
+        sysProps.setProperty("management.server.port", String.valueOf(httpsPort));
+        sysProps.setProperty("server.ssl.enabled", "true");
+        when(virtualMachine.getSystemProperties()).thenReturn(sysProps);
+        when(virtualMachine.getAgentProperties()).thenReturn(new Properties());
+
+        ActuatorProbe probe = new ActuatorProbe(new ActuatorAuth(null, null, null, true));
+        Optional<ActuatorProbe.ProbeResult> result = probe.probe(virtualMachine);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().url()).startsWith("https://");
+    }
+
+    @Test
+    @DisplayName("probePort does not trust a self-signed HTTPS endpoint without insecure")
+    void shouldRejectSelfSignedHttpsWithoutInsecure() throws Exception {
+        int httpsPort = startHttpsBeansServer();
+
+        ActuatorProbe probe = new ActuatorProbe();
+        assertThat(probe.probePort(httpsPort)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("probePort returns empty quickly when nothing is listening")
+    void shouldReturnEmptyWhenPortClosed() {
+        ActuatorProbe probe = new ActuatorProbe();
+        assertThat(probe.probePort(1)).isEmpty();
+    }
+}
