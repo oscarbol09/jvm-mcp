@@ -111,6 +111,10 @@ public class ThreadMXBeanClient implements ThreadDiagnosticPort {
         );
 
         ThreadInfo[] threadInfos = threadMXBean.dumpAllThreads(lockedMonitors, lockedSynchronizers);
+        if (threadInfos == null) {
+            return new ThreadDump(pid, Instant.now(), 0, List.of());
+        }
+
         List<ThreadDetail> threadDetails = Arrays.stream(threadInfos)
             .filter(Objects::nonNull)
             .map(ThreadDetail::from)
@@ -146,6 +150,10 @@ public class ThreadMXBeanClient implements ThreadDiagnosticPort {
         }
 
         ThreadInfo[] deadlockedInfos = threadMXBean.getThreadInfo(deadlockedIds, true, true);
+        if (deadlockedInfos == null || deadlockedInfos.length == 0) {
+            return DeadlockReport.none();
+        }
+
         List<DeadlockedThreadDetail> chain = new ArrayList<>();
 
         for (ThreadInfo info : deadlockedInfos) {
@@ -198,6 +206,10 @@ public class ThreadMXBeanClient implements ThreadDiagnosticPort {
 
         try {
             ThreadInfo[] threadInfos = threadMXBean.dumpAllThreads(true, true);
+            if (threadInfos == null) {
+                return List.of();
+            }
+
             List<BlockedThreadDetail> blockedList = new ArrayList<>();
 
             for (ThreadInfo info : threadInfos) {

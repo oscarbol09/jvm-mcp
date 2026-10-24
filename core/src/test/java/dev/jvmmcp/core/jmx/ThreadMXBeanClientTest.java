@@ -95,6 +95,29 @@ class ThreadMXBeanClientTest {
     }
 
     @Test
+    @DisplayName("getThreadDump returns an empty dump when the MXBean returns null")
+    void shouldHandleNullThreadDump() throws Exception {
+        ThreadMXBean mockBean = mock(ThreadMXBean.class);
+        when(mockBean.dumpAllThreads(true, true)).thenReturn(null);
+
+        try (org.mockito.MockedStatic<ManagementFactory> mfStatic = org.mockito.Mockito.mockStatic(ManagementFactory.class)) {
+            mfStatic.when(() -> ManagementFactory.newPlatformMXBeanProxy(
+                    any(), anyString(),
+                    org.mockito.ArgumentMatchers.eq(ThreadMXBean.class)))
+                .thenReturn(mockBean);
+
+            ThreadDump dump = new ThreadMXBeanClient(connectionManager.getMBeanServerConnection(), null)
+                .getThreadDump(42L);
+
+            assertThat(dump.pid()).isEqualTo(42L);
+            assertThat(dump.timestamp()).isNotNull();
+            assertThat(dump.totalCount()).isZero();
+            assertThat(dump.threads()).isEmpty();
+            assertThat(dump.virtualThreads()).isNull();
+        }
+    }
+
+    @Test
     @DisplayName("getThreadDump should capture formatted thread stack frames")
     void shouldCaptureStructuredThreadDump() throws IOException {
         long currentPid = ProcessHandle.current().pid();
@@ -134,6 +157,28 @@ class ThreadMXBeanClientTest {
 
         assertThat(dump.virtualThreads()).isNull();
         assertThat(dump.threads()).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("detectDeadlocks returns NONE when deadlocked thread details are null or empty")
+    void shouldHandleMissingDeadlockedThreadDetails() throws Exception {
+        ThreadMXBean mockBean = mock(ThreadMXBean.class);
+        long[] deadlockedIds = {11L, 12L};
+        when(mockBean.findDeadlockedThreads()).thenReturn(deadlockedIds);
+        when(mockBean.getThreadInfo(deadlockedIds, true, true))
+            .thenReturn(null, new java.lang.management.ThreadInfo[0]);
+
+        try (org.mockito.MockedStatic<ManagementFactory> mfStatic = org.mockito.Mockito.mockStatic(ManagementFactory.class)) {
+            mfStatic.when(() -> ManagementFactory.newPlatformMXBeanProxy(
+                    any(), anyString(),
+                    org.mockito.ArgumentMatchers.eq(ThreadMXBean.class)))
+                .thenReturn(mockBean);
+
+            assertThat(threadClient.detectDeadlocks()).isEqualTo(DeadlockReport.none());
+            assertThat(threadClient.detectDeadlocks()).isEqualTo(DeadlockReport.none());
+            org.mockito.Mockito.verify(mockBean, org.mockito.Mockito.times(2))
+                .getThreadInfo(deadlockedIds, true, true);
+        }
     }
 
     @Test
@@ -269,6 +314,26 @@ class ThreadMXBeanClientTest {
 
             DeadlockReport report = threadClient.detectDeadlocks();
             assertThat(report.status()).isEqualTo("NONE");
+        }
+    }
+
+    @Test
+    @DisplayName("findBlockedThreads returns an empty list and restores monitoring when the dump is null")
+    void shouldHandleNullBlockedThreadDump() throws Exception {
+        ThreadMXBean mockBean = mock(ThreadMXBean.class);
+        when(mockBean.isThreadContentionMonitoringSupported()).thenReturn(true);
+        when(mockBean.isThreadContentionMonitoringEnabled()).thenReturn(false);
+        when(mockBean.dumpAllThreads(true, true)).thenReturn(null);
+
+        try (org.mockito.MockedStatic<ManagementFactory> mfStatic = org.mockito.Mockito.mockStatic(ManagementFactory.class)) {
+            mfStatic.when(() -> ManagementFactory.newPlatformMXBeanProxy(
+                    any(), anyString(),
+                    org.mockito.ArgumentMatchers.eq(ThreadMXBean.class)))
+                .thenReturn(mockBean);
+
+            assertThat(threadClient.findBlockedThreads(100)).isEmpty();
+            org.mockito.Mockito.verify(mockBean).setThreadContentionMonitoringEnabled(true);
+            org.mockito.Mockito.verify(mockBean).setThreadContentionMonitoringEnabled(false);
         }
     }
 
