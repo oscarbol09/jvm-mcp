@@ -93,6 +93,24 @@ class MemoryMXBeanClientTest {
     }
 
     @Test
+    @DisplayName("getBufferPools extracts direct and mapped buffer statistics")
+    void shouldExtractBufferPools() throws IOException {
+        List<BufferPoolInfo> bufferPools = memoryClient.getBufferPools();
+
+        assertThat(bufferPools).isNotEmpty();
+        assertThat(bufferPools)
+            .extracting(BufferPoolInfo::name)
+            .contains("direct", "mapped");
+
+        assertThat(bufferPools).allSatisfy(pool -> {
+            assertThat(pool.name()).isNotBlank();
+            assertThat(pool.count()).isGreaterThanOrEqualTo(0);
+            assertThat(pool.totalCapacityBytes()).isGreaterThanOrEqualTo(0);
+            assertThat(pool.memoryUsedBytes()).isGreaterThanOrEqualTo(0);
+        });
+    }
+
+    @Test
     @DisplayName("getGarbageCollectors extracts GC names and collection stats")
     void shouldExtractGarbageCollectors() throws IOException {
         List<GarbageCollectorInfo> gcs = memoryClient.getGarbageCollectors();

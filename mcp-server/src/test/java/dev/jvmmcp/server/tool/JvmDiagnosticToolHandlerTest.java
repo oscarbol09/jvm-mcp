@@ -146,7 +146,10 @@ class JvmDiagnosticToolHandlerTest {
         assertThat(content.get(0).get("text").toString())
             .contains("heapUsage")
             .contains("classLoading")
-            .contains("loadedClassCount");
+            .contains("loadedClassCount")
+            .contains("bufferPools")
+            .contains("direct")
+            .contains("mapped");
     }
 
     @Test

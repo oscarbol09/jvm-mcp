@@ -10,11 +10,14 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mockConstruction;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 public class PostgresMissingIndexesTest {
@@ -23,6 +26,7 @@ public class PostgresMissingIndexesTest {
     private Connection fixture;
     private PostgresSchemaReader reader;
     private MockedConstruction<HikariDataSource> pools;
+    private String jdbcUrl;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -41,14 +45,32 @@ public class PostgresMissingIndexesTest {
         // Execute the real query against deterministic statistics, without a PostgreSQL server or pool.
         pools = mockConstruction(HikariDataSource.class, (pool, context) ->
             when(pool.getConnection()).thenAnswer(invocation -> DriverManager.getConnection(database)));
-        reader = new PostgresSchemaReader("jdbc:postgresql://localhost/" + UUID.randomUUID(), null, null);
+        jdbcUrl = "jdbc:postgresql://localhost/" + UUID.randomUUID();
+        reader = new PostgresSchemaReader(jdbcUrl, null, null);
     }
 
     @AfterEach
     void tearDown() throws Exception {
         if (reader != null) reader.close();
-        if (pools != null) pools.close();
+        if (pools != null) {
+            removeConstructedPoolsFromCache();
+            pools.close();
+        }
         if (fixture != null) fixture.close();
+    }
+
+    @SuppressWarnings("unchecked")
+    private void removeConstructedPoolsFromCache() throws Exception {
+        var field = PostgresSchemaReader.class.getDeclaredField("DATA_SOURCES");
+        field.setAccessible(true);
+        Map<String, HikariDataSource> cache =
+            (Map<String, HikariDataSource>) field.get(null);
+
+        synchronized (cache) {
+            for (HikariDataSource pool : pools.constructed()) {
+                cache.values().remove(pool);
+            }
+        }
     }
 
     @Test
@@ -106,6 +128,25 @@ public class PostgresMissingIndexesTest {
         assertThatThrownBy(() -> reader.findMissingIndexes("public", -1))
             .isInstanceOf(IllegalArgumentException.class);
         assertThat(pools.constructed()).isEmpty();
+    }
+
+    @Test
+    void closingReaderDoesNotCloseSharedPool() throws Exception {
+        addTable(99, "public", "cached_table", MIB, 101, 20000, 0L);
+
+        reader.findMissingIndexes("public");
+        HikariDataSource pool = pools.constructed().getFirst();
+
+        reader.close();
+
+        try (PostgresSchemaReader secondReader = new PostgresSchemaReader(jdbcUrl, null, null)) {
+            assertThat(secondReader.findMissingIndexes("public").candidates())
+                .extracting(PostgresModels.MissingIndexCandidate::tableName)
+                .containsExactly("cached_table");
+        }
+
+        assertThat(pools.constructed()).hasSize(1);
+        verify(pool, never()).close();
     }
 
     private void addTable(long id, String schema, String table, long bytes,

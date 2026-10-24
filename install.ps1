@@ -59,10 +59,12 @@ $Asset = "jvm-mcp-windows-amd64.zip"
 if ($Version -eq "latest") {
     $DownloadUrl = "https://github.com/$Repo/releases/latest/download/$Asset"
     $ShaUrl = "https://github.com/$Repo/releases/latest/download/$Asset.sha256"
+    $ChecksumsUrl = "https://github.com/$Repo/releases/latest/download/checksums.txt"
 } else {
     $Tag = if ($Version.StartsWith("v")) { $Version } else { "v$Version" }
     $DownloadUrl = "https://github.com/$Repo/releases/download/$Tag/$Asset"
     $ShaUrl = "https://github.com/$Repo/releases/download/$Tag/$Asset.sha256"
+    $ChecksumsUrl = "https://github.com/$Repo/releases/download/$Tag/checksums.txt"
 }
 
 $TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ("jvm-mcp-install-" + [System.Guid]::NewGuid().ToString("N"))
@@ -74,10 +76,48 @@ try {
     $ShaPath = Join-Path $TmpDir "$Asset.sha256"
 
     Invoke-WebRequest -Uri $DownloadUrl -OutFile $ZipPath -UseBasicParsing
-    Invoke-WebRequest -Uri $ShaUrl -OutFile $ShaPath -UseBasicParsing
 
     Write-Host "Verifying SHA-256 cryptographic checksum..." -ForegroundColor Cyan
-    $expectedHash = (Get-Content $ShaPath).Split()[0].Trim().ToLower()
+
+    try {
+        Invoke-WebRequest -Uri $ShaUrl -OutFile $ShaPath -UseBasicParsing
+        $expectedHash = (Get-Content -Path $ShaPath -Raw).Trim().Split()[0]
+    } catch {
+        Write-Host "Individual checksum unavailable; trying checksums.txt..." -ForegroundColor Yellow
+
+        $ChecksumsPath = Join-Path $TmpDir "checksums.txt"
+        Invoke-WebRequest -Uri $ChecksumsUrl -OutFile $ChecksumsPath -UseBasicParsing
+
+        $checksumPattern = '^\s*([0-9a-fA-F]{64})\s+\*?' +
+            [regex]::Escape($Asset) + '\s*$'
+
+        $checksumLine = Get-Content -Path $ChecksumsPath |
+            Where-Object { $_ -match $checksumPattern } |
+            Select-Object -First 1
+
+        if (-not $checksumLine) {
+            throw "Checksum entry for '$Asset' not found in checksums.txt."
+        }
+
+        $checksumMatch = [regex]::Match($checksumLine, $checksumPattern)
+
+        if (-not $checksumMatch.Success) {
+            throw "Could not extract a valid SHA-256 checksum for '$Asset'."
+        }
+
+        $expectedHash = $checksumMatch.Groups[1].Value
+    }
+
+    if ([string]::IsNullOrWhiteSpace($expectedHash)) {
+        throw "Checksum file is empty or does not contain a hash."
+    }
+
+    $expectedHash = $expectedHash.Trim().ToLowerInvariant()
+
+    if ($expectedHash -notmatch '^[0-9a-f]{64}$') {
+        throw "Checksum file does not contain a valid 64-character SHA-256 hash."
+    }
+
     $actualHash = (Get-FileHash -Algorithm SHA256 $ZipPath).Hash.ToLower()
 
     if ($expectedHash -ne $actualHash) {

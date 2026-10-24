@@ -165,15 +165,6 @@ public class PostgresSchemaReader implements AutoCloseable {
 
     @Override
     public void close() {
-        String cacheKey = buildCacheKey(jdbcUrl, username, password);
-        synchronized (DATA_SOURCES) {
-            HikariDataSource ds = DATA_SOURCES.remove(cacheKey);
-            if (ds != null) {
-                try {
-                    ds.close();
-                } catch (Exception ignored) {}
-            }
-        }
     }
 
     private Connection getConnection() throws SQLException {
