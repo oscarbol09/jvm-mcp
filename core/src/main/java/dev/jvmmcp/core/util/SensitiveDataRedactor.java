@@ -34,6 +34,16 @@ public final class SensitiveDataRedactor {
         Pattern.CASE_INSENSITIVE
     );
 
+    // Generic userinfo redaction for ANY scheme (mongodb, amqp, redis, postgres, https, ...).
+    // The JDBC variant above only matches jdbc: URLs and its [^@]+ stops at the FIRST '@',
+    // leaking the tail of a password that itself contains '@'. This pattern anchors on the
+    // last '@' before the host: the password group ([^/\\s]+) is greedy, so 'u:pa@ss@host'
+    // redacts to 'u:***@host'. Runs after JDBC_URL_PATTERN (idempotent on already-redacted text).
+    private static final Pattern URI_USERINFO_PATTERN = Pattern.compile(
+        "(?i)\\b([a-z][a-z0-9+.\\-]*://[^\\s/:@]*:)([^\\s/]+)@",
+        Pattern.CASE_INSENSITIVE
+    );
+
     private static final Pattern JWT_PATTERN = Pattern.compile(
         "\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]*\\b"
     );
@@ -62,6 +72,7 @@ public final class SensitiveDataRedactor {
         result = JSON_SECRET_PATTERN.matcher(result).replaceAll("$1\"***\"");
         result = ASSIGNMENT_PATTERN.matcher(result).replaceAll("$1=***");
         result = JDBC_URL_PATTERN.matcher(result).replaceAll("$1***@");
+        result = URI_USERINFO_PATTERN.matcher(result).replaceAll("$1***@");
         result = JWT_PATTERN.matcher(result).replaceAll("***");
 
         return result;

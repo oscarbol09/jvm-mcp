@@ -58,6 +58,46 @@ class SensitiveDataRedactorTest {
     }
 
     @Test
+    @DisplayName("Redacts credentials in non-JDBC URI schemes (mongodb/amqp/redis/postgres/https)")
+    void testNonJdbcUriCredentials() {
+        String mongo = "Mongo" + "PW123";
+        String amq = "Amq" + "PW456";
+        String redis = "Redis" + "PW789";
+        String pg = "Pg" + "PW000";
+        String https = "Https" + "PW111";
+        String input = "uri is mongodb://admin:" + mongo + "@host:27017/db and "
+            + "amqp://amquser:" + amq + "@rabbit and "
+            + "redis://redisuser:" + redis + "@cache:6379 and "
+            + "postgres://pguser:" + pg + "@dbhost:5432/db and "
+            + "https://httpsuser:" + https + "@secure.example.com/x";
+        // guard: prove the test data actually carries the secrets
+        assertThat(input).contains(mongo).contains(amq).contains(redis).contains(pg).contains(https);
+        String out = SensitiveDataRedactor.redact(input);
+        assertThat(out).doesNotContain(mongo).doesNotContain(amq).doesNotContain(redis).doesNotContain(pg).doesNotContain(https);
+        assertThat(out).contains("mongodb://admin:***@host:27017/db");
+        assertThat(out).contains("amqp://amquser:***@rabbit");
+        assertThat(out).contains("redis://redisuser:***@cache:6379");
+        assertThat(out).contains("postgres://pguser:***@dbhost:5432/db");
+        assertThat(out).contains("https://httpsuser:***@secure.example.com/x");
+    }
+
+    @Test
+    @DisplayName("Redacts the whole password when it contains an @ (splits on the last @)")
+    void testPasswordContainingAt() {
+        String pa = "pa" + "@ssword";
+        String to = "to" + "@ken";
+        String input = "conn jdbc:postgresql://u:" + pa + "@host:5432/db and "
+            + "mongodb://m:" + to + "@host/db and https://host/path?x=1";
+        // guard: prove the test data actually carries the secrets
+        assertThat(input).contains(pa).contains(to);
+        String out = SensitiveDataRedactor.redact(input);
+        assertThat(out).doesNotContain(pa).doesNotContain(to);
+        assertThat(out).contains("jdbc:postgresql://u:***@host:5432/db");
+        assertThat(out).contains("mongodb://m:***@host/db");
+        assertThat(out).contains("https://host/path?x=1");
+    }
+
+    @Test
     @DisplayName("Redacts standalone JWT tokens")
     void testJwtRedaction() {
         String part1 = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9";

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Credential redaction in non-JDBC connection URIs** (#200): `SensitiveDataRedactor` only scrubbed `jdbc:` URLs, so credentials embedded in `mongodb://`, `amqp://`, `redis://`, `postgres://`, `https://` (e.g. `spring.data.mongodb.uri`, `DATABASE_URL`) were forwarded to the model unredacted, and a password containing `@` was only partially masked. Added a generic userinfo pattern that redacts any scheme and splits on the last `@` before the host, so `u:pa@ss@host` becomes `u:***@host`.
 - **Docker Image Startup Failure** (#171): Replaced the `eclipse-temurin:21-jre-alpine` runtime with a `jlink`-assembled JRE on `alpine:3.24`. The stock JRE lacks `jdk.attach`, so every command (including `--version`) failed at startup with `NoClassDefFoundError: com/sun/tools/attach/VirtualMachine`. The custom runtime also includes `jdk.crypto.ec` for HTTPS Actuator endpoints and `jdk.jfr` so the `DiagnosticCommand` MBean works for self-inspection, and the `linux/amd64` image shrinks from ~290MB to ~113MB.
 
 ## [1.1.1] - 2026-10-22
