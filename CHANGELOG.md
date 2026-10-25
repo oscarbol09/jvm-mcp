@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Spring bean pagination and summary** (#217): `list_spring_beans` accepts `limit` (default 200, max 2000), `offset` and `summary`. Paginated responses include `totalBeans`, `returnedBeans` and `truncated`; summary mode returns per-context bean counts and the top 10 packages. `get_bean_detail` passes `beanName` to the parser so only matching name/alias candidates are built.
+
 ### Fixed
 - **Credential redaction in non-JDBC connection URIs** (#200): `SensitiveDataRedactor` only scrubbed `jdbc:` URLs, so credentials embedded in `mongodb://`, `amqp://`, `redis://`, `postgres://`, `https://` (e.g. `spring.data.mongodb.uri`, `DATABASE_URL`) were forwarded to the model unredacted, and a password containing `@` was only partially masked. Added a generic userinfo pattern that redacts any scheme and splits on the last `@` before the host, so `u:pa@ss@host` becomes `u:***@host`.
 - **JSON Serialization of File Paths and Scalars** (#201): Serialized file paths (`java.nio.file.Path`, `File`, `URI`, temporal accessors, and scalars) as escaped JSON strings instead of recursively iterating their name elements.

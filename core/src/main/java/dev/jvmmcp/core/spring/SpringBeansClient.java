@@ -61,6 +61,15 @@ public class SpringBeansClient {
     public SpringBeansReport inspectBeans(
             long pid, VirtualMachine vm, MBeanServerConnection mbsc, String filterGlob) {
 
+        return inspectBeans(pid, vm, mbsc, filterGlob, null);
+    }
+
+    private SpringBeansReport inspectBeans(
+            long pid,
+            VirtualMachine vm,
+            MBeanServerConnection mbsc,
+            String filterGlob,
+            String beanName) {
         // Strategy 1: Attempt Actuator HTTP discovery
         if (vm != null) {
             Optional<ActuatorProbe.ProbeResult> probeResult = actuatorProbe.probe(vm);
@@ -69,14 +78,15 @@ public class SpringBeansClient {
                         beansParser.parse(
                                 pid,
                                 "ACTUATOR_HTTP (" + probeResult.get().url() + ")",
-                                probeResult.get().rawJson());
+                                probeResult.get().rawJson(),
+                                beanName);
                 return applyFilter(report, filterGlob);
             }
         }
 
         // Strategy 2: Attempt JMX MBean inspection
         if (mbsc != null) {
-            Optional<SpringBeansReport> jmxReport = queryJmxBeans(pid, mbsc);
+            Optional<SpringBeansReport> jmxReport = queryJmxBeans(pid, mbsc, beanName);
             if (jmxReport.isPresent()) {
                 return applyFilter(jmxReport.get(), filterGlob);
             }
@@ -95,6 +105,29 @@ public class SpringBeansClient {
             JmxConnectionProvider jmxConnectionProvider,
             String filterGlob)
             throws Exception {
+        return inspectBeansWithJmxProvider(pid, vm, jmxConnectionProvider, filterGlob, null);
+    }
+
+    /** Discovers literal name/alias candidates without constructing unrelated bean details. */
+    public SpringBeansReport inspectBeanDetailWithJmxProvider(
+            long pid,
+            VirtualMachine vm,
+            JmxConnectionProvider jmxConnectionProvider,
+            String beanName)
+            throws Exception {
+        if (beanName == null || beanName.isBlank()) {
+            throw new IllegalArgumentException("Bean name cannot be blank");
+        }
+        return inspectBeansWithJmxProvider(pid, vm, jmxConnectionProvider, null, beanName);
+    }
+
+    private SpringBeansReport inspectBeansWithJmxProvider(
+            long pid,
+            VirtualMachine vm,
+            JmxConnectionProvider jmxConnectionProvider,
+            String filterGlob,
+            String beanName)
+            throws Exception {
 
         if (vm != null) {
             Optional<ActuatorProbe.ProbeResult> probeResult = actuatorProbe.probe(vm);
@@ -103,13 +136,15 @@ public class SpringBeansClient {
                         beansParser.parse(
                                 pid,
                                 "ACTUATOR_HTTP (" + probeResult.get().url() + ")",
-                                probeResult.get().rawJson());
+                                probeResult.get().rawJson(),
+                                beanName);
                 return applyFilter(report, filterGlob);
             }
         }
 
         try (JmxConnectionManager jmxManager = jmxConnectionProvider.connect()) {
-            return inspectBeans(pid, null, jmxManager.getMBeanServerConnection(), filterGlob);
+            return inspectBeans(
+                    pid, null, jmxManager.getMBeanServerConnection(), filterGlob, beanName);
         }
     }
 
@@ -234,7 +269,8 @@ public class SpringBeansClient {
         return matches.get(0);
     }
 
-    private Optional<SpringBeansReport> queryJmxBeans(long pid, MBeanServerConnection mbsc) {
+    private Optional<SpringBeansReport> queryJmxBeans(
+            long pid, MBeanServerConnection mbsc, String beanName) {
 
         String[] candidateObjectNames = {
             "org.springframework.boot:type=Endpoint,name=Beans",
@@ -266,10 +302,11 @@ public class SpringBeansClient {
                         Map<String, Object> casted = (Map<String, Object>) map;
 
                         return Optional.of(
-                                beansParser.parseMap(pid, "JMX_MBEAN (" + name + ")", casted));
+                                beansParser.parseMap(
+                                        pid, "JMX_MBEAN (" + name + ")", casted, beanName));
                     } else if (result instanceof String json) {
                         return Optional.of(
-                                beansParser.parse(pid, "JMX_MBEAN (" + name + ")", json));
+                                beansParser.parse(pid, "JMX_MBEAN (" + name + ")", json, beanName));
                     }
                 }
             } catch (Exception ignored) {

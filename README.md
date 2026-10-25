@@ -280,7 +280,7 @@ The server exposes 14 diagnostic tools to AI assistants:
 | `get_heap_histogram` | Top class instance counts and memory consumption via `jcmd`. | `pid` (number), `limit` (number, optional) |
 | `get_thread_diagnostics` | Thread states breakdown and deadlock detection (inspects platform and mounted virtual threads; unmounted virtual threads tracked in #10). | `pid` (number) |
 | `get_thread_dump` | Full formatted thread dump with lock stack traces. | `pid` (number) |
-| `list_spring_beans` | Instantiated beans in Spring ApplicationContext via JMX/Actuator. | `pid` (number), `filter` (string, optional) |
+| `list_spring_beans` | Paginated Spring beans by context via JMX/Actuator, with `totalBeans` and `truncated`; `summary` returns per-context counts and top 10 packages instead. | `pid` (number), `filter` (string, optional), `limit` (integer, optional, default 200, max 2000), `offset` (integer, optional, default 0), `summary` (boolean, optional) |
 | `get_bean_detail` | Detailed metadata, autowired dependencies, and scope of a bean. | `pid` (number), `beanName` (string) |
 | `list_hikari_pools` | HikariCP pool metrics, active/idle connections, and leak warnings. | `pid` (number) |
 | `inspect_pg_schema` | PostgreSQL table schema, columns, row estimates, and foreign keys. | `url` (string), `schema` (string, optional) |
@@ -289,6 +289,14 @@ The server exposes 14 diagnostic tools to AI assistants:
 | `get_actuator_health` | Recursively parsed Spring Boot `/actuator/health` component status. | `url` (string) |
 | `get_actuator_metrics` | Batch or individual diagnostic metric values from `/actuator/metrics`. | `url` (string), `metrics` (string, optional) |
 | `get_actuator_startup` | Startup timeline and slowest beans from `/actuator/startup`. | `url` (string) |
+
+`list_spring_beans` sorts contexts by id and beans by name, then applies `offset` and
+`limit` across all contexts. Out-of-range values are clamped to the allowed range.
+
+`get_bean_detail` matches literal bean names and aliases, preferring exact case-sensitive
+matches and using a case-insensitive fallback only when unambiguous. Its report builder
+retains only matching candidates across contexts. HTTP discovery still downloads and
+parses the full Actuator payload; unrelated bean-detail records are not constructed.
 
 Missing-index analysis defaults to a minimum table size of 1 MiB (1,048,576 bytes).
 Set `minTableSizeMb` to `0` to include smaller tables, or choose a higher whole-number

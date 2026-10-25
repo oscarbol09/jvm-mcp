@@ -13,15 +13,28 @@ import java.util.*;
 public class SpringBeansParser {
 
     public SpringBeansReport parse(long pid, String discoverySource, String jsonContent) {
+        return parse(pid, discoverySource, jsonContent, null);
+    }
+
+    /**
+     * Builds only literal name/alias candidates when beanName is supplied, retaining case variants.
+     */
+    public SpringBeansReport parse(
+            long pid, String discoverySource, String jsonContent, String beanName) {
         if (jsonContent == null || jsonContent.isBlank()) {
             return new SpringBeansReport(pid, discoverySource, 0, List.of());
         }
 
         Map<String, Object> root = SimpleJson.parseObject(jsonContent);
-        return parseMap(pid, discoverySource, root);
+        return parseMap(pid, discoverySource, root, beanName);
     }
 
     public SpringBeansReport parseMap(long pid, String discoverySource, Map<String, Object> root) {
+        return parseMap(pid, discoverySource, root, null);
+    }
+
+    public SpringBeansReport parseMap(
+            long pid, String discoverySource, Map<String, Object> root, String beanName) {
         if (root == null || root.isEmpty()) {
             return new SpringBeansReport(pid, discoverySource, 0, List.of());
         }
@@ -38,7 +51,7 @@ public class SpringBeansParser {
                 if (entry.getValue() instanceof Map<?, ?> contextData) {
                     String parentId = Objects.toString(contextData.get("parentId"), null);
                     Object beansObj = contextData.get("beans");
-                    List<SpringBeanDetail> beans = parseBeansMap(beansObj);
+                    List<SpringBeanDetail> beans = parseBeansMap(beansObj, beanName);
                     totalBeans += beans.size();
                     contextList.add(
                             new SpringContextBeans(contextId, parentId, beans.size(), beans));
@@ -46,12 +59,12 @@ public class SpringBeansParser {
             }
         } else if (root.containsKey("beans")) {
             // Direct { "beans": { ... } } structure
-            List<SpringBeanDetail> beans = parseBeansMap(root.get("beans"));
+            List<SpringBeanDetail> beans = parseBeansMap(root.get("beans"), beanName);
             totalBeans = beans.size();
             contextList.add(new SpringContextBeans("root", null, totalBeans, beans));
         } else {
             // Flat key-value map of beans
-            List<SpringBeanDetail> beans = parseBeansMap(root);
+            List<SpringBeanDetail> beans = parseBeansMap(root, beanName);
             totalBeans = beans.size();
             contextList.add(new SpringContextBeans("root", null, totalBeans, beans));
         }
@@ -59,7 +72,7 @@ public class SpringBeansParser {
         return new SpringBeansReport(pid, discoverySource, totalBeans, contextList);
     }
 
-    private List<SpringBeanDetail> parseBeansMap(Object beansObj) {
+    private List<SpringBeanDetail> parseBeansMap(Object beansObj, String requestedName) {
         List<SpringBeanDetail> beans = new ArrayList<>();
         if (!(beansObj instanceof Map<?, ?> map)) {
             return beans;
@@ -69,6 +82,12 @@ public class SpringBeansParser {
             String beanName = Objects.toString(entry.getKey(), "");
             if (entry.getValue() instanceof Map<?, ?> data) {
                 List<String> aliases = toStringList(data.get("aliases"));
+                if (requestedName != null
+                        && !beanName.equalsIgnoreCase(requestedName)
+                        && aliases.stream()
+                                .noneMatch(alias -> alias.equalsIgnoreCase(requestedName))) {
+                    continue;
+                }
                 String scope = Objects.toString(data.get("scope"), "singleton");
                 String type = Objects.toString(data.get("type"), "unknown");
                 String resource = Objects.toString(data.get("resource"), null);
@@ -77,7 +96,8 @@ public class SpringBeansParser {
                 beans.add(
                         new SpringBeanDetail(
                                 beanName, aliases, scope, type, resource, dependencies));
-            } else if (entry.getValue() instanceof String typeStr) {
+            } else if (entry.getValue() instanceof String typeStr
+                    && (requestedName == null || beanName.equalsIgnoreCase(requestedName))) {
                 beans.add(
                         new SpringBeanDetail(
                                 beanName, List.of(), "singleton", typeStr, null, List.of()));
