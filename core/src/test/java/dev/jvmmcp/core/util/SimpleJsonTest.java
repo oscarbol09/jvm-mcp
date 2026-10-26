@@ -19,6 +19,7 @@ import java.util.OptionalDouble;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.UUID;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -287,10 +288,50 @@ class SimpleJsonTest {
     @Test
     @DisplayName("parseObject should handle all escape sequences and unicode characters")
     void shouldHandleEscapeSequences() {
-        String json = "{\"msg\": \"\\\" \\' \\\\ \\/ \\b \\f \\n \\r \\t \\u0041 \\z\"}";
+        String json = "{\"msg\": \"\\\" \\\\ \\/ \\b \\f \\n \\r \\t \\u0041\"}";
         Map<String, Object> map = SimpleJson.parseObject(json);
 
-        assertThat(map.get("msg")).isEqualTo("\" ' \\ / \b \f \n \r \t A z");
+        assertThat(map.get("msg")).isEqualTo("\" \\ / \b \f \n \r \t A");
+    }
+
+    @ParameterizedTest(name = "Reject invalid JSON syntax: {0}")
+    @MethodSource("invalidStrictJson")
+    @DisplayName("parse should reject syntax that RFC 8259 does not allow")
+    void shouldRejectInvalidStrictJson(String json) {
+        assertThatThrownBy(() -> SimpleJson.parse(json))
+                .isExactlyInstanceOf(IllegalArgumentException.class);
+    }
+
+    static Stream<String> invalidStrictJson() {
+        return Stream.concat(
+                IntStream.range(0, 0x20)
+                        .mapToObj(control -> "{\"a\":\"x" + (char) control + "y\"}"),
+                Stream.of(
+                        "01",
+                        "-01",
+                        "{\"a\":01}",
+                        "{\"a\":\"\\q\"}",
+                        "{\"a\":\"\\'\"}",
+                        "{\"a\":1,\"a\":2}",
+                        "{\"a\":null,\"a\":2}",
+                        "{\"outer\":{\"a\":1,\"a\":2}}"));
+    }
+
+    @Test
+    @DisplayName("parse should preserve valid JSON number forms")
+    void shouldAcceptZeroPrefixedFractionAndExponent() {
+        assertThat(SimpleJson.parse("0")).isEqualTo(0);
+        assertThat(SimpleJson.parse("-0")).isEqualTo(0);
+        assertThat(SimpleJson.parse("10")).isEqualTo(10);
+        assertThat(SimpleJson.parse("0.5")).isEqualTo(0.5);
+        assertThat(SimpleJson.parse("0e1")).isEqualTo(0.0);
+    }
+
+    @Test
+    @DisplayName("parse should preserve every valid JSON escape")
+    void shouldAcceptValidEscapeSequences() {
+        assertThat(SimpleJson.parse("\"\\\" \\\\ \\/ \\b \\f \\n \\r \\t \\u0041\""))
+                .isEqualTo("\" \\ / \b \f \n \r \t A");
     }
 
     @Test

@@ -58,8 +58,7 @@ class SimpleJsonPropertyTest {
                         s ->
                                 !s.contains("\"")
                                         && !s.contains("\\")
-                                        && !s.contains("\n")
-                                        && !s.contains("\r"));
+                                        && s.chars().noneMatch(c -> c < 0x20));
     }
 
     @Provide
