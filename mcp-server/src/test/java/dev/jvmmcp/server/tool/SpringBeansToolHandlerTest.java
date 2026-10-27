@@ -103,9 +103,14 @@ class SpringBeansToolHandlerTest {
                             return null;
                         });
 
-        assertThatThrownBy(() -> handler.execute("list_spring_beans", Map.of("pid", 123)))
-                .isInstanceOf(IOException.class)
-                .hasMessageContaining("JMX error");
+        Map<String, Object> result = handler.execute("list_spring_beans", Map.of("pid", 123));
+        assertThat(result.get("isError")).isEqualTo(true);
+        assertThat(
+                        ((List<Map<String, Object>>) result.get("content"))
+                                .get(0)
+                                .get("text")
+                                .toString())
+                .contains("JMX connection failed (IOException)");
 
         verify(mockAttachService).detach(mockVm);
     }
@@ -132,8 +137,8 @@ class SpringBeansToolHandlerTest {
                             return null;
                         });
 
-        assertThatThrownBy(() -> handler.execute("list_spring_beans", Map.of("pid", 123)))
-                .isInstanceOf(IOException.class);
+        Map<String, Object> result = handler.execute("list_spring_beans", Map.of("pid", 123));
+        assertThat(result.get("isError")).isEqualTo(true);
 
         verify(mockAttachService).detach(mockVm);
     }
@@ -210,6 +215,34 @@ class SpringBeansToolHandlerTest {
         List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
         assertThat(content).hasSize(1);
         assertThat(content.get(0).get("text").toString()).contains("orderService");
+    }
+
+    @Test
+    @DisplayName("list_spring_beans returns an error when discovery is unavailable")
+    void testListSpringBeansDiscoveryFailure() throws Exception {
+        when(mockAttachService.attach("123")).thenReturn(AttachResult.success("123", null));
+        SpringBeansReport report =
+                new SpringBeansReport(
+                        123,
+                        "NOT_AVAILABLE (JMX MBean not registered: org.springframework.boot:type=Endpoint,name=Beans)",
+                        0,
+                        List.of());
+        when(mockBeansClient.inspectBeansWithJmxProvider(eq(123L), any(), any(), any()))
+                .thenReturn(report);
+
+        SpringBeansToolHandler handler =
+                new SpringBeansToolHandler(mockAttachService, mockBeansClient);
+
+        Map<String, Object> result = handler.execute("list_spring_beans", Map.of("pid", 123));
+
+        assertThat(result.get("isError")).isEqualTo(true);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
+        assertThat(content.get(0).get("text").toString())
+                .contains("Unable to discover Spring beans")
+                .contains("management.endpoints.web.exposure.include=beans")
+                .contains("spring.jmx.enabled=true")
+                .contains("MBean not registered");
     }
 
     @Test

@@ -230,9 +230,71 @@ class SpringBeansClientTest {
 
         SpringBeansReport report = client.inspectBeans(123L, virtualMachine, null, null);
 
-        assertThat(report.discoverySource()).contains("NOT_AVAILABLE");
+        assertThat(report.discoverySource())
+                .contains("NOT_AVAILABLE")
+                .contains("Actuator HTTP discovery returned no reachable beans endpoint")
+                .contains("JMX discovery was not attempted");
         assertThat(report.totalBeans()).isZero();
         assertThat(report.contexts()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("inspectBeans reports missing JMX endpoint names after Actuator misses")
+    void shouldReportMissingJmxMBeans() throws Exception {
+        when(actuatorProbe.probe(virtualMachine)).thenReturn(Optional.empty());
+        when(mbsc.isRegistered(any(ObjectName.class))).thenReturn(false);
+
+        SpringBeansReport report = client.inspectBeans(123L, virtualMachine, mbsc, null);
+
+        assertThat(report.discoverySource())
+                .contains("NOT_AVAILABLE")
+                .contains("org.springframework.boot:type=Endpoint,name=Beans")
+                .contains("org.springframework.boot:type=Endpoint,name=beans");
+        assertThat(report.totalBeans()).isZero();
+    }
+
+    @Test
+    @DisplayName("inspectBeans reports JMX operation and attribute failures safely")
+    void shouldReportJmxOperationFailure() throws Exception {
+        when(actuatorProbe.probe(virtualMachine)).thenReturn(Optional.empty());
+        ObjectName upperEndpoint =
+                new ObjectName("org.springframework.boot:type=Endpoint,name=Beans");
+        ObjectName lowerEndpoint =
+                new ObjectName("org.springframework.boot:type=Endpoint,name=beans");
+        when(mbsc.isRegistered(upperEndpoint)).thenReturn(true);
+        when(mbsc.isRegistered(lowerEndpoint)).thenReturn(false);
+        when(mbsc.invoke(eq(upperEndpoint), eq("beans"), any(), any()))
+                .thenThrow(new IllegalStateException("credentials must not leak"));
+        when(mbsc.getAttribute(upperEndpoint, "Data"))
+                .thenThrow(new UnsupportedOperationException("private detail"));
+        when(mbsc.getAttribute(upperEndpoint, "beans"))
+                .thenThrow(new IllegalArgumentException("private detail"));
+
+        SpringBeansReport report = client.inspectBeans(123L, virtualMachine, mbsc, null);
+
+        assertThat(report.discoverySource())
+                .contains("operation 'beans' failed (IllegalStateException)")
+                .contains("attribute 'Data' failed (UnsupportedOperationException)")
+                .contains("attribute 'beans' failed (IllegalArgumentException)")
+                .doesNotContain("credentials must not leak")
+                .doesNotContain("private detail");
+    }
+
+    @Test
+    @DisplayName("a reachable empty Actuator context is a successful empty result")
+    void shouldPreserveEmptyActuatorContext() {
+        when(actuatorProbe.probe(virtualMachine))
+                .thenReturn(
+                        Optional.of(
+                                new ActuatorProbe.ProbeResult(
+                                        "http://localhost:8080/actuator/beans",
+                                        "{\"contexts\":{\"application\":{\"beans\":{}}}}")));
+
+        SpringBeansReport report = client.inspectBeans(123L, virtualMachine, null, null);
+
+        assertThat(report.discoverySource()).contains("ACTUATOR_HTTP");
+        assertThat(report.totalBeans()).isZero();
+        assertThat(report.contexts()).hasSize(1);
     }
 
     @Test

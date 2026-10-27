@@ -122,18 +122,28 @@ public class SpringBeansToolHandler implements ToolHandler {
         List<Map<String, Object>> content = new ArrayList<>();
         try {
             String filterGlob = ToolArgs.getStringArg(args, "filter", false);
-            SpringBeansReport report =
-                    beansClient.inspectBeansWithJmxProvider(
-                            pid,
-                            vm,
-                            () -> {
-                                JmxConnectionManager manager = jmxConnector.connect(vm, pid);
-                                jmxManagerOwnsVm[0] = true;
-                                return manager;
-                            },
-                            filterGlob);
+            SpringBeansReport report;
+            try {
+                report =
+                        beansClient.inspectBeansWithJmxProvider(
+                                pid,
+                                vm,
+                                () -> {
+                                    JmxConnectionManager manager = jmxConnector.connect(vm, pid);
+                                    jmxManagerOwnsVm[0] = true;
+                                    return manager;
+                                },
+                                filterGlob);
+            } catch (Exception e) {
+                return discoveryErrorResult(
+                        "JMX connection failed (" + e.getClass().getSimpleName() + ")");
+            }
 
             if ("list_spring_beans".equals(toolName)) {
+                if (report.discoverySource() != null
+                        && report.discoverySource().startsWith("NOT_AVAILABLE")) {
+                    return discoveryErrorResult(report.discoverySource());
+                }
                 content.add(Map.of("type", "text", "text", SimpleJson.toJson(report)));
             } else if ("get_bean_detail".equals(toolName)) {
                 String beanName = ToolArgs.getStringArg(args, "beanName", true);
@@ -176,5 +186,22 @@ public class SpringBeansToolHandler implements ToolHandler {
         }
 
         return Map.of("content", content);
+    }
+
+    private Map<String, Object> discoveryErrorResult(String diagnostic) {
+        return Map.of(
+                "content",
+                List.of(
+                        Map.of(
+                                "type",
+                                "text",
+                                "text",
+                                "Unable to discover Spring beans: "
+                                        + diagnostic
+                                        + ". Expose the Actuator beans endpoint with "
+                                        + "management.endpoints.web.exposure.include=beans "
+                                        + "or enable Spring JMX with spring.jmx.enabled=true.")),
+                "isError",
+                true);
     }
 }

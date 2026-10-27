@@ -61,9 +61,18 @@ public class SpringBeansClient {
     public SpringBeansReport inspectBeans(
             long pid, VirtualMachine vm, MBeanServerConnection mbsc, String filterGlob) {
 
+        List<String> diagnostics = new ArrayList<>();
+
         // Strategy 1: Attempt Actuator HTTP discovery
         if (vm != null) {
-            Optional<ActuatorProbe.ProbeResult> probeResult = actuatorProbe.probe(vm);
+            Optional<ActuatorProbe.ProbeResult> probeResult;
+            try {
+                probeResult = actuatorProbe.probe(vm);
+            } catch (Exception e) {
+                diagnostics.add(
+                        "Actuator HTTP discovery failed (" + e.getClass().getSimpleName() + ")");
+                probeResult = Optional.empty();
+            }
             if (probeResult.isPresent()) {
                 SpringBeansReport report =
                         beansParser.parse(
@@ -72,21 +81,13 @@ public class SpringBeansClient {
                                 probeResult.get().rawJson());
                 return applyFilter(report, filterGlob);
             }
+            diagnostics.add("Actuator HTTP discovery returned no reachable beans endpoint");
+        } else {
+            diagnostics.add(
+                    "Actuator HTTP discovery was not attempted because no VM was available");
         }
 
-        // Strategy 2: Attempt JMX MBean inspection
-        if (mbsc != null) {
-            Optional<SpringBeansReport> jmxReport = queryJmxBeans(pid, mbsc);
-            if (jmxReport.isPresent()) {
-                return applyFilter(jmxReport.get(), filterGlob);
-            }
-        }
-
-        return new SpringBeansReport(
-                pid,
-                "NOT_AVAILABLE (Actuator HTTP not reachable and JMX Beans endpoint missing)",
-                0,
-                List.of());
+        return inspectJmxBeans(pid, mbsc, filterGlob, diagnostics);
     }
 
     public SpringBeansReport inspectBeansWithJmxProvider(
@@ -96,8 +97,16 @@ public class SpringBeansClient {
             String filterGlob)
             throws Exception {
 
+        List<String> diagnostics = new ArrayList<>();
         if (vm != null) {
-            Optional<ActuatorProbe.ProbeResult> probeResult = actuatorProbe.probe(vm);
+            Optional<ActuatorProbe.ProbeResult> probeResult;
+            try {
+                probeResult = actuatorProbe.probe(vm);
+            } catch (Exception e) {
+                diagnostics.add(
+                        "Actuator HTTP discovery failed (" + e.getClass().getSimpleName() + ")");
+                probeResult = Optional.empty();
+            }
             if (probeResult.isPresent()) {
                 SpringBeansReport report =
                         beansParser.parse(
@@ -106,10 +115,15 @@ public class SpringBeansClient {
                                 probeResult.get().rawJson());
                 return applyFilter(report, filterGlob);
             }
+            diagnostics.add("Actuator HTTP discovery returned no reachable beans endpoint");
+        } else {
+            diagnostics.add(
+                    "Actuator HTTP discovery was not attempted because no VM was available");
         }
 
         try (JmxConnectionManager jmxManager = jmxConnectionProvider.connect()) {
-            return inspectBeans(pid, null, jmxManager.getMBeanServerConnection(), filterGlob);
+            return inspectJmxBeans(
+                    pid, jmxManager.getMBeanServerConnection(), filterGlob, diagnostics);
         }
     }
 
@@ -234,7 +248,8 @@ public class SpringBeansClient {
         return matches.get(0);
     }
 
-    private Optional<SpringBeansReport> queryJmxBeans(long pid, MBeanServerConnection mbsc) {
+    private Optional<SpringBeansReport> queryJmxBeans(
+            long pid, MBeanServerConnection mbsc, List<String> diagnostics) {
 
         String[] candidateObjectNames = {
             "org.springframework.boot:type=Endpoint,name=Beans",
@@ -250,13 +265,31 @@ public class SpringBeansClient {
 
                     try {
                         result = mbsc.invoke(objectName, "beans", new Object[0], new String[0]);
-                    } catch (Exception ignored) {
+                    } catch (Exception e) {
+                        diagnostics.add(
+                                "JMX MBean '"
+                                        + name
+                                        + "' operation 'beans' failed ("
+                                        + e.getClass().getSimpleName()
+                                        + ")");
                         try {
                             result = mbsc.getAttribute(objectName, "Data");
-                        } catch (Exception ignored2) {
+                        } catch (Exception e2) {
+                            diagnostics.add(
+                                    "JMX MBean '"
+                                            + name
+                                            + "' attribute 'Data' failed ("
+                                            + e2.getClass().getSimpleName()
+                                            + ")");
                             try {
                                 result = mbsc.getAttribute(objectName, "beans");
-                            } catch (Exception ignored3) {
+                            } catch (Exception e3) {
+                                diagnostics.add(
+                                        "JMX MBean '"
+                                                + name
+                                                + "' attribute 'beans' failed ("
+                                                + e3.getClass().getSimpleName()
+                                                + ")");
                             }
                         }
                     }
@@ -271,12 +304,41 @@ public class SpringBeansClient {
                         return Optional.of(
                                 beansParser.parse(pid, "JMX_MBEAN (" + name + ")", json));
                     }
+                    diagnostics.add("JMX MBean '" + name + "' returned no readable beans data");
+                } else {
+                    diagnostics.add("JMX MBean not registered: " + name);
                 }
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                diagnostics.add(
+                        "JMX MBean '"
+                                + name
+                                + "' inspection failed ("
+                                + e.getClass().getSimpleName()
+                                + ")");
             }
         }
 
         return Optional.empty();
+    }
+
+    private SpringBeansReport inspectJmxBeans(
+            long pid, MBeanServerConnection mbsc, String filterGlob, List<String> diagnostics) {
+        if (mbsc != null) {
+            Optional<SpringBeansReport> jmxReport = queryJmxBeans(pid, mbsc, diagnostics);
+            if (jmxReport.isPresent()) {
+                return applyFilter(jmxReport.get(), filterGlob);
+            }
+        } else {
+            diagnostics.add(
+                    "JMX discovery was not attempted because no MBean connection was available");
+        }
+        return unavailableReport(pid, diagnostics);
+    }
+
+    private SpringBeansReport unavailableReport(long pid, List<String> diagnostics) {
+        String details = String.join("; ", diagnostics);
+        String source = details.isBlank() ? "NOT_AVAILABLE" : "NOT_AVAILABLE (" + details + ")";
+        return new SpringBeansReport(pid, source, 0, List.of());
     }
 
     private SpringBeansReport applyFilter(SpringBeansReport report, String filterGlob) {
