@@ -22,6 +22,19 @@ import javax.management.ObjectName;
  */
 public class VirtualThreadDumpReader {
 
+    static final long MAX_DUMP_BYTES = 16L * 1024 * 1024;
+
+    public static final class DumpTooLargeException extends RuntimeException {
+        DumpTooLargeException(long actualBytes, long maxBytes) {
+            super(
+                    "Virtual-thread dump exceeds the maximum size of "
+                            + maxBytes
+                            + " bytes (actual size: "
+                            + actualBytes
+                            + " bytes)");
+        }
+    }
+
     private static final String DIAGNOSTIC_COMMAND_MBEAN =
             "com.sun.management:type=DiagnosticCommand";
     private static final String THREAD_DUMP_OPERATION = "threadDumpToFile";
@@ -89,12 +102,19 @@ public class VirtualThreadDumpReader {
                 return Optional.empty();
             }
 
+            long dumpSize = Files.size(tempFile);
+            if (dumpSize > MAX_DUMP_BYTES) {
+                throw new DumpTooLargeException(dumpSize, MAX_DUMP_BYTES);
+            }
+
             String content = Files.readString(tempFile, StandardCharsets.UTF_8);
             if (content.isBlank()) {
                 return Optional.empty();
             }
 
             return Optional.of(SimpleJson.parseObject(content));
+        } catch (DumpTooLargeException e) {
+            throw e;
         } catch (Exception e) {
             // Unsupported JVM, permission failure, MBean missing, I/O error, or malformed JSON
             return Optional.empty();

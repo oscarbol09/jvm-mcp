@@ -40,6 +40,27 @@ class JvmDiagnosticToolHandlerTest {
     }
 
     @Test
+    @DisplayName("get_thread_diagnostics exposes virtual-thread inspection as opt-in")
+    void testThreadDiagnosticsSchemaIncludesVirtualThreadOption() {
+        Map<String, Object> definition =
+                new JvmDiagnosticToolHandler()
+                        .toolDefinitions().stream()
+                                .filter(tool -> "get_thread_diagnostics".equals(tool.get("name")))
+                                .findFirst()
+                                .orElseThrow();
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> schema = (Map<String, Object>) definition.get("inputSchema");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> properties = (Map<String, Object>) schema.get("properties");
+
+        assertThat(properties).containsKey("includeVirtualThreads");
+        assertThat(properties.get("includeVirtualThreads")).isInstanceOf(Map.class);
+        Map<?, ?> virtualOption = (Map<?, ?>) properties.get("includeVirtualThreads");
+        assertThat(virtualOption.get("default")).isEqualTo(false);
+    }
+
+    @Test
     @DisplayName("toolNames and toolDefinitions return all 6 JVM diagnostic tools")
     void testToolNamesAndDefinitions() {
         JvmDiagnosticToolHandler handler = new JvmDiagnosticToolHandler(mockAttachService);

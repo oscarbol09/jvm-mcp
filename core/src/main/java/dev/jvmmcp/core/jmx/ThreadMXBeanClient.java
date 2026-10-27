@@ -34,6 +34,12 @@ public class ThreadMXBeanClient implements ThreadDiagnosticPort {
     }
 
     public ThreadSummary getThreadSummary(long pid) throws IOException {
+        return getThreadSummary(pid, false, null);
+    }
+
+    public ThreadSummary getThreadSummary(
+            long pid, boolean includeVirtualThreads, String javaSpecificationVersion)
+            throws IOException {
         ThreadMXBean threadMXBean =
                 ManagementFactory.newPlatformMXBeanProxy(
                         mbsc, ManagementFactory.THREAD_MXBEAN_NAME, ThreadMXBean.class);
@@ -76,10 +82,14 @@ public class ThreadMXBeanClient implements ThreadDiagnosticPort {
         }
 
         VirtualThreadSummary virtualThreads = null;
-        if (virtualThreadReader != null) {
+        if (includeVirtualThreads
+                && virtualThreadReader != null
+                && supportsVirtualThreads(javaSpecificationVersion)) {
             try {
                 virtualThreads =
                         virtualThreadReader.readVirtualThreadSummary(threadIds).orElse(null);
+            } catch (VirtualThreadDumpReader.DumpTooLargeException e) {
+                throw e;
             } catch (Exception ignored) {
                 // Keep virtualThreads as null to explicitly signal unavailable/unsupported
             }
@@ -96,6 +106,23 @@ public class ThreadMXBeanClient implements ThreadDiagnosticPort {
                 waiting,
                 timedWaiting,
                 virtualThreads);
+    }
+
+    static boolean supportsVirtualThreads(String javaSpecificationVersion) {
+        if (javaSpecificationVersion == null || javaSpecificationVersion.isBlank()) {
+            return false;
+        }
+        String version = javaSpecificationVersion.trim();
+        if (version.startsWith("1.")) {
+            version = version.substring(2);
+        }
+        int separator = version.indexOf('.');
+        String major = separator >= 0 ? version.substring(0, separator) : version;
+        try {
+            return Integer.parseInt(major) >= 21;
+        } catch (NumberFormatException e) {
+            return false;
+        }
     }
 
     public ThreadDump getThreadDump(long pid) throws IOException {

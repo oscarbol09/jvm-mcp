@@ -72,7 +72,13 @@ class LiveVirtualThreadIntegrationTest {
                         new ThreadMXBeanClient(jmx.getMBeanServerConnection())) {
 
             // 1. Verify ThreadSummary detects virtual threads
-            ThreadSummary summary = threadClient.getThreadSummary(targetPid);
+            String javaSpecificationVersion =
+                    result.virtualMachine()
+                            .get()
+                            .getSystemProperties()
+                            .getProperty("java.specification.version");
+            ThreadSummary summary =
+                    threadClient.getThreadSummary(targetPid, true, javaSpecificationVersion);
 
             assertThat(summary.totalCount()).isPositive();
             assertThat(summary.virtualThreads()).isNotNull();
