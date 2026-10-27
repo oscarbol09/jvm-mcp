@@ -6,76 +6,76 @@ import java.nio.file.Path;
 import java.util.jar.Attributes;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** Heuristic detector for identifying common JVM frameworks from process metadata. */
 public final class FrameworkDetector {
 
+    private static final Pattern JAR_LAUNCH_PATTERN =
+            Pattern.compile(
+                    "(?:^|\\s)-jar\\s+(?:\"([^\"]+\\.jar)\"|([^\\s]+\\.jar))(?:\\s|$)",
+                    Pattern.CASE_INSENSITIVE);
+
     private FrameworkDetector() {}
 
     public static Framework detect(String displayName, String mainClass) {
-        String combined =
-                ((displayName != null ? displayName : "")
-                                + " "
-                                + (mainClass != null ? mainClass : ""))
-                        .toLowerCase();
+        return detect(displayName, mainClass, null);
+    }
 
-        if (combined.contains("org.springframework.boot")
-                || combined.contains("springapplication")
-                || combined.contains("springboot")
-                || combined.contains("spring-boot")) {
+    public static Framework detect(
+            String displayName, String mainClass, Path targetWorkingDirectory) {
+        String className = mainClass == null ? "" : mainClass.trim();
+        if (className.isEmpty()) {
+            className = firstCommandToken(displayName);
+        }
+        String normalizedClassName = className.toLowerCase();
+
+        if (normalizedClassName.startsWith("org.springframework.boot.")) {
             return Framework.SPRING_BOOT;
         }
-        if (combined.contains("io.quarkus") || combined.contains("quarkus")) {
+        if (normalizedClassName.startsWith("io.quarkus.runner.")
+                || normalizedClassName.equals("io.quarkus.bootstrap.runner.quarkusentrypoint")) {
             return Framework.QUARKUS;
         }
-        if (combined.contains("io.micronaut") || combined.contains("micronaut")) {
+        if (normalizedClassName.startsWith("io.micronaut.")) {
             return Framework.MICRONAUT;
         }
 
         // Try manifest detection if it's a jar execution
-        if (displayName != null) {
-            String command = displayName.trim().replace("\"", "");
-
-            // Handle "-jar" prefix
-            if (command.toLowerCase().startsWith("-jar ")) {
-                command = command.substring(5).trim();
-            }
-
-            int jarIndex = command.toLowerCase().indexOf(".jar ");
-            String jarPath = null;
-            if (jarIndex != -1) {
-                jarPath = command.substring(0, jarIndex + 4).trim();
-            } else if (command.toLowerCase().endsWith(".jar")) {
-                jarPath = command.trim();
-            }
-
-            if (jarPath != null) {
-                try {
-                    Path p = Path.of(jarPath);
-                    if (Files.exists(p)) {
-                        try (JarFile jar = new JarFile(p.toFile())) {
-                            Manifest manifest = jar.getManifest();
-                            if (manifest != null) {
-                                Attributes attrs = manifest.getMainAttributes();
-                                if (attrs.getValue("Spring-Boot-Version") != null
-                                        || attrs.getValue("Start-Class") != null) {
-                                    return Framework.SPRING_BOOT;
-                                }
-                                if (attrs.getValue("Quarkus-Version") != null
-                                        || "io.quarkus.bootstrap.runner.QuarkusEntryPoint"
-                                                .equals(attrs.getValue("Main-Class"))) {
-                                    return Framework.QUARKUS;
-                                }
-                                if (attrs.getValue("Micronaut-Version") != null) {
-                                    return Framework.MICRONAUT;
-                                }
+        String jarPath = extractJarPath(displayName);
+        if (jarPath != null) {
+            try {
+                Path p = Path.of(jarPath);
+                if (!p.isAbsolute()) {
+                    if (targetWorkingDirectory == null) {
+                        return Framework.PLAIN_JAVA;
+                    }
+                    p = targetWorkingDirectory.resolve(p).normalize();
+                }
+                if (Files.isRegularFile(p)) {
+                    try (JarFile jar = new JarFile(p.toFile())) {
+                        Manifest manifest = jar.getManifest();
+                        if (manifest != null) {
+                            Attributes attrs = manifest.getMainAttributes();
+                            if (attrs.getValue("Spring-Boot-Version") != null
+                                    || attrs.getValue("Start-Class") != null) {
+                                return Framework.SPRING_BOOT;
+                            }
+                            if (attrs.getValue("Quarkus-Version") != null
+                                    || "io.quarkus.bootstrap.runner.QuarkusEntryPoint"
+                                            .equals(attrs.getValue("Main-Class"))) {
+                                return Framework.QUARKUS;
+                            }
+                            if (attrs.getValue("Micronaut-Version") != null) {
+                                return Framework.MICRONAUT;
                             }
                         }
                     }
-                } catch (Exception ignored) {
-                    // Ignore exceptions during heuristic detection (e.g. InvalidPathException or
-                    // IOException)
                 }
+            } catch (Exception ignored) {
+                // Ignore exceptions during heuristic detection (e.g. InvalidPathException or
+                // IOException)
             }
         }
 
@@ -83,5 +83,32 @@ public final class FrameworkDetector {
             return Framework.PLAIN_JAVA;
         }
         return Framework.UNKNOWN;
+    }
+
+    private static String extractJarPath(String displayName) {
+        if (displayName == null || displayName.isBlank()) {
+            return null;
+        }
+        String command = displayName.trim();
+        Matcher matcher = JAR_LAUNCH_PATTERN.matcher(command);
+        if (matcher.find()) {
+            return matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
+        }
+
+        String unquoted = command.replace("\"", "").trim();
+        return !unquoted.contains(" ") && unquoted.toLowerCase().endsWith(".jar") ? unquoted : null;
+    }
+
+    private static String firstCommandToken(String displayName) {
+        if (displayName == null || displayName.isBlank()) {
+            return "";
+        }
+        String command = displayName.trim();
+        if (command.startsWith("\"")) {
+            int endQuote = command.indexOf('"', 1);
+            return endQuote > 0 ? command.substring(1, endQuote) : command;
+        }
+        int space = command.indexOf(' ');
+        return space > 0 ? command.substring(0, space) : command;
     }
 }

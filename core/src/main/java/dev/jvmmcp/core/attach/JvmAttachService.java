@@ -7,6 +7,8 @@ import dev.jvmmcp.core.model.Framework;
 import dev.jvmmcp.core.model.JvmProcess;
 import java.io.IOException;
 import java.lang.System.Logger;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -52,12 +54,13 @@ public class JvmAttachService {
 
             String displayName = Objects.toString(desc.displayName(), "");
             String mainClass = extractMainClass(displayName);
-            Framework framework = FrameworkDetector.detect(displayName, mainClass);
 
             ProcessHandle currentProcess = currentProcessSupplier.get();
             long currentPid = currentProcess.pid();
             boolean isSelf = (pid == currentPid);
             Optional<ProcessHandle> processHandle = processLookup.apply(pid);
+            Framework framework =
+                    FrameworkDetector.detect(displayName, mainClass, resolveWorkingDirectory(pid));
 
             boolean isAttachable =
                     processHandle.isPresent()
@@ -217,6 +220,20 @@ public class JvmAttachService {
         }
 
         return command;
+    }
+
+    private Path resolveWorkingDirectory(long pid) {
+        if (!System.getProperty("os.name", "").toLowerCase().contains("linux")) {
+            return null;
+        }
+        Path procWorkingDirectory = Path.of("/proc", Long.toString(pid), "cwd");
+        try {
+            return Files.isDirectory(procWorkingDirectory)
+                    ? procWorkingDirectory.toRealPath()
+                    : null;
+        } catch (IOException | SecurityException ignored) {
+            return null;
+        }
     }
 
     private String stripJarPath(String token) {
