@@ -15,6 +15,11 @@ import javax.management.remote.JMXServiceURL;
  */
 public class JmxConnectionManager implements AutoCloseable {
 
+    @FunctionalInterface
+    interface ConnectorFactory {
+        JMXConnector connect(JMXServiceURL url) throws IOException;
+    }
+
     private final long pid;
     private final VirtualMachine virtualMachine;
     private final JMXConnector connector;
@@ -35,6 +40,11 @@ public class JmxConnectionManager implements AutoCloseable {
     }
 
     public static JmxConnectionManager connect(VirtualMachine vm, long pid) throws IOException {
+        return connect(vm, pid, JMXConnectorFactory::connect);
+    }
+
+    static JmxConnectionManager connect(VirtualMachine vm, long pid, ConnectorFactory factory)
+            throws IOException {
         if (vm == null) {
             throw new IllegalArgumentException(
                     "VirtualMachine cannot be null when connecting via Attach API.");
@@ -46,7 +56,17 @@ public class JmxConnectionManager implements AutoCloseable {
                     pid, vm, null, ManagementFactory.getPlatformMBeanServer());
         }
 
-        String connectorAddress = resolveConnectorAddress(vm);
+        String connectorAddress;
+        try {
+            connectorAddress = resolveConnectorAddress(vm);
+        } catch (IOException e) {
+            throw new IOException(
+                    "Failed to establish local JMX connection to JVM process "
+                            + pid
+                            + ". The local management agent could not be started or resolved "
+                            + "(ensure target JVM allows dynamic attachment and has not disabled dynamic agent loading).",
+                    e.getCause() != null ? e.getCause() : e);
+        }
         if (connectorAddress == null || connectorAddress.isBlank()) {
             throw new IOException(
                     "Failed to establish local JMX connection to JVM process "
@@ -56,10 +76,21 @@ public class JmxConnectionManager implements AutoCloseable {
         }
 
         JMXServiceURL url = new JMXServiceURL(connectorAddress);
-        JMXConnector connector = JMXConnectorFactory.connect(url);
-        MBeanServerConnection connection = connector.getMBeanServerConnection();
-
-        return new JmxConnectionManager(pid, vm, connector, connection);
+        JMXConnector connector = null;
+        try {
+            connector = factory.connect(url);
+            MBeanServerConnection connection = connector.getMBeanServerConnection();
+            return new JmxConnectionManager(pid, vm, connector, connection);
+        } catch (IOException | RuntimeException e) {
+            if (connector != null) {
+                try {
+                    connector.close();
+                } catch (IOException closeFailure) {
+                    e.addSuppressed(closeFailure);
+                }
+            }
+            throw e;
+        }
     }
 
     static String resolveConnectorAddress(VirtualMachine vm) throws IOException {
@@ -72,13 +103,14 @@ public class JmxConnectionManager implements AutoCloseable {
         }
 
         // Try starting the management agent dynamically if not already started
+        Exception startFailure = null;
         try {
             connectorAddress = vm.startLocalManagementAgent();
             if (connectorAddress != null && !connectorAddress.isBlank()) {
                 return connectorAddress;
             }
-        } catch (Exception ignored) {
-            // Ignored: the caller reports a clear error if no address can be resolved
+        } catch (Exception e) {
+            startFailure = e;
         }
 
         // Re-check agent properties
@@ -89,6 +121,9 @@ public class JmxConnectionManager implements AutoCloseable {
             return connectorAddress;
         }
 
+        if (startFailure != null) {
+            throw new IOException("Failed to start the local management agent", startFailure);
+        }
         return null;
     }
 
