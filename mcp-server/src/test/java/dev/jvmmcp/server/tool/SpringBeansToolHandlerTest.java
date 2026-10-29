@@ -287,6 +287,23 @@ class SpringBeansToolHandlerTest {
         Map<String, Object> response = SimpleJson.parseObject((String) content.get(0).get("text"));
 
         assertThat(((Number) response.get("totalBeans")).intValue()).isEqualTo(4);
+        assertThat(((Number) response.get("returnedBeans")).intValue()).isEqualTo(2);
+        assertThat(response.get("truncated")).isEqualTo(true);
+
+        List<Map<String, Object>> contexts = (List<Map<String, Object>>) response.get("contexts");
+        assertThat(contexts).hasSize(2);
+        assertThat(contexts.get(0).get("contextId")).isEqualTo("a-context");
+        assertThat(contexts.get(1).get("contextId")).isEqualTo("b-context");
+
+        List<Map<String, Object>> firstBeans =
+                (List<Map<String, Object>>) contexts.get(0).get("beans");
+        List<Map<String, Object>> secondBeans =
+                (List<Map<String, Object>>) contexts.get(1).get("beans");
+
+        assertThat(firstBeans).hasSize(1);
+        assertThat(firstBeans.get(0).get("name")).isEqualTo("beta");
+        assertThat(secondBeans).hasSize(1);
+        assertThat(secondBeans.get(0).get("name")).isEqualTo("delta");
     }
 
     @Test
@@ -434,4 +451,157 @@ class SpringBeansToolHandlerTest {
         assertThat(result.get("content").toString()).contains("Ambiguous bean lookup", "[a, b]");
         verify(mockAttachService).detach(mockVm);
     }
+
+    @Test
+    @DisplayName("limit and offset use defaults and are clamped to their allowed range")
+    @SuppressWarnings("unchecked")
+    void testPaginationDefaultsAndBounds() throws Exception {
+        List<SpringBeanDetail> beans =
+                List.of("a", "b", "c").stream()
+                        .map(
+                                name ->
+                                        new SpringBeanDetail(
+                                                name,
+                                                List.of(),
+                                                "singleton",
+                                                "example.Bean",
+                                                null,
+                                                List.of()))
+                        .toList();
+        SpringBeansReport report =
+                new SpringBeansReport(
+                        123L, "TEST", 3, List.of(new SpringContextBeans("ctx", null, 3, beans)));
+
+        when(mockAttachService.attach("123")).thenReturn(AttachResult.success("123", null));
+        when(mockBeansClient.inspectBeansWithJmxProvider(eq(123L), any(), any(), any()))
+                .thenReturn(report);
+
+        SpringBeansToolHandler handler =
+                new SpringBeansToolHandler(mockAttachService, mockBeansClient);
+        java.util.function.Function<Map<String, Object>, Map<String, Object>> list =
+                args -> {
+                    try {
+                        List<Map<String, Object>> content =
+                                (List<Map<String, Object>>)
+                                        handler.execute("list_spring_beans", args).get("content");
+                        return SimpleJson.parseObject((String) content.get(0).get("text"));
+                    } catch (Exception e) {
+                        throw new IllegalStateException(e);
+                    }
+                };
+
+        Map<String, Object> defaults = list.apply(Map.of("pid", 123));
+        assertThat(((Number) defaults.get("limit")).intValue()).isEqualTo(200);
+        assertThat(((Number) defaults.get("offset")).intValue()).isZero();
+        assertThat(((Number) defaults.get("returnedBeans")).intValue()).isEqualTo(3);
+        assertThat(defaults.get("truncated")).isEqualTo(false);
+
+        Map<String, Object> overMax = list.apply(Map.of("pid", 123, "limit", 5000));
+        assertThat(((Number) overMax.get("limit")).intValue()).isEqualTo(2000);
+
+        Map<String, Object> belowMin = list.apply(Map.of("pid", 123, "limit", 0, "offset", -5));
+        assertThat(((Number) belowMin.get("limit")).intValue()).isEqualTo(1);
+        assertThat(((Number) belowMin.get("offset")).intValue()).isZero();
+        assertThat(((Number) belowMin.get("returnedBeans")).intValue()).isEqualTo(1);
+        assertThat(belowMin.get("truncated")).isEqualTo(true);
+
+        Map<String, Object> pastEnd = list.apply(Map.of("pid", 123, "offset", 10));
+        assertThat(((Number) pastEnd.get("returnedBeans")).intValue()).isZero();
+        assertThat(pastEnd.get("truncated")).isEqualTo(false);
+        assertThat((List<?>) pastEnd.get("contexts")).isEmpty();
+    }
+
+
+    @Test
+    @DisplayName("non-numeric limit is rejected before attaching")
+    void testInvalidLimitRejected() {
+        SpringBeansToolHandler handler =
+                new SpringBeansToolHandler(mockAttachService, mockBeansClient);
+
+        assertThatThrownBy(
+                        () ->
+                                handler.execute(
+                                        "list_spring_beans", Map.of("pid", 123, "limit", "abc")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("limit");
+    }
+
+
+    @Test
+    @DisplayName("summary counts all matching beans and ranks packages independently of pagination")
+    @SuppressWarnings("unchecked")
+    void testSummaryIgnoresPagination() throws Exception {
+        SpringBeanDetail orderService =
+                new SpringBeanDetail(
+                        "orderService",
+                        List.of("orders"),
+                        "singleton",
+                        "com.example.service.OrderService",
+                        "OrderService.class",
+                        List.of("orderRepository"));
+        SpringBeanDetail paymentService =
+                new SpringBeanDetail(
+                        "paymentService",
+                        List.of(),
+                        "singleton",
+                        "com.example.service.PaymentService",
+                        null,
+                        List.of());
+        SpringBeanDetail orderRepository =
+                new SpringBeanDetail(
+                        "orderRepository",
+                        List.of(),
+                        "singleton",
+                        "com.example.repository.OrderRepository",
+                        null,
+                        List.of());
+        SpringBeansReport report =
+                new SpringBeansReport(
+                        123L,
+                        "TEST",
+                        3,
+                        List.of(
+                                new SpringContextBeans(
+                                        "application",
+                                        null,
+                                        3,
+                                        List.of(orderRepository, orderService, paymentService))));
+
+        when(mockAttachService.attach("123")).thenReturn(AttachResult.success("123", null));
+        when(mockBeansClient.inspectBeansWithJmxProvider(eq(123L), any(), any(), any()))
+                .thenReturn(report);
+
+        SpringBeansToolHandler handler =
+                new SpringBeansToolHandler(mockAttachService, mockBeansClient);
+        Map<String, Object> result =
+                handler.execute(
+                        "list_spring_beans",
+                        Map.of("pid", 123, "summary", true, "limit", 1, "offset", 2));
+
+        assertThat(result.get("isError")).isNull();
+        List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
+        assertThat(content).hasSize(1);
+        Map<String, Object> response = SimpleJson.parseObject((String) content.get(0).get("text"));
+
+        assertThat(response.get("summary")).isEqualTo(true);
+        assertThat(((Number) response.get("totalBeans")).intValue()).isEqualTo(3);
+        assertThat(response).doesNotContainKeys("limit", "offset", "returnedBeans", "truncated");
+
+        List<Map<String, Object>> contexts = (List<Map<String, Object>>) response.get("contexts");
+        assertThat(contexts).hasSize(1);
+        Map<String, Object> context = contexts.get(0);
+        assertThat(context.get("contextId")).isEqualTo("application");
+        assertThat(context).containsEntry("parentId", null);
+        assertThat(((Number) context.get("beanCount")).intValue()).isEqualTo(3);
+        assertThat(context).doesNotContainKeys("beans", "dependencies", "aliases", "resource");
+
+        List<Map<String, Object>> topPackages =
+                (List<Map<String, Object>>) context.get("topPackages");
+        assertThat(topPackages).hasSize(2);
+        assertThat(topPackages.get(0).get("package")).isEqualTo("com.example.service");
+        assertThat(((Number) topPackages.get(0).get("beanCount")).intValue()).isEqualTo(2);
+        assertThat(topPackages.get(1).get("package")).isEqualTo("com.example.repository");
+        assertThat(((Number) topPackages.get(1).get("beanCount")).intValue()).isEqualTo(1);
+    }
+
 }
