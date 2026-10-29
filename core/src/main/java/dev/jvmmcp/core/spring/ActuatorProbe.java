@@ -2,8 +2,6 @@ package dev.jvmmcp.core.spring;
 
 import com.sun.tools.attach.VirtualMachine;
 import java.net.ConnectException;
-import java.net.Inet6Address;
-import java.net.InetAddress;
 import java.net.Socket;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -103,33 +101,14 @@ public class ActuatorProbe {
                 throw new SecurityException("Invalid URL: No host provided");
             }
 
-            InetAddress[] addresses = InetAddress.getAllByName(host);
-            for (InetAddress addr : addresses) {
-                if (!addr.isLoopbackAddress()) {
-                    throw new SecurityException(
-                            "SSRF blocked: Host resolves to non-loopback IP "
-                                    + addr.getHostAddress());
-                }
-            }
+            // Use the shared SSRF validation policy for every resolved address.
+            ActuatorClient.validateLoopbackHost(host);
 
-            String pinnedIp = addresses[0].getHostAddress();
-            if (addresses[0] instanceof Inet6Address) {
-                pinnedIp = "[" + pinnedIp + "]";
-            }
-
-            URI safeUri =
-                    new URI(
-                            originalUri.getScheme(),
-                            originalUri.getUserInfo(),
-                            pinnedIp,
-                            originalUri.getPort(),
-                            originalUri.getPath(),
-                            originalUri.getQuery(),
-                            originalUri.getFragment());
-
+            // Preserve the original hostname so HTTPS SNI and certificate hostname
+            // verification continue to use the hostname from the original URI.
             HttpRequest.Builder builder =
                     HttpRequest.newBuilder()
-                            .uri(safeUri)
+                            .uri(originalUri)
                             .timeout(timeout)
                             .header("Accept", "application/json")
                             .header("Accept-Encoding", "gzip, deflate");

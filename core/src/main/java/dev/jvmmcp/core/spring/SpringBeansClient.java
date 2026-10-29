@@ -60,9 +60,16 @@ public class SpringBeansClient {
 
     public SpringBeansReport inspectBeans(
             long pid, VirtualMachine vm, MBeanServerConnection mbsc, String filterGlob) {
+        return inspectBeans(pid, vm, mbsc, filterGlob, null);
+    }
 
+    private SpringBeansReport inspectBeans(
+            long pid,
+            VirtualMachine vm,
+            MBeanServerConnection mbsc,
+            String filterGlob,
+            String beanName) {
         List<String> diagnostics = new ArrayList<>();
-
         // Strategy 1: Attempt Actuator HTTP discovery
         if (vm != null) {
             Optional<ActuatorProbe.ProbeResult> probeResult;
@@ -78,7 +85,8 @@ public class SpringBeansClient {
                         beansParser.parse(
                                 pid,
                                 "ACTUATOR_HTTP (" + probeResult.get().url() + ")",
-                                probeResult.get().rawJson());
+                                probeResult.get().rawJson(),
+                                beanName);
                 return applyFilter(report, filterGlob);
             }
             diagnostics.add("Actuator HTTP discovery returned no reachable beans endpoint");
@@ -87,7 +95,7 @@ public class SpringBeansClient {
                     "Actuator HTTP discovery was not attempted because no VM was available");
         }
 
-        return inspectJmxBeans(pid, mbsc, filterGlob, diagnostics);
+        return inspectJmxBeans(pid, mbsc, filterGlob, beanName, diagnostics);
     }
 
     public SpringBeansReport inspectBeansWithJmxProvider(
@@ -95,6 +103,29 @@ public class SpringBeansClient {
             VirtualMachine vm,
             JmxConnectionProvider jmxConnectionProvider,
             String filterGlob)
+            throws Exception {
+        return inspectBeansWithJmxProvider(pid, vm, jmxConnectionProvider, filterGlob, null);
+    }
+
+    /** Discovers literal name/alias candidates without constructing unrelated bean details. */
+    public SpringBeansReport inspectBeanDetailWithJmxProvider(
+            long pid,
+            VirtualMachine vm,
+            JmxConnectionProvider jmxConnectionProvider,
+            String beanName)
+            throws Exception {
+        if (beanName == null || beanName.isBlank()) {
+            throw new IllegalArgumentException("Bean name cannot be blank");
+        }
+        return inspectBeansWithJmxProvider(pid, vm, jmxConnectionProvider, null, beanName);
+    }
+
+    private SpringBeansReport inspectBeansWithJmxProvider(
+            long pid,
+            VirtualMachine vm,
+            JmxConnectionProvider jmxConnectionProvider,
+            String filterGlob,
+            String beanName)
             throws Exception {
 
         List<String> diagnostics = new ArrayList<>();
@@ -112,7 +143,8 @@ public class SpringBeansClient {
                         beansParser.parse(
                                 pid,
                                 "ACTUATOR_HTTP (" + probeResult.get().url() + ")",
-                                probeResult.get().rawJson());
+                                probeResult.get().rawJson(),
+                                beanName);
                 return applyFilter(report, filterGlob);
             }
             diagnostics.add("Actuator HTTP discovery returned no reachable beans endpoint");
@@ -123,7 +155,7 @@ public class SpringBeansClient {
 
         try (JmxConnectionManager jmxManager = jmxConnectionProvider.connect()) {
             return inspectJmxBeans(
-                    pid, jmxManager.getMBeanServerConnection(), filterGlob, diagnostics);
+                    pid, jmxManager.getMBeanServerConnection(), filterGlob, beanName, diagnostics);
         }
     }
 
@@ -249,7 +281,7 @@ public class SpringBeansClient {
     }
 
     private Optional<SpringBeansReport> queryJmxBeans(
-            long pid, MBeanServerConnection mbsc, List<String> diagnostics) {
+            long pid, MBeanServerConnection mbsc, String beanName, List<String> diagnostics) {
 
         String[] candidateObjectNames = {
             "org.springframework.boot:type=Endpoint,name=Beans",
@@ -299,10 +331,11 @@ public class SpringBeansClient {
                         Map<String, Object> casted = (Map<String, Object>) map;
 
                         return Optional.of(
-                                beansParser.parseMap(pid, "JMX_MBEAN (" + name + ")", casted));
+                                beansParser.parseMap(
+                                        pid, "JMX_MBEAN (" + name + ")", casted, beanName));
                     } else if (result instanceof String json) {
                         return Optional.of(
-                                beansParser.parse(pid, "JMX_MBEAN (" + name + ")", json));
+                                beansParser.parse(pid, "JMX_MBEAN (" + name + ")", json, beanName));
                     }
                     diagnostics.add("JMX MBean '" + name + "' returned no readable beans data");
                 } else {
@@ -322,9 +355,13 @@ public class SpringBeansClient {
     }
 
     private SpringBeansReport inspectJmxBeans(
-            long pid, MBeanServerConnection mbsc, String filterGlob, List<String> diagnostics) {
+            long pid,
+            MBeanServerConnection mbsc,
+            String filterGlob,
+            String beanName,
+            List<String> diagnostics) {
         if (mbsc != null) {
-            Optional<SpringBeansReport> jmxReport = queryJmxBeans(pid, mbsc, diagnostics);
+            Optional<SpringBeansReport> jmxReport = queryJmxBeans(pid, mbsc, beanName, diagnostics);
             if (jmxReport.isPresent()) {
                 return applyFilter(jmxReport.get(), filterGlob);
             }

@@ -185,7 +185,7 @@ public class JvmAttachService {
             return "Unknown";
         }
 
-        String command = displayName.trim().replace("\"", "");
+        String command = displayName.trim();
 
         // Handle "-jar " prefix explicitly
         if (command.toLowerCase().startsWith("-jar ")) {
@@ -201,22 +201,24 @@ public class JvmAttachService {
             command = command.substring(9).trim();
         }
 
-        // 1. Is it a JAR execution? Look for ".jar" before arguments.
-        int jarIndex = command.toLowerCase().indexOf(".jar ");
-        if (jarIndex != -1) {
-            return stripJarPath(command.substring(0, jarIndex + 4).trim());
-        }
-        if (command.toLowerCase().endsWith(".jar")) {
-            return stripJarPath(command.trim());
+        String launchTarget = firstToken(command);
+        if (launchTarget.toLowerCase().endsWith(".jar")) {
+            return stripJarPath(launchTarget);
         }
 
-        // 2. It must be a main class. Main classes cannot contain spaces.
+        return launchTarget;
+    }
+
+    private String firstToken(String command) {
+        if (command.startsWith("\"")) {
+            int closingQuote = command.indexOf('"', 1);
+            if (closingQuote > 0) {
+                return command.substring(1, closingQuote);
+            }
+        }
+
         int spaceIndex = command.indexOf(' ');
-        if (spaceIndex != -1) {
-            return command.substring(0, spaceIndex).trim();
-        }
-
-        return command;
+        return spaceIndex == -1 ? command : command.substring(0, spaceIndex);
     }
 
     private String stripJarPath(String token) {

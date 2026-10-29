@@ -140,7 +140,7 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
                 Map.of(
                         "name", "list_hikari_pools",
                         "description",
-                                "Lists active HikariCP connection pools, their metrics, and heuristically analyzes their health for starvation or Clock Leaps.",
+                                "Lists active HikariCP connection pools, their metrics, and heuristically analyzes their health for starvation or Clock Leaps. Returns a note when no HikariCP MBeans are registered.",
                         "inputSchema",
                                 Map.of(
                                         "type", "object",

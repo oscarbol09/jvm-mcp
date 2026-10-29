@@ -8,6 +8,7 @@ import dev.jvmmcp.server.tool.*;
 import dev.jvmmcp.server.transport.McpTransport;
 import java.io.InputStream;
 import java.util.concurrent.Callable;
+import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
@@ -68,6 +69,14 @@ public class ServeCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
+        if (!"stdio".equalsIgnoreCase(transport) && !"sse".equalsIgnoreCase(transport)) {
+            System.err.println(
+                    "[jvm-mcp] Unsupported transport '"
+                            + transport
+                            + "'. Supported values: stdio, sse.");
+            new CommandLine(this).usage(System.err);
+            return CommandLine.ExitCode.USAGE;
+        }
         if ("sse".equalsIgnoreCase(transport) || useSpring) {
             System.err.println(
                     "[jvm-mcp] Spring layer not yet implemented. Please use stdio transport.");

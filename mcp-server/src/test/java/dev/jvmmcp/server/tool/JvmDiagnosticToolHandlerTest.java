@@ -200,7 +200,7 @@ class JvmDiagnosticToolHandlerTest {
     }
 
     @Test
-    @DisplayName("list_hikari_pools executes successfully")
+    @DisplayName("list_hikari_pools returns a note when no HikariCP MBeans are registered")
     void testListHikariPools() throws Exception {
         when(mockAttachService.attach("100")).thenReturn(AttachResult.success("100", null));
 
@@ -213,6 +213,14 @@ class JvmDiagnosticToolHandlerTest {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
         assertThat(content).hasSize(1);
+
+        String json = content.get(0).get("text").toString();
+        Map<String, Object> payload = SimpleJson.parseObject(json);
+        assertThat(payload.get("pools")).isEqualTo(List.of());
+        assertThat(payload.get("note"))
+                .asString()
+                .contains("spring.datasource.hikari.register-mbeans=true")
+                .contains("hikaricp.connections");
     }
 
     @Test

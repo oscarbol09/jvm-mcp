@@ -366,6 +366,26 @@ class JvmAttachServiceTest {
         }
 
         @Test
+        @DisplayName("extractMainClass ignores JAR references in program arguments")
+        void shouldIgnoreJarReferencesInProgramArguments() {
+            assertThat(attachService.extractMainClass("com.acme.Main --lib=/opt/lib/a.jar x"))
+                    .isEqualTo("com.acme.Main");
+            assertThat(
+                            attachService.extractMainClass(
+                                    "com.acme.Main --spring.config.additional-location=file:/conf.jar x"))
+                    .isEqualTo("com.acme.Main");
+        }
+
+        @Test
+        @DisplayName("extractMainClass supports quoted JAR launch paths")
+        void shouldExtractQuotedJarLaunchPath() {
+            assertThat(
+                            attachService.extractMainClass(
+                                    "-jar \"C:\\Program Files\\My App\\app.jar\" --port 8080"))
+                    .isEqualTo("app.jar");
+        }
+
+        @Test
         @DisplayName(
                 "extractMainClass reports the module/Main descriptor of a modular launch, not the flag")
         void shouldExtractMainClassOfModularLaunch() {
