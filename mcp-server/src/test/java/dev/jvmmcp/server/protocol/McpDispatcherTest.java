@@ -7,9 +7,14 @@ import dev.jvmmcp.server.tool.ToolRegistry;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class McpDispatcherTest {
 
@@ -156,10 +161,10 @@ class McpDispatcherTest {
         assertThat(response).isEmpty();
     }
 
-    @Test
-    @DisplayName("dispatch returns -32700 on malformed JSON")
-    void testParseError() {
-        String line = "{not a json}";
+    @ParameterizedTest
+    @MethodSource("malformedInputs")
+    @DisplayName("dispatch returns -32700 for empty input and malformed JSON")
+    void testParseError(String line) {
         Optional<Map<String, Object>> response = dispatcher.dispatch(line);
 
         assertThat(response).isPresent();
@@ -170,6 +175,32 @@ class McpDispatcherTest {
         Map<String, Object> error = (Map<String, Object>) resp.get("error");
         assertThat(error.get("code")).isEqualTo(-32700);
         assertThat(error.get("message").toString()).contains("Parse error:");
+    }
+
+    private static Stream<Arguments> malformedInputs() {
+        return Stream.of(
+                Arguments.of((String) null),
+                Arguments.of(""),
+                Arguments.of(" \t\n"),
+                Arguments.of("{not a json}"),
+                Arguments.of("{\"jsonrpc\":"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"[]", "[1]", "42", "\"x\"", "true", "null"})
+    @DisplayName("dispatch returns -32600 for valid JSON values that are not request objects")
+    void testNonObjectJsonRequest(String line) {
+        Optional<Map<String, Object>> response = dispatcher.dispatch(line);
+
+        assertThat(response).isPresent();
+        Map<String, Object> resp = response.get();
+        assertThat(resp.get("jsonrpc")).isEqualTo("2.0");
+        assertThat(resp.get("id")).isNull();
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> error = (Map<String, Object>) resp.get("error");
+        assertThat(error.get("code")).isEqualTo(-32600);
+        assertThat(error.get("message").toString()).contains("Invalid Request");
     }
 
     @Test

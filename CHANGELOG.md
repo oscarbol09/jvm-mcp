@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Spring bean pagination and summary** (#217): `list_spring_beans` accepts `limit` (default 200, max 2000), `offset` and `summary`. Paginated responses include `totalBeans`, `returnedBeans` and `truncated`; summary mode returns per-context bean counts and the top 10 packages. `get_bean_detail` passes `beanName` to the parser so only matching name/alias candidates are built.
+
 ### Fixed
+- **HikariCP empty pool list diagnostics** (#215): `list_hikari_pools` now returns a structured object, `{"pools": [...], "note": ...}`, instead of a bare array. When no HikariCP MBeans are registered (the Spring Boot default), `pools` is empty and `note` explains how to enable them; when pools are available, `note` is `null` and the existing metrics are returned under `pools`.
 - **Credential redaction in non-JDBC connection URIs** (#200): `SensitiveDataRedactor` only scrubbed `jdbc:` URLs, so credentials embedded in `mongodb://`, `amqp://`, `redis://`, `postgres://`, `https://` (e.g. `spring.data.mongodb.uri`, `DATABASE_URL`) were forwarded to the model unredacted, and a password containing `@` was only partially masked. Added a generic userinfo pattern that redacts any scheme and splits on the last `@` before the host, so `u:pa@ss@host` becomes `u:***@host`.
 - **JSON Serialization of File Paths and Scalars** (#201): Serialized file paths (`java.nio.file.Path`, `File`, `URI`, temporal accessors, and scalars) as escaped JSON strings instead of recursively iterating their name elements.
 - **Docker Image Startup Failure** (#171): Replaced the `eclipse-temurin:21-jre-alpine` runtime with a `jlink`-assembled JRE on `alpine:3.24`. The stock JRE lacks `jdk.attach`, so every command (including `--version`) failed at startup with `NoClassDefFoundError: com/sun/tools/attach/VirtualMachine`. The custom runtime also includes `jdk.crypto.ec` for HTTPS Actuator endpoints and `jdk.jfr` so the `DiagnosticCommand` MBean works for self-inspection, and the `linux/amd64` image shrinks from ~290MB to ~113MB.

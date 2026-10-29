@@ -221,7 +221,7 @@ class JvmDiagnosticToolHandlerTest {
     }
 
     @Test
-    @DisplayName("list_hikari_pools executes successfully")
+    @DisplayName("list_hikari_pools returns a note when no HikariCP MBeans are registered")
     void testListHikariPools() throws Exception {
         when(mockAttachService.attach("100")).thenReturn(AttachResult.success("100", null));
 
@@ -234,6 +234,14 @@ class JvmDiagnosticToolHandlerTest {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
         assertThat(content).hasSize(1);
+
+        String json = content.get(0).get("text").toString();
+        Map<String, Object> payload = SimpleJson.parseObject(json);
+        assertThat(payload.get("pools")).isEqualTo(List.of());
+        assertThat(payload.get("note"))
+                .asString()
+                .contains("spring.datasource.hikari.register-mbeans=true")
+                .contains("hikaricp.connections");
     }
 
     @Test
@@ -285,5 +293,35 @@ class JvmDiagnosticToolHandlerTest {
         assertThatThrownBy(() -> handler.execute("invalid_jvm_tool", Map.of("pid", 100)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Unknown JVM diagnostic tool");
+    }
+
+    @Test
+    @DisplayName("uses default PID when pid is omitted")
+    void testDefaultPidWhenPidIsMissing() {
+        when(mockAttachService.attach("123")).thenReturn(AttachResult.processNotFound("123"));
+
+        JvmDiagnosticToolHandler handler =
+                JvmDiagnosticToolHandler.withDefaultPid(mockAttachService, 123);
+
+        assertThatThrownBy(() -> handler.execute("get_memory_summary", Map.of()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("PID 123 was not found");
+
+        verify(mockAttachService).attach("123");
+    }
+
+    @Test
+    @DisplayName("explicit PID overrides default PID")
+    void testExplicitPidOverridesDefault() {
+        when(mockAttachService.attach("456")).thenReturn(AttachResult.processNotFound("456"));
+
+        JvmDiagnosticToolHandler handler =
+                JvmDiagnosticToolHandler.withDefaultPid(mockAttachService, 123);
+
+        assertThatThrownBy(() -> handler.execute("get_memory_summary", Map.of("pid", 456)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("PID 456 was not found");
+
+        verify(mockAttachService).attach("456");
     }
 }

@@ -20,6 +20,7 @@ import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
@@ -250,6 +251,29 @@ class ActuatorProbeTest {
         ActuatorProbe probe = new ActuatorProbe();
         Optional<String> result = probe.fetchFromUrl("http://127.0.0.1:1");
         assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("fetchFromUrl preserves the original hostname in the Host header")
+    void shouldPreserveHostnameWhenFetchingFromUrl() {
+        AtomicReference<String> hostHeader = new AtomicReference<>();
+        server.createContext(
+                "/actuator/beans",
+                exchange -> {
+                    hostHeader.set(exchange.getRequestHeaders().getFirst("Host"));
+                    byte[] body = BEANS_PAYLOAD.getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(200, body.length);
+                    try (java.io.OutputStream os = exchange.getResponseBody()) {
+                        os.write(body);
+                    }
+                });
+        server.start();
+
+        ActuatorProbe probe = new ActuatorProbe();
+        Optional<String> result = probe.fetchFromUrl("http://localhost:" + port);
+
+        assertThat(result).contains(BEANS_PAYLOAD);
+        assertThat(hostHeader.get()).isEqualTo("localhost:" + port);
     }
 
     @Test

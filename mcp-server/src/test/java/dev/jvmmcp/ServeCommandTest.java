@@ -1,6 +1,7 @@
 package dev.jvmmcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import dev.jvmmcp.core.attach.AttachResult;
@@ -49,6 +50,36 @@ class ServeCommandTest {
     }
 
     @Test
+    @DisplayName("serve command should reject unknown transport before attach or startup")
+    void shouldRejectUnknownTransportBeforeStartup() {
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        PrintStream originalErr = System.err;
+        java.io.InputStream unreadableInput =
+                new java.io.InputStream() {
+                    @Override
+                    public int read() {
+                        throw new AssertionError(
+                                "input should not be read for an invalid transport");
+                    }
+                };
+        ServeCommand command = new ServeCommand(mockAttachService, unreadableInput);
+        command.targetPid = 42;
+
+        try {
+            System.setErr(new PrintStream(err));
+            int exitCode = new CommandLine(command).execute("--transport", "websocket");
+
+            assertThat(exitCode).isEqualTo(2);
+            assertThat(err.toString()).contains("Unsupported transport");
+            assertThat(err.toString()).contains("Usage:");
+            assertThat(err.toString()).doesNotContain("Starting server");
+            verifyNoInteractions(mockAttachService);
+        } finally {
+            System.setErr(originalErr);
+        }
+    }
+
+    @Test
     @DisplayName("serve command with --spring option should return exit code 1")
     void shouldFailOnSpringOption() {
         ByteArrayOutputStream err = new ByteArrayOutputStream();
@@ -78,10 +109,10 @@ class ServeCommandTest {
                             "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}\n"
                                     .getBytes(java.nio.charset.StandardCharsets.UTF_8));
             CommandLine cmd = new CommandLine(new JvmMcp());
-            int exitCode = cmd.execute("serve", "--transport", "stdio");
+            int exitCode = cmd.execute("serve", "--transport", "StDiO");
 
             assertThat(exitCode).isZero();
-            assertThat(err.toString()).contains("Starting server via transport: stdio");
+            assertThat(err.toString()).contains("Starting server via transport: StDiO");
         } finally {
             System.setErr(originalErr);
             ServeCommand.testInStream = originalIn;
@@ -521,5 +552,53 @@ class ServeCommandTest {
     @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> asListOfMaps(Object obj) {
         return obj instanceof List<?> list ? (List<Map<String, Object>>) list : null;
+    }
+
+    @Test
+    @DisplayName("normal server exit detaches startup VM exactly once")
+    void shouldDetachStartupVmOnNormalExit() {
+        String pid = "100";
+        com.sun.tools.attach.VirtualMachine vm =
+                org.mockito.Mockito.mock(com.sun.tools.attach.VirtualMachine.class);
+
+        when(mockAttachService.attach(pid)).thenReturn(AttachResult.success(pid, vm));
+
+        ServeCommand command = new ServeCommand(mockAttachService);
+        command.targetPid = 100;
+        command.transport = "stdio";
+
+        java.io.InputStream originalIn = ServeCommand.testInStream;
+
+        try {
+            ServeCommand.testInStream =
+                    new java.io.ByteArrayInputStream(
+                            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}\n"
+                                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+            assertThat(command.call()).isZero();
+        } finally {
+            ServeCommand.testInStream = originalIn;
+        }
+
+        org.mockito.Mockito.verify(mockAttachService, org.mockito.Mockito.times(1)).detach(vm);
+    }
+
+    @Test
+    @DisplayName("shutdown hook detaches startup VM at most once")
+    void shouldDetachAtMostOnceWhenShutdownHookRunsRepeatedly() {
+        com.sun.tools.attach.VirtualMachine vm =
+                org.mockito.Mockito.mock(com.sun.tools.attach.VirtualMachine.class);
+
+        Runnable hook =
+                ServeCommand.createShutdownHook(
+                        vm,
+                        123,
+                        mockAttachService,
+                        new java.util.concurrent.atomic.AtomicBoolean());
+
+        hook.run();
+        hook.run();
+
+        org.mockito.Mockito.verify(mockAttachService, org.mockito.Mockito.times(1)).detach(vm);
     }
 }

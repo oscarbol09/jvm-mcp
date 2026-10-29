@@ -26,23 +26,53 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
 
     private final JvmAttachService attachService;
     private final JmxConnector jmxConnector;
+    private final Integer defaultPid;
 
     public JvmDiagnosticToolHandler() {
         this(new JvmAttachService());
     }
 
     public JvmDiagnosticToolHandler(JvmAttachService attachService) {
-        this(
-                attachService,
-                (vm, pid) ->
-                        vm != null
-                                ? JmxConnectionManager.connect(vm, pid)
-                                : JmxConnectionManager.connectLocal());
+        this(attachService, defaultJmxConnector());
     }
 
     public JvmDiagnosticToolHandler(JvmAttachService attachService, JmxConnector jmxConnector) {
+        this(attachService, jmxConnector, null);
+    }
+
+    private JvmDiagnosticToolHandler(
+            JvmAttachService attachService, JmxConnector jmxConnector, Integer defaultPid) {
         this.attachService = attachService;
         this.jmxConnector = jmxConnector;
+        this.defaultPid = defaultPid;
+    }
+
+    public static JvmDiagnosticToolHandler withDefaultPid(
+            JvmAttachService attachService, Integer defaultPid) {
+        return new JvmDiagnosticToolHandler(attachService, defaultJmxConnector(), defaultPid);
+    }
+
+    private static JmxConnector defaultJmxConnector() {
+        return (vm, pid) ->
+                vm != null
+                        ? JmxConnectionManager.connect(vm, pid)
+                        : JmxConnectionManager.connectLocal();
+    }
+
+    private List<String> requiredPidArguments() {
+        return defaultPid == null ? List.of("pid") : List.of();
+    }
+
+    private long resolvePid(Map<String, Object> args) {
+        if (args != null && args.containsKey("pid")) {
+            return ToolArgs.getPositiveLongArg(args, "pid", true);
+        }
+
+        if (defaultPid != null) {
+            return ToolArgs.getPositiveLongArg(Map.of("pid", defaultPid), "pid", true);
+        }
+
+        return ToolArgs.getPositiveLongArg(args, "pid", true);
     }
 
     @Override
@@ -85,7 +115,7 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
                                                                 "number",
                                                                 "description",
                                                                 "Target JVM Process ID")),
-                                        "required", List.of("pid"))),
+                                        "required", requiredPidArguments())),
                 Map.of(
                         "name", "get_thread_diagnostics",
                         "description", "Inspects JVM thread states and detects deadlocks",
@@ -108,7 +138,7 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
                                                                 false,
                                                                 "description",
                                                                 "Include virtual-thread counts; may create a large diagnostic dump")),
-                                        "required", List.of("pid"))),
+                                        "required", requiredPidArguments())),
                 Map.of(
                         "name", "get_heap_histogram",
                         "description", "Retrieves a histogram of class instances in the JVM heap",
@@ -129,7 +159,7 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
                                                                         "number",
                                                                         "description",
                                                                         "Limit of classes to return (default 100)")),
-                                        "required", List.of("pid"))),
+                                        "required", requiredPidArguments())),
                 Map.of(
                         "name", "get_thread_dump",
                         "description", "Retrieves a full thread dump from the target JVM",
@@ -144,11 +174,11 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
                                                                 "number",
                                                                 "description",
                                                                 "Target JVM Process ID")),
-                                        "required", List.of("pid"))),
+                                        "required", requiredPidArguments())),
                 Map.of(
                         "name", "list_hikari_pools",
                         "description",
-                                "Lists active HikariCP connection pools, their metrics, and heuristically analyzes their health for starvation or Clock Leaps.",
+                                "Lists active HikariCP connection pools, their metrics, and heuristically analyzes their health for starvation or Clock Leaps. Returns a note when no HikariCP MBeans are registered.",
                         "inputSchema",
                                 Map.of(
                                         "type", "object",
@@ -160,7 +190,7 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
                                                                 "number",
                                                                 "description",
                                                                 "Target JVM Process ID")),
-                                        "required", List.of("pid"))));
+                                        "required", requiredPidArguments())));
     }
 
     @Override
@@ -173,7 +203,7 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
             return Map.of("content", content);
         }
 
-        long pid = ToolArgs.getPositiveLongArg(args, "pid", true);
+        long pid = resolvePid(args);
         boolean includeVirtualThreads =
                 "get_thread_diagnostics".equals(toolName)
                         && ToolArgs.getBooleanArg(args, "includeVirtualThreads", false);

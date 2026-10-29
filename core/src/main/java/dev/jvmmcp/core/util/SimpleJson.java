@@ -232,6 +232,13 @@ public final class SimpleJson {
                 tokenizer.skipWhitespace();
                 tokenizer.consume(':');
                 Object value = parseValue(tokenizer);
+                if (map.containsKey(key)) {
+                    throw new IllegalArgumentException(
+                            "Duplicate object key '"
+                                    + key
+                                    + "' at position "
+                                    + tokenizer.getIndex());
+                }
                 map.put(key, value);
 
                 tokenizer.skipWhitespace();
@@ -307,12 +314,16 @@ public final class SimpleJson {
             if (c == quote) {
                 return sb.toString();
             }
+            if (c < 0x20) {
+                throw new IllegalArgumentException(
+                        "Unescaped control character in string at position "
+                                + (tokenizer.getIndex() - 1));
+            }
             if (c == '\\') {
                 if (!tokenizer.hasMore()) break;
                 char escape = tokenizer.consume();
                 switch (escape) {
                     case '"' -> sb.append('"');
-                    case '\'' -> sb.append('\'');
                     case '\\' -> sb.append('\\');
                     case '/' -> sb.append('/');
                     case 'b' -> sb.append('\b');
@@ -344,7 +355,12 @@ public final class SimpleJson {
                         }
                         sb.append((char) Integer.parseInt(hex.toString(), 16));
                     }
-                    default -> sb.append(escape);
+                    default ->
+                            throw new IllegalArgumentException(
+                                    "Invalid escape sequence at position "
+                                            + (tokenizer.getIndex() - 1)
+                                            + ": \\"
+                                            + escape);
                 }
             } else {
                 sb.append(c);
@@ -375,7 +391,19 @@ public final class SimpleJson {
         if (tokenizer.peek() == '-') {
             tokenizer.consume();
         }
-        if (consumeDigits(tokenizer) == 0) {
+        if (!tokenizer.hasMore()) {
+            throw new IllegalArgumentException(
+                    "Invalid number at position "
+                            + start
+                            + ": expected at least one digit after '-'");
+        }
+        if (tokenizer.peek() == '0') {
+            tokenizer.consume();
+            if (tokenizer.hasMore() && isAsciiDigit(tokenizer.peek())) {
+                throw new IllegalArgumentException(
+                        "Invalid number at position " + start + ": leading zero");
+            }
+        } else if (consumeDigits(tokenizer) == 0) {
             throw new IllegalArgumentException(
                     "Invalid number at position "
                             + start

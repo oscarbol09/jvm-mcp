@@ -34,13 +34,26 @@ public class McpDispatcher {
      * @return response map if a response is expected, or empty for notifications
      */
     public Optional<Map<String, Object>> dispatch(String requestLine) {
+        Object parsed;
         try {
-            Map<String, Object> req = SimpleJson.parseObject(requestLine);
-            return handleRequest(req);
-        } catch (Exception e) {
+            if (requestLine == null || requestLine.isBlank()) {
+                throw new IllegalArgumentException("Expected JSON Object but found: null");
+            }
+            parsed = SimpleJson.parse(requestLine);
+        } catch (IllegalArgumentException e) {
             System.err.println("[jvm-mcp] Error processing request: " + e.getMessage());
             return Optional.of(formatParseError(e.getMessage()));
         }
+
+        if (!(parsed instanceof Map<?, ?> requestMap)) {
+            return Optional.of(
+                    formatInvalidRequest(
+                            null, "Invalid Request: top-level JSON value must be an object"));
+        }
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> req = (Map<String, Object>) requestMap;
+        return handleRequest(req);
     }
 
     /**

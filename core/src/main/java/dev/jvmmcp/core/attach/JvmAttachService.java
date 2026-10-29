@@ -13,11 +13,16 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** Core service managing JVM discovery and connection lifecycle using the JDK Attach API. */
 public class JvmAttachService {
 
     private static final Logger LOGGER = System.getLogger(JvmAttachService.class.getName());
+    private static final Pattern JAVA_HOME_VERSION =
+            Pattern.compile(
+                    "(?i)(?:^|[/\\\\])(?:jdk|jre|java)[-_]?(?<version>(?:1\\.)?\\d+(?:[._]\\d+)*)(?:[-_](?:hotspot|openjdk|oracle|temurin|zulu|corretto|liberica|graalvm)[^/\\\\]*)?[/\\\\]bin[/\\\\]java(?:\\.exe)?$");
 
     private final Function<Long, Optional<ProcessHandle>> processLookup;
     private final Supplier<ProcessHandle> currentProcessSupplier;
@@ -67,20 +72,35 @@ public class JvmAttachService {
                                                     currentProcess.info().user(),
                                                     processHandle.get().info().user())));
 
+            String javaVersion =
+                    isSelf
+                            ? System.getProperty("java.version")
+                            : inferJavaVersion(
+                                    processHandle.flatMap(handle -> handle.info().command()));
+
             result.add(
                     new JvmProcess(
-                            pid,
-                            displayName,
-                            mainClass,
-                            isSelf ? System.getProperty("java.version") : "unknown",
-                            framework,
-                            isAttachable));
+                            pid, displayName, mainClass, javaVersion, framework, isAttachable));
         }
 
         long durationMs = (System.nanoTime() - start) / 1_000_000;
         LOGGER.log(Logger.Level.DEBUG, "Discovered {0} JVMs in {1} ms", result.size(), durationMs);
 
         return result;
+    }
+
+    /**
+     * Infers a Java version from a recognizable Java installation directory without attaching to
+     * the target process. The existing {@code "unknown"} value is retained when the executable path
+     * does not provide a sufficiently strong signal.
+     */
+    String inferJavaVersion(Optional<String> command) {
+        if (command.isEmpty() || command.get().isBlank()) {
+            return "unknown";
+        }
+
+        Matcher matcher = JAVA_HOME_VERSION.matcher(command.get());
+        return matcher.find() ? matcher.group("version") : "unknown";
     }
 
     public AttachResult attach(String pid) {
@@ -185,7 +205,7 @@ public class JvmAttachService {
             return "Unknown";
         }
 
-        String command = displayName.trim().replace("\"", "");
+        String command = displayName.trim();
 
         // Handle "-jar " prefix explicitly
         if (command.toLowerCase().startsWith("-jar ")) {
@@ -201,22 +221,24 @@ public class JvmAttachService {
             command = command.substring(9).trim();
         }
 
-        // 1. Is it a JAR execution? Look for ".jar" before arguments.
-        int jarIndex = command.toLowerCase().indexOf(".jar ");
-        if (jarIndex != -1) {
-            return stripJarPath(command.substring(0, jarIndex + 4).trim());
-        }
-        if (command.toLowerCase().endsWith(".jar")) {
-            return stripJarPath(command.trim());
+        String launchTarget = firstToken(command);
+        if (launchTarget.toLowerCase().endsWith(".jar")) {
+            return stripJarPath(launchTarget);
         }
 
-        // 2. It must be a main class. Main classes cannot contain spaces.
+        return launchTarget;
+    }
+
+    private String firstToken(String command) {
+        if (command.startsWith("\"")) {
+            int closingQuote = command.indexOf('"', 1);
+            if (closingQuote > 0) {
+                return command.substring(1, closingQuote);
+            }
+        }
+
         int spaceIndex = command.indexOf(' ');
-        if (spaceIndex != -1) {
-            return command.substring(0, spaceIndex).trim();
-        }
-
-        return command;
+        return spaceIndex == -1 ? command : command.substring(0, spaceIndex);
     }
 
     private String stripJarPath(String token) {

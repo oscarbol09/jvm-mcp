@@ -230,9 +230,71 @@ class SpringBeansClientTest {
 
         SpringBeansReport report = client.inspectBeans(123L, virtualMachine, null, null);
 
-        assertThat(report.discoverySource()).contains("NOT_AVAILABLE");
+        assertThat(report.discoverySource())
+                .contains("NOT_AVAILABLE")
+                .contains("Actuator HTTP discovery returned no reachable beans endpoint")
+                .contains("JMX discovery was not attempted");
         assertThat(report.totalBeans()).isZero();
         assertThat(report.contexts()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("inspectBeans reports missing JMX endpoint names after Actuator misses")
+    void shouldReportMissingJmxMBeans() throws Exception {
+        when(actuatorProbe.probe(virtualMachine)).thenReturn(Optional.empty());
+        when(mbsc.isRegistered(any(ObjectName.class))).thenReturn(false);
+
+        SpringBeansReport report = client.inspectBeans(123L, virtualMachine, mbsc, null);
+
+        assertThat(report.discoverySource())
+                .contains("NOT_AVAILABLE")
+                .contains("org.springframework.boot:type=Endpoint,name=Beans")
+                .contains("org.springframework.boot:type=Endpoint,name=beans");
+        assertThat(report.totalBeans()).isZero();
+    }
+
+    @Test
+    @DisplayName("inspectBeans reports JMX operation and attribute failures safely")
+    void shouldReportJmxOperationFailure() throws Exception {
+        when(actuatorProbe.probe(virtualMachine)).thenReturn(Optional.empty());
+        ObjectName upperEndpoint =
+                new ObjectName("org.springframework.boot:type=Endpoint,name=Beans");
+        ObjectName lowerEndpoint =
+                new ObjectName("org.springframework.boot:type=Endpoint,name=beans");
+        when(mbsc.isRegistered(upperEndpoint)).thenReturn(true);
+        when(mbsc.isRegistered(lowerEndpoint)).thenReturn(false);
+        when(mbsc.invoke(eq(upperEndpoint), eq("beans"), any(), any()))
+                .thenThrow(new IllegalStateException("credentials must not leak"));
+        when(mbsc.getAttribute(upperEndpoint, "Data"))
+                .thenThrow(new UnsupportedOperationException("private detail"));
+        when(mbsc.getAttribute(upperEndpoint, "beans"))
+                .thenThrow(new IllegalArgumentException("private detail"));
+
+        SpringBeansReport report = client.inspectBeans(123L, virtualMachine, mbsc, null);
+
+        assertThat(report.discoverySource())
+                .contains("operation 'beans' failed (IllegalStateException)")
+                .contains("attribute 'Data' failed (UnsupportedOperationException)")
+                .contains("attribute 'beans' failed (IllegalArgumentException)")
+                .doesNotContain("credentials must not leak")
+                .doesNotContain("private detail");
+    }
+
+    @Test
+    @DisplayName("a reachable empty Actuator context is a successful empty result")
+    void shouldPreserveEmptyActuatorContext() {
+        when(actuatorProbe.probe(virtualMachine))
+                .thenReturn(
+                        Optional.of(
+                                new ActuatorProbe.ProbeResult(
+                                        "http://localhost:8080/actuator/beans",
+                                        "{\"contexts\":{\"application\":{\"beans\":{}}}}")));
+
+        SpringBeansReport report = client.inspectBeans(123L, virtualMachine, null, null);
+
+        assertThat(report.discoverySource()).contains("ACTUATOR_HTTP");
+        assertThat(report.totalBeans()).isZero();
+        assertThat(report.contexts()).hasSize(1);
     }
 
     @Test
@@ -449,5 +511,91 @@ class SpringBeansClientTest {
     void shouldInstantiateWithDefaultConstructor() {
         SpringBeansClient defaultClient = new SpringBeansClient();
         assertThat(defaultClient).isNotNull();
+    }
+
+    @Test
+    void shouldDiscoverOnlyDetailCandidatesOverHttp() throws Exception {
+        when(actuatorProbe.probe(virtualMachine))
+                .thenReturn(
+                        Optional.of(
+                                new ActuatorProbe.ProbeResult(
+                                        "http://localhost/actuator/beans", SAMPLE_ACTUATOR_JSON)));
+        SpringBeansReport report =
+                client.inspectBeanDetailWithJmxProvider(
+                        123L,
+                        virtualMachine,
+                        () -> {
+                            throw new AssertionError("JMX must stay unopened");
+                        },
+                        "ORDERSVC");
+        assertThat(report.totalBeans()).isEqualTo(1);
+        assertThat(report.getAllBeans().getFirst().dependencies())
+                .containsExactly("orderRepository");
+        assertThat(client.getBeanDetailMatch(report, "ORDERSVC").orElseThrow().matchedBy())
+                .isEqualTo("CASE_INSENSITIVE_FALLBACK");
+    }
+
+    @Test
+    void shouldRetainExactPriorityAndAmbiguityThroughJmxDiscovery() throws Exception {
+        JmxConnectionManager manager = org.mockito.Mockito.mock(JmxConnectionManager.class);
+        when(manager.getMBeanServerConnection()).thenReturn(mbsc);
+        ObjectName endpoint = new ObjectName("org.springframework.boot:type=Endpoint,name=Beans");
+        when(mbsc.isRegistered(endpoint)).thenReturn(true);
+        Map<String, Object> payload =
+                Map.of(
+                        "contexts",
+                        Map.of(
+                                "a",
+                                        Map.of(
+                                                "beans",
+                                                Map.of(
+                                                        "DataSource",
+                                                        "example.Upper",
+                                                        "unrelated",
+                                                        "example.Other")),
+                                "b", Map.of("beans", Map.of("dataSource", "example.Lower"))));
+        for (Object result : List.of(payload, dev.jvmmcp.core.util.SimpleJson.toJson(payload))) {
+            when(mbsc.invoke(eq(endpoint), eq("beans"), any(), any())).thenReturn(result);
+            SpringBeansReport report =
+                    client.inspectBeanDetailWithJmxProvider(
+                            123L, null, () -> manager, "dataSource");
+            assertThat(report.totalBeans()).isEqualTo(2);
+            var match = client.getBeanDetailMatch(report, "dataSource").orElseThrow();
+            assertThat(match.contextId()).isEqualTo("b");
+            assertThat(match.matchedBy()).isEqualTo("EXACT");
+            org.assertj.core.api.Assertions.assertThatThrownBy(
+                            () -> client.getBeanDetailMatch(report, "DATASOURCE"))
+                    .isInstanceOf(SpringBeansClient.AmbiguousBeanMatchException.class)
+                    .hasMessageContaining("a", "b");
+        }
+        verify(manager, org.mockito.Mockito.times(2)).close();
+    }
+
+    @Test
+    void shouldRetainAmbiguousExactAliasesAcrossContexts() throws Exception {
+        String json =
+                """
+                {"contexts": {
+                  "a": {"beans": {"first": {"aliases": ["shared"]}}},
+                  "b": {"beans": {"second": {"aliases": ["shared"]}}}
+                }}
+                """;
+        when(actuatorProbe.probe(virtualMachine))
+                .thenReturn(
+                        Optional.of(
+                                new ActuatorProbe.ProbeResult(
+                                        "http://localhost/actuator/beans", json)));
+        SpringBeansReport report =
+                client.inspectBeanDetailWithJmxProvider(
+                        123L,
+                        virtualMachine,
+                        () -> {
+                            throw new AssertionError("JMX must stay unopened");
+                        },
+                        "shared");
+        assertThat(report.totalBeans()).isEqualTo(2);
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> client.getBeanDetailMatch(report, "shared"))
+                .isInstanceOf(SpringBeansClient.AmbiguousBeanMatchException.class);
     }
 }
