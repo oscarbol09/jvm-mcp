@@ -241,7 +241,7 @@ class SpringBeansToolHandlerTest {
         List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
         assertThat(content.get(0).get("text").toString())
                 .contains("Unable to discover Spring beans")
-                .contains("management.endpoints.web.exposure.include=beans")
+                .contains("approved management configuration")
                 .contains("spring.jmx.enabled=true")
                 .contains("MBean not registered");
     }
