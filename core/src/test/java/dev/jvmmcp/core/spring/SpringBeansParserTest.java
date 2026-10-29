@@ -319,4 +319,57 @@ class SpringBeansParserTest {
         SpringBeansReport report = parser.parseMap(1L, "TEST", malformedContexts);
         assertThat(report.totalBeans()).isZero();
     }
+
+    @Test
+    void shouldSelectLiteralNamesAndAliasesAcrossPayloadShapes() {
+        Map<String, Object> beans =
+                Map.of(
+                        "order*?",
+                        Map.of(
+                                "aliases",
+                                new Object[] {"orderAlias"},
+                                "dependencies",
+                                new String[] {"repository"}),
+                        "ORDER*?",
+                        "example.Upper",
+                        "other",
+                        Map.of("type", "order*?"),
+                        "orderService",
+                        "example.Service");
+        for (Map<String, Object> payload :
+                java.util.List.of(
+                        beans,
+                        Map.<String, Object>of("beans", beans),
+                        Map.<String, Object>of(
+                                "contexts", Map.of("app", Map.of("beans", beans))))) {
+            SpringBeansReport report = parser.parseMap(1L, "TEST", payload, "order*?");
+            assertThat(report.totalBeans()).isEqualTo(2);
+            assertThat(report.getAllBeans())
+                    .extracting(SpringBeanDetail::name)
+                    .containsExactlyInAnyOrder("order*?", "ORDER*?");
+            SpringBeansReport alias = parser.parseMap(1L, "TEST", payload, "ORDERALIAS");
+            assertThat(alias.getAllBeans()).hasSize(1);
+            assertThat(alias.getAllBeans().getFirst().dependencies()).containsExactly("repository");
+            assertThat(parser.parseMap(1L, "TEST", payload, "missing").totalBeans()).isZero();
+            assertThat(parser.parseMap(1L, "TEST", payload).totalBeans()).isEqualTo(4);
+        }
+    }
+
+    @Test
+    void shouldNotReadUnrelatedBeanDependencies() {
+        Object unreadableDependency =
+                new Object() {
+                    @Override
+                    public String toString() {
+                        throw new AssertionError("Unrelated dependencies must not be materialized");
+                    }
+                };
+        Map<String, Object> beans =
+                Map.of(
+                        "selected",
+                        "example.Selected",
+                        "unrelated",
+                        Map.of("dependencies", java.util.List.of(unreadableDependency)));
+        assertThat(parser.parseMap(1L, "TEST", beans, "selected").totalBeans()).isEqualTo(1);
+    }
 }

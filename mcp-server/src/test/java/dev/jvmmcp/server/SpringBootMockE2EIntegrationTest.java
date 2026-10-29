@@ -320,6 +320,15 @@ class SpringBootMockE2EIntegrationTest {
                         org.mockito.ArgumentMatchers.eq(12345L), any(), any(), any()))
                 .thenReturn(report);
 
+        when(mockClient.inspectBeanDetailWithJmxProvider(
+                        org.mockito.ArgumentMatchers.eq(12345L), any(), any(), any()))
+                .thenReturn(report);
+        when(mockClient.getBeanDetailMatch(report, "userRepository"))
+                .thenReturn(
+                        Optional.of(
+                                new SpringBeansClient.BeanDetailMatch(
+                                        "root", userRepoBean, "EXACT")));
+
         ToolRegistry registry = new ToolRegistry();
         // Register SpringBeansToolHandler with mock attachService and mock client
         registry.register(
@@ -376,6 +385,7 @@ class SpringBootMockE2EIntegrationTest {
         Map<String, Object> getResult = (Map<String, Object>) getOpt.get().get("result");
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> getContent = (List<Map<String, Object>>) getResult.get("content");
+        assertThat(getResult.get("isError")).isNull();
         assertThat(getContent.get(0).get("text").toString()).contains("userRepository");
 
         // 3. get_bean_detail for non-existing bean (verifying Issue #112 isError: true formatting)

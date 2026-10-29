@@ -4,10 +4,16 @@ import com.sun.tools.attach.VirtualMachine;
 import dev.jvmmcp.core.attach.AttachResult;
 import dev.jvmmcp.core.attach.JvmAttachService;
 import dev.jvmmcp.server.protocol.McpDispatcher;
-import dev.jvmmcp.server.tool.*;
+import dev.jvmmcp.server.tool.ActuatorToolHandler;
+import dev.jvmmcp.server.tool.JvmDiagnosticToolHandler;
+import dev.jvmmcp.server.tool.PostgresToolHandler;
+import dev.jvmmcp.server.tool.SpringBeansToolHandler;
+import dev.jvmmcp.server.tool.ToolRegistry;
 import dev.jvmmcp.server.transport.McpTransport;
 import java.io.InputStream;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicBoolean;
+import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
@@ -52,28 +58,50 @@ public class ServeCommand implements Callable<Integer> {
     }
 
     static Runnable createShutdownHook(VirtualMachine vm, Integer pid, JvmAttachService service) {
+        return createShutdownHook(vm, pid, service, new AtomicBoolean());
+    }
+
+    static Runnable createShutdownHook(
+            VirtualMachine vm, Integer pid, JvmAttachService service, AtomicBoolean detached) {
         return () -> {
             System.err.println("[jvm-mcp] Received shutdown signal. Detaching and cleaning up...");
-            if (vm != null) {
-                try {
-                    service.detach(vm);
-                    System.err.println("[jvm-mcp] Detached from PID " + pid);
-                } catch (Exception e) {
-                    System.err.println(
-                            "[jvm-mcp] Error detaching during shutdown: " + e.getMessage());
-                }
-            }
+            detachOnce(vm, pid, service, detached);
         };
+    }
+
+    private static void detachOnce(
+            VirtualMachine vm, Integer pid, JvmAttachService service, AtomicBoolean detached) {
+        if (vm == null || !detached.compareAndSet(false, true)) {
+            return;
+        }
+
+        try {
+            service.detach(vm);
+            System.err.println("[jvm-mcp] Detached from PID " + pid);
+        } catch (Exception e) {
+            System.err.println("[jvm-mcp] Error detaching from PID " + pid + ": " + e.getMessage());
+        }
     }
 
     @Override
     public Integer call() {
+        if (!"stdio".equalsIgnoreCase(transport) && !"sse".equalsIgnoreCase(transport)) {
+            System.err.println(
+                    "[jvm-mcp] Unsupported transport '"
+                            + transport
+                            + "'. Supported values: stdio, sse.");
+            new CommandLine(this).usage(System.err);
+            return CommandLine.ExitCode.USAGE;
+        }
+
         if ("sse".equalsIgnoreCase(transport) || useSpring) {
             System.err.println(
                     "[jvm-mcp] Spring layer not yet implemented. Please use stdio transport.");
             return 1;
         }
+
         VirtualMachine attachedVm = null;
+
         if (targetPid != null) {
             AttachResult result = attachService.attach(String.valueOf(targetPid));
             if (!result.isSuccessful()) {
@@ -84,21 +112,44 @@ public class ServeCommand implements Callable<Integer> {
                                 + result.message());
                 return 1;
             }
+
             attachedVm = result.virtualMachine().orElse(null);
             System.err.println("[jvm-mcp] Successfully attached to target PID " + targetPid);
         }
+
         System.err.println("[jvm-mcp] Starting server via transport: " + transport + "...");
-        Runtime.getRuntime()
-                .addShutdownHook(
-                        new Thread(createShutdownHook(attachedVm, targetPid, attachService)));
-        try (ToolRegistry registry = new ToolRegistry()) {
-            registry.register(new JvmDiagnosticToolHandler(attachService));
-            registry.register(new PostgresToolHandler());
-            registry.register(new ActuatorToolHandler());
-            registry.register(new SpringBeansToolHandler(attachService));
-            InputStream in =
-                    inStream != null ? inStream : (testInStream != null ? testInStream : System.in);
-            return new McpTransport(new McpDispatcher(registry)).start(in, System.out);
+
+        AtomicBoolean detached = new AtomicBoolean();
+        Thread shutdownHook =
+                new Thread(createShutdownHook(attachedVm, targetPid, attachService, detached));
+        boolean hookRegistered = false;
+
+        try {
+            Runtime.getRuntime().addShutdownHook(shutdownHook);
+            hookRegistered = true;
+
+            try (ToolRegistry registry = new ToolRegistry()) {
+                registry.register(
+                        JvmDiagnosticToolHandler.withDefaultPid(attachService, targetPid));
+                registry.register(new PostgresToolHandler());
+                registry.register(new ActuatorToolHandler(actuatorUrl));
+                registry.register(SpringBeansToolHandler.withDefaultPid(attachService, targetPid));
+
+                InputStream in =
+                        inStream != null
+                                ? inStream
+                                : (testInStream != null ? testInStream : System.in);
+                return new McpTransport(new McpDispatcher(registry)).start(in, System.out);
+            }
+        } finally {
+            if (hookRegistered) {
+                try {
+                    Runtime.getRuntime().removeShutdownHook(shutdownHook);
+                } catch (IllegalStateException ignored) {
+                }
+            }
+
+            detachOnce(attachedVm, targetPid, attachService, detached);
         }
     }
 }

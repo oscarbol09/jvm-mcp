@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
@@ -53,11 +54,12 @@ class JvmAttachServiceTest {
             assertThat(jvms).isNotEmpty();
 
             long currentPid = ProcessHandle.current().pid();
-            boolean foundSelf = jvms.stream().anyMatch(jvm -> jvm.pid() == currentPid);
+            Optional<JvmProcess> self =
+                    jvms.stream().filter(jvm -> jvm.pid() == currentPid).findFirst();
 
-            assertThat(foundSelf)
-                    .as("listJvms() must discover the test runner JVM itself")
-                    .isTrue();
+            assertThat(self).as("listJvms() must discover the test runner JVM itself").isPresent();
+            assertThat(self.orElseThrow().javaVersion())
+                    .isEqualTo(System.getProperty("java.version"));
         }
 
         @Test
@@ -112,6 +114,45 @@ class JvmAttachServiceTest {
                 assertThat(jvms).hasSize(1);
                 assertThat(jvms.get(0).pid()).isEqualTo(targetPid);
                 assertThat(jvms.get(0).isAttachable()).isFalse();
+            }
+        }
+
+        @Test
+        @DisplayName("should infer a non-self JVM version from its Java executable path")
+        void shouldInferNonSelfJavaVersion() {
+            long currentPid = 1000L;
+            long targetPid = 99999L;
+
+            ProcessHandle currentProcess = mock(ProcessHandle.class);
+            ProcessHandle.Info currentInfo = mock(ProcessHandle.Info.class);
+            when(currentProcess.pid()).thenReturn(currentPid);
+            when(currentProcess.info()).thenReturn(currentInfo);
+            when(currentInfo.user()).thenReturn(Optional.of("alice"));
+
+            ProcessHandle targetProcess = mock(ProcessHandle.class);
+            ProcessHandle.Info targetInfo = mock(ProcessHandle.Info.class);
+            when(targetProcess.isAlive()).thenReturn(true);
+            when(targetProcess.info()).thenReturn(targetInfo);
+            when(targetInfo.user()).thenReturn(Optional.of("alice"));
+            when(targetInfo.command()).thenReturn(Optional.of("/opt/jdk-17.0.10/bin/java"));
+
+            JvmAttachService service =
+                    new JvmAttachService(
+                            pid -> pid == targetPid ? Optional.of(targetProcess) : Optional.empty(),
+                            () -> currentProcess);
+            VirtualMachineDescriptor descriptor = mock(VirtualMachineDescriptor.class);
+            when(descriptor.id()).thenReturn(String.valueOf(targetPid));
+            when(descriptor.displayName()).thenReturn("org.example.Application");
+
+            try (MockedStatic<VirtualMachine> vmStatic = mockStatic(VirtualMachine.class)) {
+                vmStatic.when(VirtualMachine::list).thenReturn(List.of(descriptor));
+
+                List<JvmProcess> jvms = service.listJvms();
+
+                assertThat(jvms)
+                        .singleElement()
+                        .extracting(JvmProcess::javaVersion)
+                        .isEqualTo("17.0.10");
             }
         }
     }
@@ -366,6 +407,26 @@ class JvmAttachServiceTest {
         }
 
         @Test
+        @DisplayName("extractMainClass ignores JAR references in program arguments")
+        void shouldIgnoreJarReferencesInProgramArguments() {
+            assertThat(attachService.extractMainClass("com.acme.Main --lib=/opt/lib/a.jar x"))
+                    .isEqualTo("com.acme.Main");
+            assertThat(
+                            attachService.extractMainClass(
+                                    "com.acme.Main --spring.config.additional-location=file:/conf.jar x"))
+                    .isEqualTo("com.acme.Main");
+        }
+
+        @Test
+        @DisplayName("extractMainClass supports quoted JAR launch paths")
+        void shouldExtractQuotedJarLaunchPath() {
+            assertThat(
+                            attachService.extractMainClass(
+                                    "-jar \"C:\\Program Files\\My App\\app.jar\" --port 8080"))
+                    .isEqualTo("app.jar");
+        }
+
+        @Test
         @DisplayName(
                 "extractMainClass reports the module/Main descriptor of a modular launch, not the flag")
         void shouldExtractMainClassOfModularLaunch() {
@@ -378,6 +439,40 @@ class JvmAttachServiceTest {
             assertThat(attachService.extractMainClass("--module=my.module/com.foo.Main"))
                     .isEqualTo("my.module/com.foo.Main");
             assertThat(attachService.extractMainClass("-m my.module")).isEqualTo("my.module");
+        }
+
+        @ParameterizedTest
+        @CsvSource({
+            "/usr/lib/jvm/java-21-openjdk-amd64/bin/java, 21",
+            "C:\\Program Files\\Java\\jdk-21.0.12\\bin\\java.exe, 21.0.12",
+            "/opt/jre1.8.0_382/bin/java, 1.8.0_382",
+            "/opt/jdk-21.0.12.101-hotspot/bin/java, 21.0.12.101"
+        })
+        @DisplayName("should infer versions from common Java installation paths")
+        void shouldInferVersionFromJavaHomePath(String command, String expectedVersion) {
+            assertThat(attachService.inferJavaVersion(Optional.of(command)))
+                    .isEqualTo(expectedVersion);
+        }
+
+        @ParameterizedTest
+        @ValueSource(
+                strings = {
+                    "java",
+                    "/opt/tools/java-wrapper/bin/java",
+                    "/opt/java-17-wrapper/bin/java",
+                    "/opt/jdk-21-custom/bin/java",
+                    ""
+                })
+        @DisplayName(
+                "should retain unknown when the executable path is not a reliable version signal")
+        void shouldRetainUnknownWhenVersionCannotBeInferred(String command) {
+            assertThat(attachService.inferJavaVersion(Optional.of(command))).isEqualTo("unknown");
+        }
+
+        @Test
+        @DisplayName("should retain unknown when the executable path is unavailable")
+        void shouldRetainUnknownWhenCommandIsUnavailable() {
+            assertThat(attachService.inferJavaVersion(Optional.empty())).isEqualTo("unknown");
         }
     }
 

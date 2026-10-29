@@ -10,8 +10,11 @@ import dev.jvmmcp.core.model.ThreadDetail;
 import dev.jvmmcp.core.model.ThreadStackFrame;
 import dev.jvmmcp.core.model.VirtualThreadSummary;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.*;
 import javax.management.MBeanException;
 import javax.management.MBeanServerConnection;
@@ -336,6 +339,37 @@ class VirtualThreadDumpReaderTest {
 
         assertThat(result).isPresent();
         assertThat(result.get()).containsKey("threadDump");
+    }
+
+    @Test
+    @DisplayName("readDumpJson rejects oversized dumps before reading their contents")
+    void shouldRejectOversizedDumpBeforeReading() throws Exception {
+        MBeanServerConnection mbsc = mock(MBeanServerConnection.class);
+        Path[] writtenPath = new Path[1];
+
+        when(mbsc.invoke(any(ObjectName.class), eq("threadDumpToFile"), any(), any()))
+                .thenAnswer(
+                        invocation -> {
+                            Object[] args = (Object[]) invocation.getArgument(2);
+                            String[] params = (String[]) args[0];
+                            writtenPath[0] = Path.of(params[2]);
+                            try (FileChannel channel =
+                                    FileChannel.open(
+                                            writtenPath[0],
+                                            StandardOpenOption.WRITE,
+                                            StandardOpenOption.CREATE)) {
+                                channel.position(VirtualThreadDumpReader.MAX_DUMP_BYTES);
+                                channel.write(ByteBuffer.wrap(new byte[] {'x'}));
+                            }
+                            return "Created " + writtenPath[0];
+                        });
+
+        VirtualThreadDumpReader reader = new VirtualThreadDumpReader(mbsc);
+
+        assertThatThrownBy(reader::readDumpJson)
+                .isInstanceOf(VirtualThreadDumpReader.DumpTooLargeException.class)
+                .hasMessageContaining("exceeds the maximum size");
+        assertThat(writtenPath[0]).doesNotExist();
     }
 
     @Test

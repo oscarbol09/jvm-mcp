@@ -181,4 +181,42 @@ class ActuatorToolHandlerTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Unknown actuator tool");
     }
+
+    @Test
+    @DisplayName("uses configured default URL when url is omitted")
+    void testDefaultUrlWhenUrlIsMissing() throws Exception {
+        when(mockClient.getHealth()).thenReturn("{\"status\":\"UP\"}");
+
+        ActuatorToolHandler handler =
+                new ActuatorToolHandler(
+                        (url, auth) -> {
+                            assertThat(url).isEqualTo("http://localhost:8080");
+                            return mockClient;
+                        },
+                        key -> null,
+                        "http://localhost:8080");
+
+        handler.execute("get_actuator_health", Map.of());
+
+        verify(mockClient).getHealth();
+    }
+
+    @Test
+    @DisplayName("explicit URL overrides configured default URL")
+    void testExplicitUrlOverridesDefault() throws Exception {
+        when(mockClient.getHealth()).thenReturn("{\"status\":\"UP\"}");
+
+        ActuatorToolHandler handler =
+                new ActuatorToolHandler(
+                        (url, auth) -> {
+                            assertThat(url).isEqualTo("http://override:8080");
+                            return mockClient;
+                        },
+                        key -> null,
+                        "http://default:8080");
+
+        handler.execute("get_actuator_health", Map.of("url", "http://override:8080"));
+
+        verify(mockClient).getHealth();
+    }
 }

@@ -5,12 +5,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import dev.jvmmcp.core.model.BlockedThreadDetail;
 import dev.jvmmcp.core.model.DeadlockReport;
 import dev.jvmmcp.core.model.ThreadDump;
 import dev.jvmmcp.core.model.ThreadSummary;
+import dev.jvmmcp.core.model.VirtualThreadSummary;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
@@ -91,6 +93,56 @@ class ThreadMXBeanClientTest {
         ThreadSummary summary = new ThreadMXBeanClient(mbsc).getThreadSummary(42L);
 
         assertThat(summary).isEqualTo(new ThreadSummary(42L, 3, 1, 4, 9L, 0, 0, 0, 0));
+    }
+
+    @Test
+    @DisplayName("getThreadSummary does not inspect virtual threads by default")
+    void shouldSkipVirtualThreadInspectionByDefault() throws Exception {
+        VirtualThreadDumpReader reader = mock(VirtualThreadDumpReader.class);
+        ThreadMXBeanClient client =
+                new ThreadMXBeanClient(connectionManager.getMBeanServerConnection(), reader);
+
+        client.getThreadSummary(42L);
+
+        verifyNoInteractions(reader);
+    }
+
+    @Test
+    @DisplayName("getThreadSummary skips virtual inspection for pre-Java 21 targets")
+    void shouldSkipVirtualThreadInspectionForJava17() throws Exception {
+        VirtualThreadDumpReader reader = mock(VirtualThreadDumpReader.class);
+        ThreadMXBeanClient client =
+                new ThreadMXBeanClient(connectionManager.getMBeanServerConnection(), reader);
+
+        client.getThreadSummary(42L, true, "17");
+
+        verifyNoInteractions(reader);
+    }
+
+    @Test
+    @DisplayName("getThreadSummary skips virtual inspection when target version is unknown")
+    void shouldSkipVirtualThreadInspectionForUnknownVersion() throws Exception {
+        VirtualThreadDumpReader reader = mock(VirtualThreadDumpReader.class);
+        ThreadMXBeanClient client =
+                new ThreadMXBeanClient(connectionManager.getMBeanServerConnection(), reader);
+
+        client.getThreadSummary(42L, true, null);
+
+        verifyNoInteractions(reader);
+    }
+
+    @Test
+    @DisplayName("getThreadSummary performs virtual inspection only when opted in on Java 21")
+    void shouldInspectVirtualThreadsWhenOptedIn() throws Exception {
+        VirtualThreadDumpReader reader = mock(VirtualThreadDumpReader.class);
+        when(reader.readVirtualThreadSummary(any()))
+                .thenReturn(Optional.of(new VirtualThreadSummary(3)));
+        ThreadMXBeanClient client =
+                new ThreadMXBeanClient(connectionManager.getMBeanServerConnection(), reader);
+
+        ThreadSummary summary = client.getThreadSummary(42L, true, "21");
+
+        assertThat(summary.virtualThreads()).isEqualTo(new VirtualThreadSummary(3));
     }
 
     @Test

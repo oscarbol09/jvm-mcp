@@ -1,8 +1,10 @@
 package dev.jvmmcp.core.spring;
 
 import java.lang.System.Logger;
+import java.net.InetAddress;
 import java.net.Socket;
 import java.net.URI;
+import java.net.UnknownHostException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -29,19 +31,36 @@ public class ActuatorClient {
     private static final Logger LOGGER = System.getLogger(ActuatorClient.class.getName());
 
     private static final long MAX_PAYLOAD_SIZE = 30L * 1024 * 1024; // 30MB
+
+    @FunctionalInterface
+    interface HostResolver {
+        InetAddress[] resolve(String host) throws UnknownHostException;
+    }
+
     private final String baseUrl;
     private final ActuatorAuth auth;
     private final HttpClient httpClient;
+    private final HostResolver hostResolver;
 
     public ActuatorClient(String baseUrl, ActuatorAuth auth) {
-        this.baseUrl = normalizeBaseUrl(baseUrl);
         this.auth = auth == null ? ActuatorAuth.NONE : auth;
+        this.hostResolver = InetAddress::getAllByName;
+        this.baseUrl = normalizeBaseUrl(baseUrl);
         this.httpClient = buildHttpClient(this.auth);
     }
 
     public ActuatorClient(String baseUrl, ActuatorAuth auth, HttpClient httpClient) {
-        this.baseUrl = normalizeBaseUrl(baseUrl);
         this.auth = auth == null ? ActuatorAuth.NONE : auth;
+        this.hostResolver = InetAddress::getAllByName;
+        this.baseUrl = normalizeBaseUrl(baseUrl);
+        this.httpClient = httpClient;
+    }
+
+    ActuatorClient(
+            String baseUrl, ActuatorAuth auth, HttpClient httpClient, HostResolver hostResolver) {
+        this.auth = auth == null ? ActuatorAuth.NONE : auth;
+        this.hostResolver = Objects.requireNonNull(hostResolver, "hostResolver");
+        this.baseUrl = normalizeBaseUrl(baseUrl);
         this.httpClient = httpClient;
     }
 
@@ -66,54 +85,61 @@ public class ActuatorClient {
             throw new IllegalArgumentException(
                     "SSRF Protection: URI fragments not permitted in Actuator base URL");
         }
+
         String host = uri.getHost();
         if (host == null) {
             throw new IllegalArgumentException("SSRF Protection: Malformed or missing host in URL");
         }
-        String cleanHost =
-                host.startsWith("[") && host.endsWith("]")
-                        ? host.substring(1, host.length() - 1)
-                        : host;
-        validateLoopbackHost(cleanHost);
+
+        validateLoopbackHost(host, hostResolver);
         return trimmed.replaceAll("/+$", "");
     }
 
     public static void validateLoopbackHost(String host) {
+        validateLoopbackHost(host, InetAddress::getAllByName);
+    }
+
+    static void validateLoopbackHost(String host, HostResolver resolver) {
         if (host == null || host.isBlank()) {
             throw new IllegalArgumentException("SSRF Protection: Host cannot be empty");
         }
+        if (resolver == null) {
+            throw new IllegalArgumentException("SSRF Protection: Host resolver cannot be null");
+        }
+
         String cleanHost =
                 host.startsWith("[") && host.endsWith("]")
                         ? host.substring(1, host.length() - 1)
                         : host;
-        boolean isLiteralLoopback =
-                cleanHost.equalsIgnoreCase("localhost")
-                        || cleanHost.equals("127.0.0.1")
-                        || cleanHost.equals("::1")
-                        || cleanHost.equals("0:0:0:0:0:0:0:1");
 
-        if (!isLiteralLoopback) {
-            throw new IllegalArgumentException(
-                    "SSRF Protection: Actuator URLs must target localhost or loopback (got: "
-                            + host
-                            + ")");
+        // An empty hostname can resolve to loopback in InetAddress.
+        if (cleanHost.isBlank()) {
+            throw new IllegalArgumentException("SSRF Protection: Host cannot be empty");
         }
 
+        final InetAddress[] addresses;
         try {
-            java.net.InetAddress[] addresses = java.net.InetAddress.getAllByName(cleanHost);
-            for (java.net.InetAddress addr : addresses) {
-                if (!addr.isLoopbackAddress()) {
-                    throw new IllegalArgumentException(
-                            "SSRF Protection: Resolved address "
-                                    + addr.getHostAddress()
-                                    + " for host '"
-                                    + host
-                                    + "' is not a loopback address");
-                }
-            }
-        } catch (java.net.UnknownHostException e) {
+            addresses = resolver.resolve(cleanHost);
+        } catch (UnknownHostException e) {
             throw new IllegalArgumentException(
                     "SSRF Protection: Unable to resolve host '" + host + "': " + e.getMessage(), e);
+        }
+
+        if (addresses == null || addresses.length == 0) {
+            throw new IllegalArgumentException(
+                    "SSRF Protection: Host resolved to no addresses: " + host);
+        }
+
+        for (InetAddress address : addresses) {
+            if (address == null || !address.isLoopbackAddress()) {
+                String resolvedAddress = address == null ? "<null>" : address.getHostAddress();
+                throw new IllegalArgumentException(
+                        "SSRF Protection: Resolved address "
+                                + resolvedAddress
+                                + " for host '"
+                                + host
+                                + "' is not a loopback address");
+            }
         }
     }
 
@@ -169,9 +195,29 @@ public class ActuatorClient {
     }
 
     private HttpRequest.Builder newRequest(String url) {
+        URI uri = URI.create(url);
+        String scheme = uri.getScheme();
+
+        if (scheme == null
+                || (!scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https"))) {
+            throw new IllegalArgumentException("SSRF Protection: URL scheme must be http or https");
+        }
+
+        if (uri.getUserInfo() != null) {
+            throw new IllegalArgumentException("SSRF Protection: UserInfo not permitted");
+        }
+
+        String host = uri.getHost();
+        if (host == null) {
+            throw new IllegalArgumentException("SSRF Protection: Missing host in request URL");
+        }
+
+        // Revalidate all resolved addresses immediately before building the request.
+        validateLoopbackHost(host, hostResolver);
+
         HttpRequest.Builder builder =
                 HttpRequest.newBuilder()
-                        .uri(URI.create(url))
+                        .uri(uri)
                         .timeout(Duration.ofSeconds(5))
                         .header("Accept", "application/json")
                         .header("Accept-Encoding", "gzip, deflate");

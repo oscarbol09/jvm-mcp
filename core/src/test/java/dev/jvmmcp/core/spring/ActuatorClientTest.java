@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
@@ -16,6 +17,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -102,7 +104,7 @@ class ActuatorClientTest {
         server.createContext(
                 "/actuator/startup",
                 exchange -> {
-                    String response = "{\"timeline\":{\"startTime\":\"2026-10-09\"}}";
+                    String response = "{\"timeline\":{\"startTime\":\"2026-10-09\"}";
                     exchange.sendResponseHeaders(200, response.length());
                     try (OutputStream os = exchange.getResponseBody()) {
                         os.write(response.getBytes());
@@ -220,7 +222,7 @@ class ActuatorClientTest {
     @Test
     void testGetStartup() {
         String res = client.getStartup();
-        assertThat(res).isEqualTo("{\"timeline\":{\"startTime\":\"2026-10-09\"}}");
+        assertThat(res).isEqualTo("{\"timeline\":{\"startTime\":\"2026-10-09\"}");
     }
 
     @Test
@@ -245,6 +247,100 @@ class ActuatorClientTest {
         assertThatThrownBy(() -> new ActuatorClient("http://192.168.1.1:8080", ActuatorAuth.NONE))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("SSRF Protection");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"127.0.0.2", "127.0.1.1", "127.255.255.254", "::1", "0:0:0:0:0:0:0:1"})
+    void testSSRFProtectionAcceptsLoopbackAddresses(String host) {
+        String uriHost = host.contains(":") ? "[" + host + "]" : host;
+
+        assertThat(new ActuatorClient("http://" + uriHost + ":8080", ActuatorAuth.NONE))
+                .isNotNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0.0.0.0", "::", "169.254.169.254", "192.0.2.1", "2001:db8::1"})
+    void testSSRFProtectionRejectsNonLoopbackAddresses(String host) {
+        String uriHost = host.contains(":") ? "[" + host + "]" : host;
+
+        assertThatThrownBy(
+                        () -> new ActuatorClient("http://" + uriHost + ":8080", ActuatorAuth.NONE))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("not a loopback address");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"[]", "[   ]"})
+    void testSSRFProtectionRejectsEmptyBracketedHost(String host) {
+        assertThatThrownBy(() -> ActuatorClient.validateLoopbackHost(host))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Host cannot be empty");
+    }
+
+    @Test
+    void testSSRFProtectionRejectsMixedLoopbackAndNonLoopbackDnsAnswers() throws Exception {
+        InetAddress loopback = InetAddress.getByAddress(new byte[] {127, 0, 0, 1});
+        InetAddress nonLoopback = InetAddress.getByAddress(new byte[] {(byte) 192, 0, 2, 1});
+
+        assertThatThrownBy(
+                        () ->
+                                ActuatorClient.validateLoopbackHost(
+                                        "mixed.example",
+                                        host -> new InetAddress[] {loopback, nonLoopback}))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("not a loopback address");
+    }
+
+    @Test
+    void testSSRFProtectionRejectsEmptyDnsAnswers() {
+        assertThatThrownBy(
+                        () ->
+                                ActuatorClient.validateLoopbackHost(
+                                        "empty.example", host -> new InetAddress[0]))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("no addresses");
+    }
+
+    @Test
+    void testSSRFProtectionRevalidatesHostBeforeSendingRequest() throws Exception {
+        AtomicInteger resolutionCount = new AtomicInteger();
+        AtomicInteger requestCount = new AtomicInteger();
+        InetAddress loopback = InetAddress.getByAddress(new byte[] {127, 0, 0, 1});
+        InetAddress nonLoopback = InetAddress.getByAddress(new byte[] {(byte) 192, 0, 2, 1});
+
+        server.createContext(
+                "/actuator/rebinding-test",
+                exchange -> {
+                    requestCount.incrementAndGet();
+                    byte[] response = "{\"status\":\"UP\"}".getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(200, response.length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(response);
+                    }
+                });
+
+        try (HttpClient customHttpClient = HttpClient.newHttpClient()) {
+            ActuatorClient revalidatingClient =
+                    new ActuatorClient(
+                            "http://localhost:" + port,
+                            ActuatorAuth.NONE,
+                            customHttpClient,
+                            host ->
+                                    resolutionCount.getAndIncrement() == 0
+                                            ? new InetAddress[] {loopback}
+                                            : new InetAddress[] {nonLoopback});
+
+            assertThatThrownBy(() -> revalidatingClient.fetchEndpoint("/actuator/rebinding-test"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("not a loopback address");
+
+            assertThatThrownBy(() -> revalidatingClient.getMetricsBatch(List.of("jvm.memory.used")))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("not a loopback address");
+
+            assertThat(resolutionCount.get()).isEqualTo(3);
+            assertThat(requestCount.get()).isZero();
+        }
     }
 
     @Test

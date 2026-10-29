@@ -37,6 +37,12 @@ public class ThreadsCommand implements Callable<Integer> {
             description = "Output thread summary in JSON format")
     boolean json;
 
+    @Option(
+            names = {"--virtual"},
+            description =
+                    "Include virtual-thread counts (Java 21+; may create a large diagnostic dump)")
+    boolean includeVirtualThreads;
+
     private final JvmAttachService attachService;
 
     public ThreadsCommand() {
@@ -76,9 +82,16 @@ public class ThreadsCommand implements Callable<Integer> {
                     jmxManagerOwnsVm[0] = true;
 
                     ThreadMXBeanClient client = createThreadMXBeanClient(jmxManager);
+                    String javaSpecificationVersion =
+                            includeVirtualThreads ? getJavaSpecificationVersion(vm) : null;
 
                     if (json) {
-                        System.out.println(SimpleJson.toJson(client.getThreadSummary(pid)));
+                        ThreadSummary summary =
+                                includeVirtualThreads
+                                        ? client.getThreadSummary(
+                                                pid, true, javaSpecificationVersion)
+                                        : client.getThreadSummary(pid);
+                        System.out.println(SimpleJson.toJson(summary));
                         return 0;
                     }
 
@@ -99,7 +112,7 @@ public class ThreadsCommand implements Callable<Integer> {
                             && !flags.deadlocksOnly
                             && !flags.dump
                             && threshold == 0) {
-                        printThreadSummary(client);
+                        printThreadSummary(client, javaSpecificationVersion);
                         printDeadlocks(client);
                     }
                     return 0;
@@ -120,8 +133,12 @@ public class ThreadsCommand implements Callable<Integer> {
         }
     }
 
-    private void printThreadSummary(ThreadMXBeanClient client) throws Exception {
-        ThreadSummary summary = client.getThreadSummary(pid);
+    private void printThreadSummary(ThreadMXBeanClient client, String javaSpecificationVersion)
+            throws Exception {
+        ThreadSummary summary =
+                includeVirtualThreads
+                        ? client.getThreadSummary(pid, true, javaSpecificationVersion)
+                        : client.getThreadSummary(pid);
 
         System.out.println("=".repeat(80));
         System.out.printf(" JVM THREAD DIAGNOSTICS FOR PID %d%n", pid);
@@ -137,6 +154,16 @@ public class ThreadsCommand implements Callable<Integer> {
                 summary.timedWaitingCount(), summary.blockedCount());
         if (summary.virtualThreads() != null) {
             System.out.printf("Virtual Threads: %d%n", summary.virtualThreads().totalCount());
+        }
+    }
+
+    private String getJavaSpecificationVersion(com.sun.tools.attach.VirtualMachine vm) {
+        try {
+            return vm == null
+                    ? System.getProperty("java.specification.version")
+                    : vm.getSystemProperties().getProperty("java.specification.version");
+        } catch (Exception ignored) {
+            return null;
         }
     }
 

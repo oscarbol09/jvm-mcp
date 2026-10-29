@@ -1,10 +1,9 @@
 package dev.jvmmcp.core.port;
 
-import dev.jvmmcp.core.model.HikariPoolStatistics;
-import java.util.List;
+import dev.jvmmcp.core.model.HikariPoolsReport;
 
 public interface HikariDiagnosticPort extends AutoCloseable {
-    List<HikariPoolStatistics> getPools() throws Exception;
+    HikariPoolsReport getPools() throws Exception;
 
     @Override
     void close() throws Exception;

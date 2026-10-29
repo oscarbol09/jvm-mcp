@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import dev.jvmmcp.core.model.HikariPoolStatistics;
+import dev.jvmmcp.core.model.HikariPoolsReport;
 import java.io.IOException;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -92,7 +93,7 @@ class HikariMXBeanClientTest {
     @Test
     @DisplayName("getPools discovers all registered HikariCP pools")
     void shouldDiscoverHikariPools() throws IOException {
-        List<HikariPoolStatistics> pools = hikariClient.getPools();
+        List<HikariPoolStatistics> pools = hikariClient.getPools().pools();
 
         assertThat(pools)
                 .extracting(HikariPoolStatistics::poolName)
@@ -113,7 +114,7 @@ class HikariMXBeanClientTest {
         when(mockMbsc.getAttribute(configName, "MaximumPoolSize")).thenReturn(5);
 
         try (HikariMXBeanClient client = new HikariMXBeanClient(mockMbsc)) {
-            List<HikariPoolStatistics> pools = client.getPools();
+            List<HikariPoolStatistics> pools = client.getPools().pools();
 
             assertThat(pools).hasSize(1);
             assertThat(pools.get(0).poolName()).isEqualTo("StandardPool");
@@ -131,7 +132,7 @@ class HikariMXBeanClientTest {
     @Test
     @DisplayName("readPool extracts connection counts and pool metrics")
     void shouldReadPoolStatistics() throws IOException {
-        List<HikariPoolStatistics> pools = hikariClient.getPools();
+        List<HikariPoolStatistics> pools = hikariClient.getPools().pools();
 
         HikariPoolStatistics pool =
                 pools.stream()
@@ -171,7 +172,7 @@ class HikariMXBeanClientTest {
         when(mockMbsc.getAttribute(broken, "IdleConnections")).thenThrow(failure);
 
         try (HikariMXBeanClient client = new HikariMXBeanClient(mockMbsc)) {
-            List<HikariPoolStatistics> pools = client.getPools();
+            List<HikariPoolStatistics> pools = client.getPools().pools();
 
             assertThat(pools)
                     .extracting(HikariPoolStatistics::poolName)
@@ -192,7 +193,25 @@ class HikariMXBeanClientTest {
                 .thenThrow(new InstanceNotFoundException("Pool was removed"));
 
         try (HikariMXBeanClient client = new HikariMXBeanClient(mockMbsc)) {
-            assertThat(client.getPools()).isEmpty();
+            HikariPoolsReport report = client.getPools();
+
+            assertThat(report.pools()).isEmpty();
+            assertThat(report.note()).isNull();
+        }
+    }
+
+    @Test
+    @DisplayName("getPools explains how to register MBeans when none are found")
+    void shouldExplainMissingMBeans() throws Exception {
+        when(mockMbsc.queryNames(any(), any())).thenReturn(Set.of());
+
+        try (HikariMXBeanClient client = new HikariMXBeanClient(mockMbsc)) {
+            HikariPoolsReport report = client.getPools();
+
+            assertThat(report.pools()).isEmpty();
+            assertThat(report.note())
+                    .contains("spring.datasource.hikari.register-mbeans=true")
+                    .contains("hikaricp.connections");
         }
     }
 
@@ -272,7 +291,7 @@ class HikariMXBeanClientTest {
         when(mockMbsc.getAttribute(configName, "MaximumPoolSize")).thenReturn(0);
 
         try (HikariMXBeanClient client = new HikariMXBeanClient(mockMbsc)) {
-            List<HikariPoolStatistics> pools = client.getPools();
+            List<HikariPoolStatistics> pools = client.getPools().pools();
 
             assertThat(pools).hasSize(1);
             assertThat(pools.get(0).poolName()).isEqualTo("CustomPool");

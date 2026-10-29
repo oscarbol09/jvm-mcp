@@ -21,9 +21,14 @@ public class ActuatorToolHandler implements ToolHandler {
 
     private final ActuatorClientFactory clientFactory;
     private final Function<String, String> envProvider;
+    private final String defaultUrl;
 
     public ActuatorToolHandler() {
         this(ActuatorClient::new, System::getenv);
+    }
+
+    public ActuatorToolHandler(String defaultUrl) {
+        this(ActuatorClient::new, System::getenv, defaultUrl);
     }
 
     public ActuatorToolHandler(ActuatorClientFactory clientFactory) {
@@ -32,8 +37,20 @@ public class ActuatorToolHandler implements ToolHandler {
 
     public ActuatorToolHandler(
             ActuatorClientFactory clientFactory, Function<String, String> envProvider) {
+        this(clientFactory, envProvider, null);
+    }
+
+    public ActuatorToolHandler(
+            ActuatorClientFactory clientFactory,
+            Function<String, String> envProvider,
+            String defaultUrl) {
         this.clientFactory = clientFactory;
         this.envProvider = envProvider;
+        this.defaultUrl = defaultUrl;
+    }
+
+    private List<String> requiredUrlArguments() {
+        return defaultUrl == null || defaultUrl.isBlank() ? List.of("url") : List.of();
     }
 
     @Override
@@ -58,7 +75,7 @@ public class ActuatorToolHandler implements ToolHandler {
                                                                 "string",
                                                                 "description",
                                                                 "Actuator Base URL (e.g. http://localhost:8080)")),
-                                        "required", List.of("url"))),
+                                        "required", requiredUrlArguments())),
                 Map.of(
                         "name", "get_actuator_metrics",
                         "description",
@@ -80,7 +97,7 @@ public class ActuatorToolHandler implements ToolHandler {
                                                                         "string",
                                                                         "description",
                                                                         "Optional comma-separated list of metric names (e.g. jvm.memory.used,jvm.threads.live)")),
-                                        "required", List.of("url"))),
+                                        "required", requiredUrlArguments())),
                 Map.of(
                         "name", "get_actuator_startup",
                         "description", "Fetches Spring Boot Actuator /startup endpoint",
@@ -95,12 +112,20 @@ public class ActuatorToolHandler implements ToolHandler {
                                                                 "string",
                                                                 "description",
                                                                 "Actuator Base URL (e.g. http://localhost:8080)")),
-                                        "required", List.of("url"))));
+                                        "required", requiredUrlArguments())));
     }
 
     @Override
     public Map<String, Object> execute(String toolName, Map<String, Object> args) throws Exception {
-        String url = ToolArgs.getStringArg(args, "url", true);
+        String url = ToolArgs.getStringArg(args, "url", false);
+
+        if (url == null || url.isBlank()) {
+            url = defaultUrl;
+        }
+
+        if (url == null || url.isBlank()) {
+            throw new IllegalArgumentException("Missing required argument: url");
+        }
         String user = envProvider.apply("ACTUATOR_USER");
         String password = envProvider.apply("ACTUATOR_PASSWORD");
         String token = envProvider.apply("ACTUATOR_TOKEN");

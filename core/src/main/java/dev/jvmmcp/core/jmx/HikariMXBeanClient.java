@@ -2,6 +2,7 @@ package dev.jvmmcp.core.jmx;
 
 import dev.jvmmcp.core.model.HikariPoolHealth;
 import dev.jvmmcp.core.model.HikariPoolStatistics;
+import dev.jvmmcp.core.model.HikariPoolsReport;
 import dev.jvmmcp.core.port.HikariDiagnosticPort;
 import java.io.IOException;
 import java.lang.System.Logger;
@@ -18,6 +19,11 @@ public class HikariMXBeanClient implements HikariDiagnosticPort {
 
     private static final String HIKARI_POOL_DOMAIN = "com.zaxxer.hikari";
 
+    private static final String NO_MBEANS_NOTE =
+            "No HikariCP MBeans registered. Enable "
+                    + "spring.datasource.hikari.register-mbeans=true or use "
+                    + "get_actuator_metrics with hikaricp.connections.*";
+
     private final MBeanServerConnection mbsc;
 
     public HikariMXBeanClient(MBeanServerConnection mbsc) {
@@ -28,13 +34,17 @@ public class HikariMXBeanClient implements HikariDiagnosticPort {
     }
 
     @Override
-    public List<HikariPoolStatistics> getPools() throws IOException {
+    public HikariPoolsReport getPools() throws IOException {
         try {
             ObjectName legacyPattern = new ObjectName(HIKARI_POOL_DOMAIN + ":type=Pool (*)");
             ObjectName standardPattern = new ObjectName(HIKARI_POOL_DOMAIN + ":type=Pool,*");
 
             Set<ObjectName> poolNames = new LinkedHashSet<>(mbsc.queryNames(legacyPattern, null));
             poolNames.addAll(mbsc.queryNames(standardPattern, null));
+
+            if (poolNames.isEmpty()) {
+                return new HikariPoolsReport(List.of(), NO_MBEANS_NOTE);
+            }
 
             List<HikariPoolStatistics> pools = new ArrayList<>();
 
@@ -50,7 +60,7 @@ public class HikariMXBeanClient implements HikariDiagnosticPort {
                 }
             }
 
-            return pools;
+            return new HikariPoolsReport(pools, null);
         } catch (Exception e) {
             throw new IOException(
                     "Failed to query HikariCP MBeans. Ensure spring.datasource.hikari.register-mbeans=true is set.",

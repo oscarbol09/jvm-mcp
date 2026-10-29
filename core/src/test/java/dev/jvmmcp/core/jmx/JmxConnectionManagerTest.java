@@ -2,6 +2,7 @@ package dev.jvmmcp.core.jmx;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.Mockito.*;
 
 import com.sun.tools.attach.VirtualMachine;
@@ -114,6 +115,22 @@ class JmxConnectionManagerTest {
     }
 
     @Test
+    @DisplayName("connect preserves management-agent startup failure as the cause")
+    void shouldPreserveManagementAgentStartupFailure() throws Exception {
+        Properties emptyProps = new Properties();
+        IOException agentFailure = new IOException("agent startup failed");
+        when(virtualMachine.getAgentProperties()).thenReturn(emptyProps);
+        when(virtualMachine.startLocalManagementAgent()).thenThrow(agentFailure);
+
+        Throwable thrown =
+                catchThrowable(() -> JmxConnectionManager.connect(virtualMachine, 12345L));
+        assertThat(thrown)
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("Failed to establish local JMX connection");
+        assertThat(thrown.getCause()).isSameAs(agentFailure);
+    }
+
+    @Test
     @DisplayName("connect establishes live remote connection when connector address is valid")
     void shouldConnectViaRemoteConnectorAddress() throws Exception {
         MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
@@ -137,6 +154,31 @@ class JmxConnectionManagerTest {
         } finally {
             connectorServer.stop();
         }
+    }
+
+    @Test
+    @DisplayName("connect closes a connector when obtaining its MBean connection fails")
+    void shouldCloseConnectorWhenConnectionInitializationFails() throws Exception {
+        Properties props = new Properties();
+        props.setProperty(
+                "com.sun.management.jmxremote.localConnectorAddress",
+                "service:jmx:rmi:///jndi/rmi://localhost:9999/jmxrmi");
+        when(virtualMachine.getAgentProperties()).thenReturn(props);
+
+        JMXConnector connector = mock(JMXConnector.class);
+        IOException connectionFailure = new IOException("connection initialization failed");
+        when(connector.getMBeanServerConnection()).thenThrow(connectionFailure);
+        IOException closeFailure = new IOException("connector close failed");
+        doThrow(closeFailure).when(connector).close();
+
+        Throwable thrown =
+                catchThrowable(
+                        () ->
+                                JmxConnectionManager.connect(
+                                        virtualMachine, 12345L, ignored -> connector));
+        assertThat(thrown).isSameAs(connectionFailure);
+        assertThat(thrown.getSuppressed()).containsExactly(closeFailure);
+        verify(connector).close();
     }
 
     @Test
