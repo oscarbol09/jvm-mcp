@@ -511,7 +511,6 @@ class SpringBeansToolHandlerTest {
         assertThat((List<?>) pastEnd.get("contexts")).isEmpty();
     }
 
-
     @Test
     @DisplayName("non-numeric limit is rejected before attaching")
     void testInvalidLimitRejected() {
@@ -525,7 +524,6 @@ class SpringBeansToolHandlerTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("limit");
     }
-
 
     @Test
     @DisplayName("summary counts all matching beans and ranks packages independently of pagination")
@@ -603,5 +601,4 @@ class SpringBeansToolHandlerTest {
         assertThat(topPackages.get(1).get("package")).isEqualTo("com.example.repository");
         assertThat(((Number) topPackages.get(1).get("beanCount")).intValue()).isEqualTo(1);
     }
-
 }
