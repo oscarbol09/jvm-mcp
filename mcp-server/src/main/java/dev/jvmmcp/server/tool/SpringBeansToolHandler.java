@@ -254,8 +254,7 @@ public class SpringBeansToolHandler implements ToolHandler {
                                 "text",
                                 "Unable to discover Spring beans: "
                                         + diagnostic
-                                        + ". Expose the Actuator beans endpoint with "
-                                        + "expose the Actuator beans endpoint through your approved management configuration "
+                                        + ". Configure the Actuator beans endpoint through your approved management configuration "
                                         + "or enable Spring JMX with spring.jmx.enabled=true.")),
                 "isError",
                 true);
