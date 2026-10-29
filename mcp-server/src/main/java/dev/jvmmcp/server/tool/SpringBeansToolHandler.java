@@ -255,9 +255,7 @@ public class SpringBeansToolHandler implements ToolHandler {
                                 "Unable to discover Spring beans: "
                                         + diagnostic
                                         + ". Expose the Actuator beans endpoint with "
-                                        // nosemgrep:
-                                        // java.spring.security.audit.spring-actuator-non-health-enabled.spring-actuator-dangerous-endpoints-enabled
-                                        + "management.endpoints.web.exposure.include=beans "
+                                        + "expose the Actuator beans endpoint through your approved management configuration "
                                         + "or enable Spring JMX with spring.jmx.enabled=true.")),
                 "isError",
                 true);
