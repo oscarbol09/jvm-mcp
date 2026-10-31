@@ -54,6 +54,16 @@ class ThreadsCommandTest {
     }
 
     @Test
+    @DisplayName("threads command should reject a negative --threshold-ms with exit code 1")
+    void shouldRejectNegativeThreshold() {
+        CommandLine cmd = new CommandLine(new JvmMcp());
+
+        int exitCode = cmd.execute("threads", "1", "--threshold-ms", "-100");
+
+        assertThat(exitCode).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("threads command with non-existent PID should return error exit code")
     void shouldFailGracefullyOnNonExistentPid() {
         when(mockAttachService.attach("999999999"))

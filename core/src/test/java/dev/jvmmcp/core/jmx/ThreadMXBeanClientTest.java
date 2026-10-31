@@ -511,6 +511,50 @@ class ThreadMXBeanClientTest {
     }
 
     @Test
+    @DisplayName(
+            "findBlockedThreads excludes threads with unknown blocked time when a threshold is"
+                    + " requested, instead of bypassing the filter")
+    void shouldExcludeUnknownBlockedTimeWhenThresholdRequested() throws Exception {
+        java.lang.management.ThreadMXBean mockBean =
+                org.mockito.Mockito.mock(java.lang.management.ThreadMXBean.class);
+        // Monitoring unsupported -> blockedTimeMs will resolve to null for every thread.
+        org.mockito.Mockito.when(mockBean.isThreadContentionMonitoringSupported())
+                .thenReturn(false);
+
+        java.lang.management.ThreadInfo blockedInfo =
+                org.mockito.Mockito.mock(java.lang.management.ThreadInfo.class);
+        org.mockito.Mockito.when(blockedInfo.getThreadState())
+                .thenReturn(java.lang.Thread.State.BLOCKED);
+        org.mockito.Mockito.when(blockedInfo.getBlockedTime()).thenReturn(-1L);
+        org.mockito.Mockito.when(blockedInfo.getThreadId()).thenReturn(7L);
+        org.mockito.Mockito.when(blockedInfo.getThreadName()).thenReturn("blocked-worker");
+        org.mockito.Mockito.when(blockedInfo.getBlockedCount()).thenReturn(3L);
+        org.mockito.Mockito.when(blockedInfo.getLockName()).thenReturn("lock@0x1");
+        org.mockito.Mockito.when(blockedInfo.getLockOwnerId()).thenReturn(-1L);
+        org.mockito.Mockito.when(blockedInfo.getLockOwnerName()).thenReturn(null);
+        org.mockito.Mockito.when(blockedInfo.getStackTrace())
+                .thenReturn(new java.lang.StackTraceElement[0]);
+        org.mockito.Mockito.when(mockBean.dumpAllThreads(true, true))
+                .thenReturn(new java.lang.management.ThreadInfo[] {blockedInfo});
+
+        try (org.mockito.MockedStatic<ManagementFactory> mfStatic =
+                org.mockito.Mockito.mockStatic(ManagementFactory.class)) {
+            mfStatic.when(
+                            () ->
+                                    ManagementFactory.newPlatformMXBeanProxy(
+                                            org.mockito.ArgumentMatchers.any(),
+                                            org.mockito.ArgumentMatchers.anyString(),
+                                            org.mockito.ArgumentMatchers.eq(
+                                                    java.lang.management.ThreadMXBean.class)))
+                    .thenReturn(mockBean);
+
+            // A positive threshold cannot be confirmed against an unknown blocked time,
+            // so the thread must be excluded rather than silently bypassing the filter.
+            assertThat(threadClient.findBlockedThreads(5000)).isEmpty();
+        }
+    }
+
+    @Test
     @DisplayName("findBlockedThreads enables contention monitoring on the live JVM when supported")
     void shouldEnableContentionMonitoringOnLiveJvm() throws Exception {
         java.lang.management.ThreadMXBean mxBean = ManagementFactory.getThreadMXBean();
