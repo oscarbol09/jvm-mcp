@@ -307,6 +307,98 @@ class SpringBeansToolHandlerTest {
     }
 
     @Test
+    @DisplayName("list_spring_beans sorts null-safely when contextId or bean name is null")
+    @SuppressWarnings("unchecked")
+    void testPaginationWithNullContextIdAndBeanName() throws Exception {
+        SpringBeanDetail namedBean =
+                new SpringBeanDetail(
+                        "zeta", List.of(), "singleton", "example.Zeta", null, List.of());
+        SpringBeanDetail nullNamedBean =
+                new SpringBeanDetail(
+                        null, List.of(), "singleton", "example.Unnamed", null, List.of());
+
+        SpringBeansReport report =
+                new SpringBeansReport(
+                        123L,
+                        "TEST",
+                        2,
+                        List.of(
+                                new SpringContextBeans("ctx", null, 1, List.of(namedBean)),
+                                new SpringContextBeans(null, null, 1, List.of(nullNamedBean))));
+
+        when(mockAttachService.attach("123")).thenReturn(AttachResult.success("123", null));
+        when(mockBeansClient.inspectBeansWithJmxProvider(eq(123L), any(), any(), any()))
+                .thenReturn(report);
+
+        SpringBeansToolHandler handler =
+                new SpringBeansToolHandler(mockAttachService, mockBeansClient);
+
+        Map<String, Object> result = handler.execute("list_spring_beans", Map.of("pid", 123));
+
+        List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
+        Map<String, Object> response = SimpleJson.parseObject((String) content.get(0).get("text"));
+
+        assertThat(((Number) response.get("returnedBeans")).intValue()).isEqualTo(2);
+
+        List<Map<String, Object>> contexts = (List<Map<String, Object>>) response.get("contexts");
+        assertThat(contexts).hasSize(2);
+        // null contextId sorts first (Objects.toString(null, "") -> "")
+        assertThat(contexts.get(0).get("contextId")).isNull();
+        assertThat(contexts.get(1).get("contextId")).isEqualTo("ctx");
+
+        List<Map<String, Object>> nullCtxBeans =
+                (List<Map<String, Object>>) contexts.get(0).get("beans");
+        assertThat(nullCtxBeans.get(0).get("name")).isNull();
+    }
+
+    @Test
+    @DisplayName("list_spring_beans summary groups array-typed beans under element package")
+    @SuppressWarnings("unchecked")
+    void testSummaryGroupsArrayTypesByElementPackage() throws Exception {
+        SpringBeanDetail arrayBean =
+                new SpringBeanDetail(
+                        "handlers", List.of(), "singleton", "[Ljava.lang.String;", null, List.of());
+        SpringBeanDetail nullContextBean =
+                new SpringBeanDetail(
+                        "orphan", List.of(), "singleton", "example.Orphan", null, List.of());
+
+        SpringBeansReport report =
+                new SpringBeansReport(
+                        123L,
+                        "TEST",
+                        2,
+                        List.of(
+                                new SpringContextBeans(null, null, 1, List.of(nullContextBean)),
+                                new SpringContextBeans("ctx", null, 1, List.of(arrayBean))));
+
+        when(mockAttachService.attach("123")).thenReturn(AttachResult.success("123", null));
+        when(mockBeansClient.inspectBeansWithJmxProvider(eq(123L), any(), any(), any()))
+                .thenReturn(report);
+
+        SpringBeansToolHandler handler =
+                new SpringBeansToolHandler(mockAttachService, mockBeansClient);
+
+        Map<String, Object> result =
+                handler.execute("list_spring_beans", Map.of("pid", 123, "summary", true));
+
+        List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
+        Map<String, Object> response = SimpleJson.parseObject((String) content.get(0).get("text"));
+
+        List<Map<String, Object>> contexts = (List<Map<String, Object>>) response.get("contexts");
+        Map<String, Object> ctxWithArrayBean =
+                contexts.stream()
+                        .filter(c -> "ctx".equals(c.get("contextId")))
+                        .findFirst()
+                        .orElseThrow();
+
+        List<Map<String, Object>> topPackages =
+                (List<Map<String, Object>>) ctxWithArrayBean.get("topPackages");
+        assertThat(topPackages)
+                .as("array type should resolve to java.lang, not a malformed descriptor fragment")
+                .anySatisfy(entry -> assertThat(entry.get("package")).isEqualTo("java.lang"));
+    }
+
+    @Test
     @DisplayName("get_bean_detail returns bean detail JSON with owning context and match mode")
     void testGetBeanDetailSuccess() throws Exception {
         when(mockAttachService.attach("123")).thenReturn(AttachResult.success("123", null));

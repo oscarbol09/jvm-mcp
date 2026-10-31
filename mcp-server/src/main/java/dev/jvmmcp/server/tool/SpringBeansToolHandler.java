@@ -14,6 +14,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /** Handles Spring bean inspection tools: list_spring_beans, get_bean_detail. */
 public class SpringBeansToolHandler implements ToolHandler {
@@ -301,7 +302,10 @@ public class SpringBeansToolHandler implements ToolHandler {
 
         List<SpringContextBeans> sortedContexts =
                 report.contexts().stream()
-                        .sorted(Comparator.comparing(SpringContextBeans::contextId))
+                        .sorted(
+                                Comparator.comparing(
+                                        c -> Objects.toString(c.contextId(), ""),
+                                        String.CASE_INSENSITIVE_ORDER))
                         .toList();
 
         for (SpringContextBeans context : sortedContexts) {
@@ -316,7 +320,10 @@ public class SpringBeansToolHandler implements ToolHandler {
 
             List<SpringBeanDetail> sortedBeans =
                     context.beans().stream()
-                            .sorted(Comparator.comparing(SpringBeanDetail::name))
+                            .sorted(
+                                    Comparator.comparing(
+                                            b -> Objects.toString(b.name(), ""),
+                                            String.CASE_INSENSITIVE_ORDER))
                             .toList();
 
             int start = remainingOffset;
@@ -350,8 +357,20 @@ public class SpringBeansToolHandler implements ToolHandler {
             return "<unknown>";
         }
 
-        int lastDot = type.lastIndexOf('.');
-        return lastDot < 0 ? "<default>" : type.substring(0, lastDot);
+        String normalized = type;
+        // Strip array-descriptor prefixes ("[[L...;") and bracket suffixes ("Foo[][]")
+        // so array types resolve to the element type's package instead of a
+        // malformed fragment like "[Ljava.lang".
+        while (normalized.startsWith("[")) {
+            normalized = normalized.substring(1);
+        }
+        if (normalized.startsWith("L") && normalized.endsWith(";")) {
+            normalized = normalized.substring(1, normalized.length() - 1);
+        }
+        normalized = normalized.replace("[]", "");
+
+        int lastDot = normalized.lastIndexOf('.');
+        return lastDot < 0 ? "<default>" : normalized.substring(0, lastDot);
     }
 
     private static Map<String, Object> summarizeBeans(SpringBeansReport report) {
@@ -359,7 +378,10 @@ public class SpringBeansToolHandler implements ToolHandler {
 
         List<SpringContextBeans> sortedContexts =
                 report.contexts().stream()
-                        .sorted(Comparator.comparing(SpringContextBeans::contextId))
+                        .sorted(
+                                Comparator.comparing(
+                                        c -> Objects.toString(c.contextId(), ""),
+                                        String.CASE_INSENSITIVE_ORDER))
                         .toList();
 
         for (SpringContextBeans context : sortedContexts) {
