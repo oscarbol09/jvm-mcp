@@ -371,7 +371,7 @@ class MemoryCommandTest {
             System.setErr(new PrintStream(err));
             Integer exitCode = command.call();
 
-            assertThat(exitCode).isZero();
+            assertThat(exitCode).isEqualTo(1);
             assertThat(err.toString()).contains("[jvm-mcp] Could not extract live heap histogram");
         } finally {
             System.setErr(originalErr);
@@ -555,6 +555,116 @@ class MemoryCommandTest {
             assertThat(command.call()).isZero();
             String output = out.toString();
             assertThat(output).doesNotContain("Classes Loaded");
+        } finally {
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
+    @DisplayName("memory command with --histogram --json includes histogram alongside summary")
+    void shouldIncludeHistogramInJsonOutputWhenBothFlagsSet() throws Exception {
+        long targetPid = ProcessHandle.current().pid();
+        String rawHistogram =
+                """
+             num     #instances         #bytes  class name (module)
+            -------------------------------------------------------
+               1:         10000        2400000  java.lang.String (java.base@21)
+               2:          5000        1200000  java.util.HashMap$Node (java.base@21)
+            Total         15000        3600000
+            """;
+        InputStream stream =
+                new ByteArrayInputStream(rawHistogram.getBytes(StandardCharsets.UTF_8));
+        VirtualMachine stubVm = new StubVirtualMachine(stream);
+        when(mockAttachService.attach(String.valueOf(targetPid)))
+                .thenReturn(AttachResult.success(String.valueOf(targetPid), stubVm));
+
+        long mb = 1024L * 1024L;
+        MemoryUsageInfo heap =
+                MemoryUsageInfo.from(new MemoryUsage(0, 512 * mb, 1024 * mb, 2048 * mb));
+        MemoryUsageInfo nonHeap =
+                MemoryUsageInfo.from(new MemoryUsage(0, 64 * mb, 128 * mb, 256 * mb));
+        HeapSummary summary =
+                new HeapSummary(
+                        targetPid,
+                        heap,
+                        nonHeap,
+                        List.of(),
+                        List.of(),
+                        new MemoryPressure(MemoryPressureLevel.NORMAL, 0.25, 0L, 0L, "Healthy"));
+
+        MemoryCommand command = new MemoryCommand(mockAttachService);
+        command.pid = targetPid;
+        command.json = true;
+        command.histogram = true;
+        command.topN = 5;
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try (var clients =
+                mockConstruction(
+                        MemoryMXBeanClient.class,
+                        (client, context) ->
+                                when(client.getHeapSummary(anyLong())).thenReturn(summary))) {
+            System.setOut(new PrintStream(out));
+            Integer exitCode = command.call();
+
+            assertThat(exitCode).isZero();
+            String output = out.toString().trim();
+            assertThat(SimpleJson.parse(output)).isInstanceOf(java.util.Map.class);
+            assertThat(output)
+                    .contains("\"summary\":")
+                    .contains("\"histogram\":")
+                    .contains("java.lang.String")
+                    .doesNotContain("histogramError");
+        } finally {
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
+    @DisplayName(
+            "memory command with --histogram --json reports a non-zero exit and error field when"
+                    + " histogram extraction fails")
+    void shouldReportHistogramErrorInJsonOutput() throws Exception {
+        long targetPid = ProcessHandle.current().pid();
+        VirtualMachine stubVm = new StubVirtualMachine(true);
+        when(mockAttachService.attach(String.valueOf(targetPid)))
+                .thenReturn(AttachResult.success(String.valueOf(targetPid), stubVm));
+
+        long mb = 1024L * 1024L;
+        MemoryUsageInfo heap =
+                MemoryUsageInfo.from(new MemoryUsage(0, 512 * mb, 1024 * mb, 2048 * mb));
+        MemoryUsageInfo nonHeap =
+                MemoryUsageInfo.from(new MemoryUsage(0, 64 * mb, 128 * mb, 256 * mb));
+        HeapSummary summary =
+                new HeapSummary(
+                        targetPid,
+                        heap,
+                        nonHeap,
+                        List.of(),
+                        List.of(),
+                        new MemoryPressure(MemoryPressureLevel.NORMAL, 0.25, 0L, 0L, "Healthy"));
+
+        MemoryCommand command = new MemoryCommand(mockAttachService);
+        command.pid = targetPid;
+        command.json = true;
+        command.histogram = true;
+        command.topN = 5;
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try (var clients =
+                mockConstruction(
+                        MemoryMXBeanClient.class,
+                        (client, context) ->
+                                when(client.getHeapSummary(anyLong())).thenReturn(summary))) {
+            System.setOut(new PrintStream(out));
+            Integer exitCode = command.call();
+
+            assertThat(exitCode).isEqualTo(1);
+            String output = out.toString().trim();
+            assertThat(SimpleJson.parse(output)).isInstanceOf(java.util.Map.class);
+            assertThat(output).contains("\"summary\":").contains("\"histogramError\":");
         } finally {
             System.setOut(originalOut);
         }
