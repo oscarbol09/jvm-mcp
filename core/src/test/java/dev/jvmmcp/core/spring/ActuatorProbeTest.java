@@ -20,6 +20,7 @@ import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
@@ -488,5 +489,82 @@ class ActuatorProbeTest {
     void shouldReturnEmptyWhenPortClosed() {
         ActuatorProbe probe = new ActuatorProbe();
         assertThat(probe.probePort(1)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("probe detects management TLS enabled through CLI arguments")
+    void shouldDetectManagementSslFromCommandLine() throws Exception {
+        int httpsPort = startHttpsBeansServer();
+
+        Properties sysProps = new Properties();
+        sysProps.setProperty(
+                "sun.java.command",
+                "my-service.jar --management.server.port="
+                        + httpsPort
+                        + " --management.server.ssl.enabled=true");
+
+        when(virtualMachine.getSystemProperties()).thenReturn(sysProps);
+        when(virtualMachine.getAgentProperties()).thenReturn(new Properties());
+
+        ActuatorProbe probe = new ActuatorProbe(new ActuatorAuth(null, null, null, true));
+        Optional<ActuatorProbe.ProbeResult> result = probe.probe(virtualMachine);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().url())
+                .isEqualTo("https://127.0.0.1:" + httpsPort + "/actuator/beans");
+    }
+
+    @Test
+    @DisplayName("probe detects server TLS enabled through CLI arguments")
+    void shouldDetectServerSslFromCommandLine() throws Exception {
+        int httpsPort = startHttpsBeansServer();
+
+        Properties sysProps = new Properties();
+        sysProps.setProperty(
+                "sun.java.command",
+                "my-service.jar --server.port=" + httpsPort + " --server.ssl.enabled=true");
+
+        when(virtualMachine.getSystemProperties()).thenReturn(sysProps);
+        when(virtualMachine.getAgentProperties()).thenReturn(new Properties());
+
+        ActuatorProbe probe = new ActuatorProbe(new ActuatorAuth(null, null, null, true));
+        Optional<ActuatorProbe.ProbeResult> result = probe.probe(virtualMachine);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().url()).startsWith("https://127.0.0.1:" + httpsPort);
+    }
+
+    @Test
+    @DisplayName("probe does not follow HTTP redirects")
+    void shouldNotFollowHttpRedirects() throws Exception {
+        AtomicInteger redirectedRequests = new AtomicInteger();
+
+        server.createContext(
+                "/actuator/beans",
+                exchange -> {
+                    exchange.getResponseHeaders()
+                            .add("Location", "http://127.0.0.1:" + port + "/redirect-target");
+                    exchange.sendResponseHeaders(302, -1);
+                    exchange.close();
+                });
+
+        server.createContext(
+                "/redirect-target",
+                exchange -> {
+                    redirectedRequests.incrementAndGet();
+                    byte[] body = BEANS_PAYLOAD.getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(200, body.length);
+                    try (java.io.OutputStream os = exchange.getResponseBody()) {
+                        os.write(body);
+                    }
+                });
+
+        server.start();
+
+        ActuatorProbe probe = new ActuatorProbe();
+        Optional<String> result = probe.fetchFromUrl("http://127.0.0.1:" + port);
+
+        assertThat(result).isEmpty();
+        assertThat(redirectedRequests.get()).isZero();
     }
 }
