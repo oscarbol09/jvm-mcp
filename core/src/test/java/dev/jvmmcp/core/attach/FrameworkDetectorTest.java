@@ -62,6 +62,25 @@ class FrameworkDetectorTest {
                 .isEqualTo(Framework.PLAIN_JAVA);
     }
 
+    @ParameterizedTest
+    @CsvSource({
+        "app.jar --server.port=8080",
+        "\"app.jar\" --spring.profiles.active=prod",
+        "-jar app.jar --server.port=8080"
+    })
+    @DisplayName("Should resolve a relative Spring Boot jar when the launch command has arguments")
+    void shouldResolveRelativeJarWithLaunchArguments(String displayName, @TempDir Path tempDir)
+            throws IOException {
+        Path app = tempDir.resolve("app.jar");
+        try (JarOutputStream ignored =
+                new JarOutputStream(Files.newOutputStream(app), manifest())) {
+            // The manifest is sufficient for framework detection.
+        }
+
+        assertThat(FrameworkDetector.detect(displayName, "", tempDir))
+                .isEqualTo(Framework.SPRING_BOOT);
+    }
+
     @Test
     @DisplayName("Should detect an absolute framework jar without a working directory")
     void shouldDetectAbsoluteJar() throws IOException {
