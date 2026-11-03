@@ -12,7 +12,9 @@ import dev.jvmmcp.core.model.HeapSummary;
 import dev.jvmmcp.core.model.MemoryPoolInfo;
 import dev.jvmmcp.core.model.MemoryUsageInfo;
 import dev.jvmmcp.core.util.SimpleJson;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -85,9 +87,54 @@ public class MemoryCommand implements Callable<Integer> {
 
                     HeapSummary summary = client.getHeapSummary(pid);
 
+                    HeapHistogram hist = null;
+                    String histogramError = null;
+                    if (histogram) {
+                        try {
+                            HeapHistogramReader reader = new HeapHistogramReader();
+                            if (attachResult.virtualMachine().isPresent()) {
+                                try {
+                                    hist =
+                                            reader.readHistogram(
+                                                    attachResult.virtualMachine().get(), pid, topN);
+                                } catch (NoSuchMethodException
+                                        | IllegalAccessException
+                                        | java.lang.reflect.InaccessibleObjectException e) {
+                                    // executeJCmd is HotSpot-specific and needs --add-opens on
+                                    // modular runtimes; fall back to the DiagnosticCommand MBean
+                                    // over JMX
+                                    hist =
+                                            reader.readHistogram(
+                                                    jmxManager.getMBeanServerConnection(),
+                                                    pid,
+                                                    topN);
+                                }
+                            } else {
+                                // Self-inspection has no VM handle; read the histogram over JMX
+                                hist =
+                                        reader.readHistogram(
+                                                jmxManager.getMBeanServerConnection(), pid, topN);
+                            }
+                        } catch (Exception e) {
+                            histogramError = e.getMessage();
+                        }
+                    }
+
                     if (json) {
-                        System.out.println(SimpleJson.toJson(summary));
-                        return 0;
+                        if (!histogram) {
+                            System.out.println(SimpleJson.toJson(summary));
+                            return 0;
+                        }
+
+                        Map<String, Object> combined = new LinkedHashMap<>();
+                        combined.put("summary", summary);
+                        if (hist != null) {
+                            combined.put("histogram", hist);
+                        } else {
+                            combined.put("histogramError", histogramError);
+                        }
+                        System.out.println(SimpleJson.toJson(combined));
+                        return hist != null ? 0 : 1;
                     }
 
                     System.out.println("=".repeat(80));
@@ -179,32 +226,7 @@ public class MemoryCommand implements Callable<Integer> {
                                 "CLASS NAME");
                         System.out.println("-".repeat(80));
 
-                        try {
-                            HeapHistogramReader reader = new HeapHistogramReader();
-                            HeapHistogram hist;
-                            if (attachResult.virtualMachine().isPresent()) {
-                                try {
-                                    hist =
-                                            reader.readHistogram(
-                                                    attachResult.virtualMachine().get(), pid, topN);
-                                } catch (NoSuchMethodException
-                                        | IllegalAccessException
-                                        | java.lang.reflect.InaccessibleObjectException e) {
-                                    // executeJCmd is HotSpot-specific and needs --add-opens on
-                                    // modular
-                                    // runtimes; fall back to the DiagnosticCommand MBean over JMX
-                                    hist =
-                                            reader.readHistogram(
-                                                    jmxManager.getMBeanServerConnection(),
-                                                    pid,
-                                                    topN);
-                                }
-                            } else {
-                                // Self-inspection has no VM handle; read the histogram over JMX
-                                hist =
-                                        reader.readHistogram(
-                                                jmxManager.getMBeanServerConnection(), pid, topN);
-                            }
+                        if (hist != null) {
                             for (ClassHistogramItem item : hist.topClasses()) {
                                 System.out.printf(
                                         Locale.ROOT,
@@ -214,13 +236,13 @@ public class MemoryCommand implements Callable<Integer> {
                                         item.megabytes(),
                                         item.className());
                             }
-                        } catch (Exception e) {
+                        } else {
                             System.err.println(
                                     "[jvm-mcp] Could not extract live heap histogram: "
-                                            + e.getMessage());
+                                            + histogramError);
                         }
                     }
-                    return 0;
+                    return histogram && hist == null ? 1 : 0;
                 }
             } finally {
                 if (vm != null && !jmxManagerOwnsVm[0]) {
