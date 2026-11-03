@@ -23,7 +23,7 @@ public final class SensitiveDataRedactor {
 
     private static final Pattern BEARER_PATTERN =
             Pattern.compile(
-                    "(?i)\\b(bearer[ \\t]+)([A-Za-z0-9\\-._~+/]{16,}={0,2})"
+                    "(?i)\\b(bearer[ \\t]+)([A-Za-z0-9\\-._~+/]{12,}={0,2})"
                             + "(?![A-Za-z0-9\\-._~+/=])");
 
     private static final Pattern BASIC_PATTERN =
@@ -131,9 +131,14 @@ public final class SensitiveDataRedactor {
     }
 
     private static boolean looksLikeBearerToken(String value) {
-        // Require at least one non-letter token character outside an explicit header.
+        // Avoid ordinary prose while accepting credential-like mixed-case identifiers.
+        int uppercase = 0;
         for (int i = 0; i < value.length(); i++) {
-            if (!Character.isLetter(value.charAt(i))) {
+            char character = value.charAt(i);
+            if (!Character.isLetter(character)) {
+                return true;
+            }
+            if (Character.isUpperCase(character) && ++uppercase >= 2) {
                 return true;
             }
         }
