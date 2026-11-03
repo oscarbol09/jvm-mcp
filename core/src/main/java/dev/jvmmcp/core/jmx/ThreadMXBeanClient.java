@@ -341,7 +341,10 @@ public class ThreadMXBeanClient implements ThreadDiagnosticPort {
             long blockedTime = info.getBlockedTime();
             Long blockedTimeMs = contentionMonitored && blockedTime >= 0 ? blockedTime : null;
 
-            if (thresholdMs > 0 && blockedTimeMs != null && blockedTimeMs < thresholdMs) {
+            // When a threshold is requested, a thread whose blocked time is unknown
+            // (contention monitoring unsupported or just enabled) cannot be confirmed to
+            // meet it, so it is excluded rather than bypassing the filter.
+            if (thresholdMs > 0 && (blockedTimeMs == null || blockedTimeMs < thresholdMs)) {
                 continue;
             }
 

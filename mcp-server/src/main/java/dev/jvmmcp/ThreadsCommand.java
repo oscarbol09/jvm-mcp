@@ -31,7 +31,7 @@ public class ThreadsCommand implements Callable<Integer> {
     @Option(
             names = {"--threshold-ms", "-t"},
             description = "Threshold for blocked threads, default to 0")
-    int threshold = 0;
+    long threshold = 0;
 
     @Option(
             names = {"--json"},
@@ -60,6 +60,14 @@ public class ThreadsCommand implements Callable<Integer> {
     public Integer call() {
         if (pid <= 0) {
             System.err.println("[jvm-mcp] Error: A valid target PID must be specified.");
+            return 1;
+        }
+
+        if (threshold < 0) {
+            System.err.println(
+                    "[jvm-mcp] Error: --threshold-ms must not be negative (got "
+                            + threshold
+                            + ").");
             return 1;
         }
 
