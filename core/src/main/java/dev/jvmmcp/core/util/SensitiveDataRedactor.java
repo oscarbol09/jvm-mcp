@@ -27,8 +27,7 @@ public final class SensitiveDataRedactor {
                             + "(?![A-Za-z0-9\\-._~+/=])");
 
     private static final Pattern BASIC_PATTERN =
-            Pattern.compile(
-                    "(?i)\\b(basic[ \\t]+)([A-Za-z0-9+/]{8,}={0,2})(?![A-Za-z0-9+/=])");
+            Pattern.compile("(?i)\\b(basic[ \\t]+)([A-Za-z0-9+/]{8,}={0,2})(?![A-Za-z0-9+/=])");
 
     /*
      * Matches JSON string-valued properties. The key is captured separately and checked with
