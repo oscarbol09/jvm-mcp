@@ -259,8 +259,8 @@ jvm-mcp doctor
 # Discover running Java processes and frameworks
 jvm-mcp list
 
-# Inspect memory pools, GC pauses, and heap histogram
-jvm-mcp memory <pid>
+# Inspect memory pools, GC pauses, and heap histogram (add --histogram for class histogram, --json for JSON)
+jvm-mcp memory <pid> [--histogram] [--top=<n>] [--json]
 
 # Diagnose thread states and detect deadlocks (add --top-cpu, --dump, --deadlocks, --blocked, --json, or --virtual for Loom)
 jvm-mcp threads <pid> [--top-cpu] [--dump] [--deadlocks] [--blocked] [--virtual] [--json]
@@ -277,6 +277,9 @@ jvm-mcp actuator --url "http://localhost:8080" metrics
 # Run MCP stdio server with optional defaults (making pid or url optional in tool schemas)
 jvm-mcp serve [--attach <pid>] [--actuator <url>]
 ```
+
+When using `--json` with `jvm-mcp memory --histogram`, the output produces a
+structured JSON document containing both the `summary` and the `histogram`.
 
 When using `--json` with `jvm-mcp threads`, the output serializes the specific
 diagnostic model selected by `--dump`, `--deadlocks`, `--top-cpu`, or `--blocked`.
