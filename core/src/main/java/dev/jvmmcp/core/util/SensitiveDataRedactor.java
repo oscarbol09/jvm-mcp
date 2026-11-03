@@ -1,5 +1,6 @@
 package dev.jvmmcp.core.util;
 
+import java.util.Base64;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -11,11 +12,23 @@ import java.util.regex.Pattern;
  */
 public final class SensitiveDataRedactor {
 
+    /*
+     * Authorization headers identify credentials even when the token is short. Standalone
+     * "Basic" and "Bearer" phrases need stricter checks to avoid redacting ordinary prose.
+     */
+    private static final Pattern AUTHORIZATION_PATTERN =
+            Pattern.compile(
+                    "(?i)(\\bauthorization[ \\t]*[:=][ \\t]*(?:bearer|basic)[ \\t]+)"
+                            + "[^\\s,;\"']+");
+
     private static final Pattern BEARER_PATTERN =
-            Pattern.compile("(?i)\\b(bearer\\s+)[A-Za-z0-9\\-._~+/]+=*", Pattern.CASE_INSENSITIVE);
+            Pattern.compile(
+                    "(?i)\\b(bearer[ \\t]+)([A-Za-z0-9\\-._~+/]{16,}={0,2})"
+                            + "(?![A-Za-z0-9\\-._~+/=])");
 
     private static final Pattern BASIC_PATTERN =
-            Pattern.compile("(?i)\\b(basic\\s+)[A-Za-z0-9+/]+=*", Pattern.CASE_INSENSITIVE);
+            Pattern.compile(
+                    "(?i)\\b(basic[ \\t]+)([A-Za-z0-9+/]{8,}={0,2})(?![A-Za-z0-9+/=])");
 
     /*
      * Matches JSON string-valued properties. The key is captured separately and checked with
@@ -73,8 +86,9 @@ public final class SensitiveDataRedactor {
         }
 
         String result = text;
-        result = BEARER_PATTERN.matcher(result).replaceAll("$1***");
-        result = BASIC_PATTERN.matcher(result).replaceAll("$1***");
+        result = AUTHORIZATION_PATTERN.matcher(result).replaceAll("$1***");
+        result = redactStandaloneAuth(result, BEARER_PATTERN, false);
+        result = redactStandaloneAuth(result, BASIC_PATTERN, true);
         result = redactJsonSecrets(result);
         result = redactAssignments(result);
         result = JDBC_URL_PATTERN.matcher(result).replaceAll("$1***@");
@@ -82,6 +96,49 @@ public final class SensitiveDataRedactor {
         result = JWT_PATTERN.matcher(result).replaceAll("***");
 
         return result;
+    }
+
+    private static String redactStandaloneAuth(String text, Pattern pattern, boolean basic) {
+        Matcher matcher = pattern.matcher(text);
+        StringBuffer redacted = new StringBuffer();
+
+        while (matcher.find()) {
+            String candidate = matcher.group(2);
+            boolean credential =
+                    basic ? isBasicCredential(candidate) : looksLikeBearerToken(candidate);
+            String replacement = credential ? matcher.group(1) + "***" : matcher.group();
+            matcher.appendReplacement(redacted, Matcher.quoteReplacement(replacement));
+        }
+
+        matcher.appendTail(redacted);
+        return redacted.toString();
+    }
+
+    /*
+     * A Basic credential is base64(username:password). Length alone would still mistake
+     * "Basic authentication" for a secret because that word is valid base64 text.
+     */
+    private static boolean isBasicCredential(String value) {
+        try {
+            for (byte character : Base64.getDecoder().decode(value)) {
+                if (character == ':') {
+                    return true;
+                }
+            }
+        } catch (IllegalArgumentException ignored) {
+            // An undecodable word is not a standalone Basic credential.
+        }
+        return false;
+    }
+
+    private static boolean looksLikeBearerToken(String value) {
+        // Require at least one non-letter token character outside an explicit header.
+        for (int i = 0; i < value.length(); i++) {
+            if (!Character.isLetter(value.charAt(i))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String redactJsonSecrets(String text) {
