@@ -52,6 +52,7 @@ class SensitiveDataRedactorTest {
     void testStandaloneAuthCredentials() {
         String input = "Basic dXNlcjpwYXNz, Bearer eyJhbGciOiJIUzI1NiJ9.e30.signature123";
         assertThat(SensitiveDataRedactor.redact(input)).isEqualTo("Basic ***, Bearer ***");
+        assertThat(SensitiveDataRedactor.redact("Bearer secretTokenXYZ")).isEqualTo("Bearer ***");
     }
 
     @Test
