@@ -50,8 +50,7 @@ class SensitiveDataRedactorTest {
     @Test
     @DisplayName("Recognizes standalone Basic credentials and token-shaped Bearer values")
     void testStandaloneAuthCredentials() {
-        String input =
-                "Basic dXNlcjpwYXNz, Bearer eyJhbGciOiJIUzI1NiJ9.e30.signature123";
+        String input = "Basic dXNlcjpwYXNz, Bearer eyJhbGciOiJIUzI1NiJ9.e30.signature123";
         assertThat(SensitiveDataRedactor.redact(input)).isEqualTo("Basic ***, Bearer ***");
     }
 
