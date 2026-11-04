@@ -173,7 +173,8 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
                                         "required", requiredPidArguments())),
                 Map.of(
                         "name", "get_thread_dump",
-                        "description", "Retrieves a full thread dump from the target JVM",
+                        "description",
+                                "Retrieves a thread dump from the target JVM; platform-only by default, with opt-in virtual-thread details on Java 21+",
                         "inputSchema",
                                 Map.of(
                                         "type", "object",
@@ -184,7 +185,15 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
                                                                 "type",
                                                                 "number",
                                                                 "description",
-                                                                "Target JVM Process ID")),
+                                                                "Target JVM Process ID"),
+                                                        "includeVirtualThreads",
+                                                        Map.of(
+                                                                "type",
+                                                                "boolean",
+                                                                "default",
+                                                                false,
+                                                                "description",
+                                                                "Include virtual-thread details (Java 21+); may create a large diagnostic dump")),
                                         "required", requiredPidArguments())),
                 Map.of(
                         "name", "list_hikari_pools",
@@ -216,7 +225,7 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
 
         long pid = resolvePid(args);
         boolean includeVirtualThreads =
-                "get_thread_diagnostics".equals(toolName)
+                ("get_thread_diagnostics".equals(toolName) || "get_thread_dump".equals(toolName))
                         && ToolArgs.getBooleanArg(args, "includeVirtualThreads", false);
         AttachResult attachResult = attachService.attach(String.valueOf(pid));
         if (!attachResult.isSuccessful()) {
@@ -283,6 +292,8 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
                                                 threadClient.getTopCpuThreads(pid, topCpuLimit))));
                     }
                 } else if ("get_thread_dump".equals(toolName)) {
+                    String javaSpecificationVersion =
+                            includeVirtualThreads ? getJavaSpecificationVersion(vm) : null;
                     try (ThreadMXBeanClient threadClient =
                             new ThreadMXBeanClient(jmxManager.getMBeanServerConnection())) {
                         content.add(
@@ -291,7 +302,15 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
                                         "text",
                                         "text",
                                         SimpleJson.toJson(
-                                                threadClient.getThreadDump(pid, false, false))));
+                                                includeVirtualThreads
+                                                        ? threadClient.getThreadDump(
+                                                                pid,
+                                                                false,
+                                                                false,
+                                                                true,
+                                                                javaSpecificationVersion)
+                                                        : threadClient.getThreadDump(
+                                                                pid, false, false))));
                     }
                 } else if ("list_hikari_pools".equals(toolName)) {
                     try (HikariMXBeanClient hikariClient =

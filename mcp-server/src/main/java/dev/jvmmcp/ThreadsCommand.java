@@ -41,7 +41,7 @@ public class ThreadsCommand implements Callable<Integer> {
     @Option(
             names = {"--virtual"},
             description =
-                    "Include virtual-thread counts (Java 21+; may create a large diagnostic dump)")
+                    "Include virtual-thread counts or details in summary/dump (Java 21+; may create a large diagnostic dump)")
     boolean includeVirtualThreads;
 
     private final JvmAttachService attachService;
@@ -116,10 +116,19 @@ public class ThreadsCommand implements Callable<Integer> {
 
                     if (flags.dump) {
                         if (json) {
-                            System.out.println(SimpleJson.toJson(client.getThreadDump(pid)));
+                            System.out.println(
+                                    SimpleJson.toJson(
+                                            includeVirtualThreads
+                                                    ? client.getThreadDump(
+                                                            pid,
+                                                            true,
+                                                            true,
+                                                            true,
+                                                            javaSpecificationVersion)
+                                                    : client.getThreadDump(pid)));
                             return 0;
                         }
-                        printThreadDump(client);
+                        printThreadDump(client, javaSpecificationVersion);
                     }
 
                     if (json) {
@@ -282,8 +291,12 @@ public class ThreadsCommand implements Callable<Integer> {
         }
     }
 
-    private void printThreadDump(ThreadMXBeanClient client) throws Exception {
-        ThreadDump dump = client.getThreadDump(pid);
+    private void printThreadDump(ThreadMXBeanClient client, String javaSpecificationVersion)
+            throws Exception {
+        ThreadDump dump =
+                includeVirtualThreads
+                        ? client.getThreadDump(pid, true, true, true, javaSpecificationVersion)
+                        : client.getThreadDump(pid);
 
         System.out.println("=".repeat(80));
         System.out.printf(

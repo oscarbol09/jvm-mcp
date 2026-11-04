@@ -550,6 +550,7 @@ class ThreadsCommandTest {
         }
     }
 
+    @Test
     @DisplayName("threads command displays virtual thread dump section when present")
     void shouldDisplayVirtualThreadDumpSection() throws Exception {
         long targetPid = 100L;
@@ -598,11 +599,13 @@ class ThreadsCommandTest {
                                                         "Task.java",
                                                         15,
                                                         false)))));
-        when(mockClient.getThreadDump(targetPid)).thenReturn(dump);
+        String targetVersion = System.getProperty("java.specification.version");
+        when(mockClient.getThreadDump(targetPid, true, true, true, targetVersion)).thenReturn(dump);
 
         ThreadsCommand command = org.mockito.Mockito.spy(new ThreadsCommand(mockAttachService));
         command.pid = targetPid;
         command.threadFlags.dump = true;
+        command.includeVirtualThreads = true;
         org.mockito.Mockito.doReturn(mockClient)
                 .when(command)
                 .createThreadMXBeanClient(org.mockito.ArgumentMatchers.any());
@@ -618,6 +621,10 @@ class ThreadsCommandTest {
             assertThat(output).contains("VIRTUAL THREADS (1 found)");
             assertThat(output).contains("\"vthread-test\" #99 [VIRTUAL]");
             assertThat(output).contains("at pkg.Task.run(Task.java:15)");
+            org.mockito.Mockito.verify(mockClient)
+                    .getThreadDump(targetPid, true, true, true, targetVersion);
+            org.mockito.Mockito.verify(mockClient, org.mockito.Mockito.never())
+                    .getThreadDump(targetPid);
         } finally {
             System.setOut(originalOut);
         }
@@ -847,6 +854,56 @@ class ThreadsCommandTest {
         assertThat(SimpleJson.parse(output)).isInstanceOf(java.util.List.class);
         assertThat(output).contains("\"threadName\":\"threshold-worker\"");
         Mockito.verify(mockClient).findBlockedThreads(300);
+    }
+
+    @Test
+    void shouldForwardVirtualThreadDumpOptInForJson() throws Exception {
+        long targetPid = 100L;
+        ThreadMXBeanClient mockClient = Mockito.mock(ThreadMXBeanClient.class);
+        ThreadDump dump =
+                new ThreadDump(
+                        targetPid,
+                        java.time.Instant.parse("2026-10-31T00:00:00Z"),
+                        0,
+                        List.of(),
+                        List.of(
+                                new dev.jvmmcp.core.model.ThreadDetail(
+                                        9L,
+                                        "vthread-json",
+                                        "VIRTUAL",
+                                        null,
+                                        null,
+                                        null,
+                                        0L,
+                                        0L,
+                                        0L,
+                                        0L,
+                                        false,
+                                        false,
+                                        java.util.List.of())));
+        when(mockClient.getThreadDump(
+                        Mockito.eq(targetPid),
+                        Mockito.eq(true),
+                        Mockito.eq(true),
+                        Mockito.eq(true),
+                        Mockito.any()))
+                .thenReturn(dump);
+
+        ThreadsCommand command = newJsonCommand(targetPid, mockClient);
+        command.threadFlags.dump = true;
+        command.includeVirtualThreads = true;
+
+        String output = executeJsonCommand(command);
+
+        assertThat(output).contains("virtualThreads").contains("vthread-json");
+        Mockito.verify(mockClient)
+                .getThreadDump(
+                        Mockito.eq(targetPid),
+                        Mockito.eq(true),
+                        Mockito.eq(true),
+                        Mockito.eq(true),
+                        Mockito.eq(System.getProperty("java.specification.version")));
+        Mockito.verify(mockClient, Mockito.never()).getThreadDump(targetPid);
     }
 
     private ThreadsCommand newJsonCommand(long targetPid, ThreadMXBeanClient mockClient) {

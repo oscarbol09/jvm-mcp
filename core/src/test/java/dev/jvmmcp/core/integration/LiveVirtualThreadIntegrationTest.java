@@ -85,7 +85,9 @@ class LiveVirtualThreadIntegrationTest {
             assertThat(summary.virtualThreads().totalCount()).isGreaterThanOrEqualTo(2);
 
             // 2. Verify ThreadDump separates platform and virtual threads without double-counting
-            ThreadDump dump = threadClient.getThreadDump(targetPid);
+            ThreadDump dump =
+                    threadClient.getThreadDump(
+                            targetPid, true, true, true, javaSpecificationVersion);
 
             assertThat(dump.threads()).isNotEmpty();
             List<String> platformNames =
