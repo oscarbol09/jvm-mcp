@@ -11,6 +11,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -513,37 +514,6 @@ class ServeCommandTest {
         }
     }
 
-    @Test
-    @DisplayName("shutdown hook detaches attached VirtualMachine")
-    void shouldDetachOnShutdownHook() {
-        com.sun.tools.attach.VirtualMachine mockVm =
-                org.mockito.Mockito.mock(com.sun.tools.attach.VirtualMachine.class);
-        Runnable hook = ServeCommand.createShutdownHook(mockVm, 123, mockAttachService);
-        hook.run();
-        org.mockito.Mockito.verify(mockAttachService).detach(mockVm);
-    }
-
-    @Test
-    @DisplayName("shutdown hook handles exception when detach fails")
-    void shouldHandleExceptionDuringShutdownDetach() {
-        com.sun.tools.attach.VirtualMachine mockVm =
-                org.mockito.Mockito.mock(com.sun.tools.attach.VirtualMachine.class);
-        org.mockito.Mockito.doThrow(new RuntimeException("Detach failed"))
-                .when(mockAttachService)
-                .detach(mockVm);
-        Runnable hook = ServeCommand.createShutdownHook(mockVm, 123, mockAttachService);
-        hook.run(); // Should not throw
-        org.mockito.Mockito.verify(mockAttachService).detach(mockVm);
-    }
-
-    @Test
-    @DisplayName("shutdown hook does nothing when vm is null")
-    void shouldIgnoreNullVmOnShutdown() {
-        Runnable hook = ServeCommand.createShutdownHook(null, 123, mockAttachService);
-        hook.run();
-        org.mockito.Mockito.verifyNoInteractions(mockAttachService);
-    }
-
     @SuppressWarnings("unchecked")
     private static Map<String, Object> asMap(Object obj) {
         return obj instanceof Map<?, ?> map ? (Map<String, Object>) map : null;
@@ -555,50 +525,69 @@ class ServeCommandTest {
     }
 
     @Test
-    @DisplayName("normal server exit detaches startup VM exactly once")
-    void shouldDetachStartupVmOnNormalExit() {
+    @DisplayName("startup validation VM is detached before server starts")
+    void shouldDetachStartupVmImmediately() {
         String pid = "100";
         com.sun.tools.attach.VirtualMachine vm =
                 org.mockito.Mockito.mock(com.sun.tools.attach.VirtualMachine.class);
+        AtomicBoolean firstRead = new AtomicBoolean();
 
         when(mockAttachService.attach(pid)).thenReturn(AttachResult.success(pid, vm));
 
-        ServeCommand command = new ServeCommand(mockAttachService);
+        java.io.InputStream input =
+                new java.io.ByteArrayInputStream(
+                        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}\n"
+                                .getBytes(java.nio.charset.StandardCharsets.UTF_8)) {
+                    private void verifyDetached() {
+                        if (firstRead.compareAndSet(false, true)) {
+                            org.mockito.Mockito.verify(mockAttachService).detach(vm);
+                        }
+                    }
+
+                    @Override
+                    public synchronized int read(byte[] buffer, int offset, int length) {
+                        verifyDetached();
+                        return super.read(buffer, offset, length);
+                    }
+
+                    @Override
+                    public synchronized int read() {
+                        verifyDetached();
+                        return super.read();
+                    }
+                };
+
+        ServeCommand command = new ServeCommand(mockAttachService, input);
         command.targetPid = 100;
         command.transport = "stdio";
 
-        java.io.InputStream originalIn = ServeCommand.testInStream;
+        assertThat(command.call()).isZero();
 
-        try {
-            ServeCommand.testInStream =
-                    new java.io.ByteArrayInputStream(
-                            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}\n"
-                                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
-
-            assertThat(command.call()).isZero();
-        } finally {
-            ServeCommand.testInStream = originalIn;
-        }
-
+        org.mockito.Mockito.verify(mockAttachService).attach(pid);
         org.mockito.Mockito.verify(mockAttachService, org.mockito.Mockito.times(1)).detach(vm);
     }
 
     @Test
-    @DisplayName("shutdown hook detaches startup VM at most once")
-    void shouldDetachAtMostOnceWhenShutdownHookRunsRepeatedly() {
-        com.sun.tools.attach.VirtualMachine vm =
-                org.mockito.Mockito.mock(com.sun.tools.attach.VirtualMachine.class);
+    @DisplayName("self attachment does not detach a VirtualMachine")
+    void shouldNotDetachSelfAttachment() {
+        String pid = "100";
 
-        Runnable hook =
-                ServeCommand.createShutdownHook(
-                        vm,
-                        123,
+        when(mockAttachService.attach(pid)).thenReturn(AttachResult.self(pid));
+
+        ServeCommand command =
+                new ServeCommand(
                         mockAttachService,
-                        new java.util.concurrent.atomic.AtomicBoolean());
+                        new java.io.ByteArrayInputStream(
+                                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}\n"
+                                        .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 
-        hook.run();
-        hook.run();
+        command.targetPid = 100;
+        command.transport = "stdio";
 
-        org.mockito.Mockito.verify(mockAttachService, org.mockito.Mockito.times(1)).detach(vm);
+        assertThat(command.call()).isZero();
+
+        org.mockito.Mockito.verify(mockAttachService).attach(pid);
+        org.mockito.Mockito.verify(mockAttachService, org.mockito.Mockito.never())
+                .detach(org.mockito.ArgumentMatchers.any());
     }
 }
