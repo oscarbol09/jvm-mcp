@@ -30,6 +30,46 @@ class SensitiveDataRedactorTest {
     }
 
     @Test
+    @DisplayName("Preserves authentication prose instead of treating words as credentials")
+    void testAuthProseIsNotRedacted() {
+        String prose = "Basic authentication failed; basic information bearer token expired";
+        assertThat(SensitiveDataRedactor.redact(prose)).isEqualTo(prose);
+
+        String longerWords = "Basic authenticationRequired and Bearer authorizationFailure";
+        assertThat(SensitiveDataRedactor.redact(longerWords)).isEqualTo(longerWords);
+    }
+
+    @Test
+    @DisplayName("Redacts short credentials when explicitly in authorization headers")
+    void testShortAuthorizationCredentials() {
+        String input = "Authorization: Bearer abc\nAUTHORIZATION = Basic YTpi";
+        assertThat(SensitiveDataRedactor.redact(input))
+                .isEqualTo("Authorization: Bearer ***\nAUTHORIZATION = Basic ***");
+    }
+
+    @Test
+    @DisplayName("Recognizes standalone Basic credentials and token-shaped Bearer values")
+    void testStandaloneAuthCredentials() {
+        String input = "Basic dXNlcjpwYXNz, Bearer eyJhbGciOiJIUzI1NiJ9.e30.signature123";
+        assertThat(SensitiveDataRedactor.redact(input)).isEqualTo("Basic ***, Bearer ***");
+        assertThat(SensitiveDataRedactor.redact("Bearer secretTokenXYZ")).isEqualTo("Bearer ***");
+    }
+
+    @Test
+    @DisplayName("Does not redact arbitrary base64 text without a Basic username separator")
+    void testNonCredentialBase64() {
+        String input = "Basic YWJjZGVmZ2hp is not a username and password";
+        assertThat(SensitiveDataRedactor.redact(input)).isEqualTo(input);
+    }
+
+    @Test
+    @DisplayName("Keeps a missing header credential from consuming the next line")
+    void testIncompleteAuthorizationHeader() {
+        String input = "Authorization: Bearer\nBasic authentication failed";
+        assertThat(SensitiveDataRedactor.redact(input)).isEqualTo(input);
+    }
+
+    @Test
     @DisplayName("Redacts JSON key-value secrets")
     void testJsonSecrets() {
         String json =
