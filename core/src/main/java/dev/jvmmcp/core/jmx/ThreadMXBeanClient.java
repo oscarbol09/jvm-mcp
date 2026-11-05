@@ -131,6 +131,16 @@ public class ThreadMXBeanClient implements ThreadDiagnosticPort {
 
     public ThreadDump getThreadDump(long pid, boolean lockedMonitors, boolean lockedSynchronizers)
             throws IOException {
+        return getThreadDump(pid, lockedMonitors, lockedSynchronizers, false, null);
+    }
+
+    public ThreadDump getThreadDump(
+            long pid,
+            boolean lockedMonitors,
+            boolean lockedSynchronizers,
+            boolean includeVirtualThreads,
+            String javaSpecificationVersion)
+            throws IOException {
         ThreadMXBean threadMXBean =
                 ManagementFactory.newPlatformMXBeanProxy(
                         mbsc, ManagementFactory.THREAD_MXBEAN_NAME, ThreadMXBean.class);
@@ -148,10 +158,14 @@ public class ThreadMXBeanClient implements ThreadDiagnosticPort {
                         .toList();
 
         List<ThreadDetail> virtualThreads = null;
-        if (virtualThreadReader != null) {
+        if (includeVirtualThreads
+                && virtualThreadReader != null
+                && supportsVirtualThreads(javaSpecificationVersion)) {
             try {
                 long[] threadIds = threadMXBean.getAllThreadIds();
                 virtualThreads = virtualThreadReader.readVirtualThreads(threadIds).orElse(null);
+            } catch (VirtualThreadDumpReader.DumpTooLargeException e) {
+                throw e;
             } catch (Exception ignored) {
                 virtualThreads = null;
             }

@@ -198,7 +198,7 @@ class ThreadMXBeanClientTest {
 
         ThreadMXBeanClient client =
                 new ThreadMXBeanClient(connectionManager.getMBeanServerConnection(), mockReader);
-        ThreadDump dump = client.getThreadDump(42L);
+        ThreadDump dump = client.getThreadDump(42L, true, true, true, "21");
 
         assertThat(dump.virtualThreads()).isNotNull().isEmpty();
         assertThat(dump.threads()).isNotEmpty();
@@ -215,7 +215,7 @@ class ThreadMXBeanClientTest {
 
         ThreadMXBeanClient client =
                 new ThreadMXBeanClient(connectionManager.getMBeanServerConnection(), mockReader);
-        ThreadDump dump = client.getThreadDump(42L);
+        ThreadDump dump = client.getThreadDump(42L, true, true, true, "21");
 
         assertThat(dump.virtualThreads()).isNull();
         assertThat(dump.threads()).isNotEmpty();

@@ -30,6 +30,96 @@ class JvmDiagnosticToolHandlerTest {
     @Mock private VirtualMachine mockVm;
 
     @Test
+    @DisplayName("get_thread_dump exposes virtual-thread details as opt-in default false")
+    void testThreadDumpSchemaIncludesVirtualThreadOption() {
+        Map<String, Object> definition =
+                new JvmDiagnosticToolHandler()
+                        .toolDefinitions().stream()
+                                .filter(tool -> "get_thread_dump".equals(tool.get("name")))
+                                .findFirst()
+                                .orElseThrow();
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> schema = (Map<String, Object>) definition.get("inputSchema");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> properties = (Map<String, Object>) schema.get("properties");
+
+        assertThat(properties).containsKey("includeVirtualThreads");
+        Map<?, ?> virtualOption = (Map<?, ?>) properties.get("includeVirtualThreads");
+        assertThat(virtualOption.get("type")).isEqualTo("boolean");
+        assertThat(virtualOption.get("default")).isEqualTo(false);
+    }
+
+    @Test
+    @DisplayName("get_thread_dump default uses legacy call without version lookup")
+    void testGetThreadDumpSkipsVersionLookupByDefault() throws Exception {
+        when(mockAttachService.attach("100")).thenReturn(AttachResult.success("100", mockVm));
+        VirtualMachine vm = mockVm;
+
+        JvmDiagnosticToolHandler handler =
+                new JvmDiagnosticToolHandler(
+                        mockAttachService, (v, p) -> JmxConnectionManager.connectLocal());
+
+        Map<String, Object> result = handler.execute("get_thread_dump", Map.of("pid", 100));
+        assertThat(result.get("isError")).isNull();
+        verify(vm, org.mockito.Mockito.never()).getSystemProperties();
+    }
+
+    @Test
+    @DisplayName("get_thread_dump rejects invalid boolean includeVirtualThreads before attach")
+    void testGetThreadDumpInvalidBooleanRejected() {
+        JvmDiagnosticToolHandler handler =
+                new JvmDiagnosticToolHandler(
+                        mockAttachService, (v, p) -> JmxConnectionManager.connectLocal());
+
+        assertThatThrownBy(
+                        () ->
+                                handler.execute(
+                                        "get_thread_dump",
+                                        Map.of("pid", 100, "includeVirtualThreads", "notabool")))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(mockAttachService, org.mockito.Mockito.never())
+                .attach(org.mockito.Mockito.anyString());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"17", "21"})
+    void testThreadDumpOptInForwardsTargetVersion(String version) throws Exception {
+        when(mockAttachService.attach("100")).thenReturn(AttachResult.success("100", mockVm));
+        java.util.Properties props = new java.util.Properties();
+        props.setProperty("java.specification.version", version);
+        when(mockVm.getSystemProperties()).thenReturn(props);
+
+        JvmDiagnosticToolHandler handler =
+                new JvmDiagnosticToolHandler(
+                        mockAttachService, (vm, p) -> JmxConnectionManager.connectLocal());
+
+        try (var clients =
+                org.mockito.Mockito.mockConstruction(
+                        dev.jvmmcp.core.jmx.ThreadMXBeanClient.class,
+                        (mock, context) ->
+                                when(mock.getThreadDump(100L, false, false, true, version))
+                                        .thenReturn(
+                                                new dev.jvmmcp.core.model.ThreadDump(
+                                                        100L,
+                                                        java.time.Instant.EPOCH,
+                                                        0,
+                                                        List.of())))) {
+            Map<String, Object> result =
+                    handler.execute(
+                            "get_thread_dump", Map.of("pid", 100, "includeVirtualThreads", true));
+
+            assertThat(result.get("isError")).isNull();
+            assertThat(clients.constructed()).hasSize(1);
+            verify(clients.constructed().getFirst())
+                    .getThreadDump(100L, false, false, true, version);
+            verify(mockVm).getSystemProperties();
+            verify(clients.constructed().getFirst(), org.mockito.Mockito.never())
+                    .getThreadDump(100L, false, false);
+        }
+    }
+
+    @Test
     @DisplayName("constructors initialize properly")
     void testConstructors() {
         JvmDiagnosticToolHandler h1 = new JvmDiagnosticToolHandler();
