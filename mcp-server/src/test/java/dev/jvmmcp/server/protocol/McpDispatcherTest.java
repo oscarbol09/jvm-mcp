@@ -136,6 +136,62 @@ class McpDispatcherTest {
         assertThat(error.get("message")).isEqualTo("Invalid params");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"\"invalid string\"", "[\"item1\", \"item2\"]", "123", "true"})
+    @DisplayName("dispatch returns -32602 when tools/call has non-object arguments")
+    void testToolsCallNonObjectArguments(String invalidArgsJson) {
+        String line =
+                String.format(
+                        "{\"jsonrpc\":\"2.0\",\"id\":202,\"method\":\"tools/call\",\"params\":{\"name\":\"mock_tool\",\"arguments\":%s}}",
+                        invalidArgsJson);
+        Optional<Map<String, Object>> response = dispatcher.dispatch(line);
+
+        assertThat(response).isPresent();
+        Map<String, Object> resp = response.get();
+        assertThat(resp.get("id")).isEqualTo(202);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> error = (Map<String, Object>) resp.get("error");
+        assertThat(error.get("code")).isEqualTo(-32602);
+        assertThat(error.get("message").toString()).contains("Invalid params");
+    }
+
+    @Test
+    @DisplayName("dispatch handles tools/call without arguments properly")
+    void testToolsCallWithoutArguments() {
+        String line =
+                "{\"jsonrpc\":\"2.0\",\"id\":203,\"method\":\"tools/call\",\"params\":{\"name\":\"mock_tool\"}}";
+        Optional<Map<String, Object>> response = dispatcher.dispatch(line);
+
+        assertThat(response).isPresent();
+        Map<String, Object> resp = response.get();
+        assertThat(resp.get("id")).isEqualTo(203);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> result = (Map<String, Object>) resp.get("result");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
+        assertThat(content.get(0).get("text")).isEqualTo("mock_result");
+    }
+
+    @Test
+    @DisplayName("dispatch handles tools/call with explicit null arguments properly")
+    void testToolsCallWithNullArguments() {
+        String line =
+                "{\"jsonrpc\":\"2.0\",\"id\":204,\"method\":\"tools/call\",\"params\":{\"name\":\"mock_tool\",\"arguments\":null}}";
+        Optional<Map<String, Object>> response = dispatcher.dispatch(line);
+
+        assertThat(response).isPresent();
+        Map<String, Object> resp = response.get();
+        assertThat(resp.get("id")).isEqualTo(204);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> result = (Map<String, Object>) resp.get("result");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
+        assertThat(content.get(0).get("text")).isEqualTo("mock_result");
+    }
+
     @Test
     @DisplayName("dispatch returns -32601 Method not found for unknown methods")
     void testMethodNotFound() {
