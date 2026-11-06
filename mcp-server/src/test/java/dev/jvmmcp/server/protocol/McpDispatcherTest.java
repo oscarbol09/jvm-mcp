@@ -136,6 +136,45 @@ class McpDispatcherTest {
         assertThat(error.get("message")).isEqualTo("Invalid params");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"\"pid=1234\"", "[1, 2]"})
+    @DisplayName("dispatch returns -32602 when tools/call arguments is not an object")
+    void testToolsCallNonObjectArguments(String argumentsJson) {
+        String line =
+                "{\"jsonrpc\":\"2.0\",\"id\":202,\"method\":\"tools/call\",\"params\":{\"name\":\"mock_tool\",\"arguments\":"
+                        + argumentsJson
+                        + "}}";
+        Optional<Map<String, Object>> response = dispatcher.dispatch(line);
+
+        assertThat(response).isPresent();
+        Map<String, Object> resp = response.get();
+        assertThat(resp.get("id")).isEqualTo(202);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> error = (Map<String, Object>) resp.get("error");
+        assertThat(error.get("code")).isEqualTo(-32602);
+        assertThat(error.get("message")).isEqualTo("Invalid params");
+    }
+
+    @Test
+    @DisplayName("dispatch executes tools/call with empty arguments when arguments is absent")
+    void testToolsCallAbsentArguments() {
+        String line =
+                "{\"jsonrpc\":\"2.0\",\"id\":203,\"method\":\"tools/call\",\"params\":{\"name\":\"mock_tool\"}}";
+        Optional<Map<String, Object>> response = dispatcher.dispatch(line);
+
+        assertThat(response).isPresent();
+        Map<String, Object> resp = response.get();
+        assertThat(resp.get("id")).isEqualTo(203);
+        assertThat(resp).doesNotContainKey("error");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> result = (Map<String, Object>) resp.get("result");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
+        assertThat(content.get(0).get("text")).isEqualTo("mock_result");
+    }
+
     @Test
     @DisplayName("dispatch returns -32601 Method not found for unknown methods")
     void testMethodNotFound() {
