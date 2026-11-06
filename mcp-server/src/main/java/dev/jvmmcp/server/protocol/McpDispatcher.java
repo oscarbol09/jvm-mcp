@@ -150,7 +150,17 @@ public class McpDispatcher {
         if ("tools/call".equals(method)) {
             Map<String, Object> params = ToolArgs.asMap(req.get("params"));
             if (params != null && params.get("name") instanceof String toolName) {
-                Map<String, Object> args = ToolArgs.asMap(params.get("arguments"));
+                Object rawArgs = params.get("arguments");
+                if (rawArgs != null && !(rawArgs instanceof Map<?, ?>)) {
+                    return Map.of(
+                            "error",
+                            Map.of(
+                                    "code",
+                                    -32602,
+                                    "message",
+                                    "Invalid params: 'arguments' must be an object"));
+                }
+                Map<String, Object> args = ToolArgs.asMap(rawArgs);
                 return toolRegistry.execute(toolName, args != null ? args : Map.of());
             } else {
                 return Map.of("error", Map.of("code", -32602, "message", "Invalid params"));
