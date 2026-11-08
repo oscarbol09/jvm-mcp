@@ -5,6 +5,8 @@ import static org.mockito.Mockito.when;
 
 import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.HttpsConfigurator;
+import com.sun.net.httpserver.HttpsExchange;
+import com.sun.net.httpserver.HttpsParameters;
 import com.sun.net.httpserver.HttpsServer;
 import com.sun.tools.attach.VirtualMachine;
 import java.io.IOException;
@@ -25,6 +27,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLParameters;
 import javax.net.ssl.X509ExtendedTrustManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,6 +46,7 @@ class ActuatorProbeTest {
 
     private HttpServer server;
     private HttpsServer httpsServer;
+    private final AtomicReference<String> negotiatedProtocol = new AtomicReference<>();
     private int port;
 
     @Mock private VirtualMachine virtualMachine;
@@ -65,9 +69,11 @@ class ActuatorProbeTest {
 
     /**
      * Starts a local HTTPS server (self-signed test keystore) that serves the beans payload on
-     * /actuator/beans, and returns its port.
+     * /actuator/beans, and returns its port. When {@code enabledProtocols} is non-empty, the server
+     * only accepts those TLS protocol versions; otherwise the JDK defaults apply. The protocol
+     * negotiated for the most recent request is recorded in {@link #negotiatedProtocol}.
      */
-    private int startHttpsBeansServer() throws Exception {
+    private int startHttpsBeansServer(String... enabledProtocols) throws Exception {
         KeyStore ks = KeyStore.getInstance("PKCS12");
         try (InputStream in =
                 ActuatorProbeTest.class.getResourceAsStream("/actuator-test-keystore.p12")) {
@@ -82,10 +88,24 @@ class ActuatorProbeTest {
 
         httpsServer =
                 HttpsServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
-        httpsServer.setHttpsConfigurator(new HttpsConfigurator(ctx));
+        if (enabledProtocols.length == 0) {
+            httpsServer.setHttpsConfigurator(new HttpsConfigurator(ctx));
+        } else {
+            httpsServer.setHttpsConfigurator(
+                    new HttpsConfigurator(ctx) {
+                        @Override
+                        public void configure(HttpsParameters params) {
+                            SSLParameters sslParams = getSSLContext().getDefaultSSLParameters();
+                            sslParams.setProtocols(enabledProtocols);
+                            params.setSSLParameters(sslParams);
+                        }
+                    });
+        }
         httpsServer.createContext(
                 "/actuator/beans",
                 exchange -> {
+                    negotiatedProtocol.set(
+                            ((HttpsExchange) exchange).getSSLSession().getProtocol());
                     byte[] body = BEANS_PAYLOAD.getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(200, body.length);
                     try (java.io.OutputStream os = exchange.getResponseBody()) {
@@ -393,7 +413,7 @@ class ActuatorProbeTest {
                 org.mockito.Mockito.mockStatic(
                         javax.net.ssl.SSLContext.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
             sslStatic
-                    .when(() -> javax.net.ssl.SSLContext.getInstance("TLSv1.2"))
+                    .when(() -> javax.net.ssl.SSLContext.getInstance("TLS"))
                     .thenThrow(new java.security.NoSuchAlgorithmException("Simulated"));
 
             org.assertj.core.api.Assertions.assertThatThrownBy(
@@ -417,6 +437,30 @@ class ActuatorProbeTest {
 
         assertThat(json).isPresent();
         assertThat(json.get()).isEqualTo(BEANS_PAYLOAD);
+    }
+
+    @Test
+    @DisplayName("probePort discovers a TLS 1.3-only HTTPS actuator when insecure is enabled")
+    void shouldDiscoverTls13OnlyHttpsEndpointWhenInsecure() throws Exception {
+        int httpsPort = startHttpsBeansServer("TLSv1.3");
+
+        ActuatorProbe probe = new ActuatorProbe(new ActuatorAuth(null, null, null, true));
+        Optional<String> json = probe.probePort(httpsPort);
+
+        assertThat(json).contains(BEANS_PAYLOAD);
+        assertThat(negotiatedProtocol.get()).isEqualTo("TLSv1.3");
+    }
+
+    @Test
+    @DisplayName("probePort discovers a TLS 1.2-only HTTPS actuator when insecure is enabled")
+    void shouldDiscoverTls12OnlyHttpsEndpointWhenInsecure() throws Exception {
+        int httpsPort = startHttpsBeansServer("TLSv1.2");
+
+        ActuatorProbe probe = new ActuatorProbe(new ActuatorAuth(null, null, null, true));
+        Optional<String> json = probe.probePort(httpsPort);
+
+        assertThat(json).contains(BEANS_PAYLOAD);
+        assertThat(negotiatedProtocol.get()).isEqualTo("TLSv1.2");
     }
 
     @Test

@@ -4,12 +4,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpsConfigurator;
+import com.sun.net.httpserver.HttpsExchange;
+import com.sun.net.httpserver.HttpsParameters;
+import com.sun.net.httpserver.HttpsServer;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -18,6 +24,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLParameters;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,6 +37,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 class ActuatorClientTest {
 
     private HttpServer server;
+    private HttpsServer httpsServer;
+    private final AtomicReference<String> negotiatedProtocol = new AtomicReference<>();
     private ExecutorService serverExecutor;
     private int port;
     private ActuatorClient client;
@@ -165,6 +177,9 @@ class ActuatorClientTest {
     void tearDown() {
         if (server != null) {
             server.stop(0);
+        }
+        if (httpsServer != null) {
+            httpsServer.stop(0);
         }
         if (serverExecutor != null) {
             serverExecutor.shutdownNow();
@@ -349,6 +364,76 @@ class ActuatorClientTest {
         ActuatorClient insecureClient =
                 new ActuatorClient("http://127.0.0.1:" + port, insecureAuth);
         assertThat(insecureClient).isNotNull();
+    }
+
+    /**
+     * Starts a local HTTPS server (self-signed test keystore) that only accepts the given TLS
+     * protocol version and serves {"status":"UP"} on /actuator/health. The protocol negotiated for
+     * the most recent request is recorded in {@link #negotiatedProtocol}. Returns its port.
+     */
+    private int startHttpsHealthServer(String protocol) throws Exception {
+        KeyStore ks = KeyStore.getInstance("PKCS12");
+        try (InputStream in =
+                ActuatorClientTest.class.getResourceAsStream("/actuator-test-keystore.p12")) {
+            assertThat(in).as("test keystore resource").isNotNull();
+            ks.load(in, "changeit".toCharArray());
+        }
+        KeyManagerFactory kmf =
+                KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+        kmf.init(ks, "changeit".toCharArray());
+        SSLContext ctx = SSLContext.getInstance("TLS");
+        ctx.init(kmf.getKeyManagers(), null, null);
+
+        httpsServer =
+                HttpsServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        httpsServer.setHttpsConfigurator(
+                new HttpsConfigurator(ctx) {
+                    @Override
+                    public void configure(HttpsParameters params) {
+                        SSLParameters sslParams = getSSLContext().getDefaultSSLParameters();
+                        sslParams.setProtocols(new String[] {protocol});
+                        params.setSSLParameters(sslParams);
+                    }
+                });
+        httpsServer.createContext(
+                "/actuator/health",
+                exchange -> {
+                    negotiatedProtocol.set(
+                            ((HttpsExchange) exchange).getSSLSession().getProtocol());
+                    byte[] body = "{\"status\":\"UP\"}".getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(200, body.length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(body);
+                    }
+                });
+        httpsServer.start();
+        return httpsServer.getAddress().getPort();
+    }
+
+    @Test
+    void testInsecureAuthConnectsToTls13OnlyHttpsServer() throws Exception {
+        int httpsPort = startHttpsHealthServer("TLSv1.3");
+
+        ActuatorClient insecureClient =
+                new ActuatorClient(
+                        "https://127.0.0.1:" + httpsPort, new ActuatorAuth(null, null, null, true));
+
+        assertThat(insecureClient.fetchEndpoint("/actuator/health"))
+                .isEqualTo("{\"status\":\"UP\"}");
+        assertThat(negotiatedProtocol.get()).isEqualTo("TLSv1.3");
+    }
+
+    @Test
+    void testInsecureAuthConnectsToTls12OnlyHttpsServer() throws Exception {
+        int httpsPort = startHttpsHealthServer("TLSv1.2");
+
+        ActuatorClient insecureClient =
+                new ActuatorClient(
+                        "https://127.0.0.1:" + httpsPort, new ActuatorAuth(null, null, null, true));
+
+        assertThat(insecureClient.fetchEndpoint("/actuator/health"))
+                .isEqualTo("{\"status\":\"UP\"}");
+        assertThat(negotiatedProtocol.get()).isEqualTo("TLSv1.2");
     }
 
     @Test
