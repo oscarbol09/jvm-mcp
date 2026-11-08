@@ -44,7 +44,8 @@ public final class SensitiveDataRedactor {
      */
     private static final Pattern ASSIGNMENT_PATTERN =
             Pattern.compile(
-                    "(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+)(\\s*=\\s*)['\"]?[^'\"\\s,;&]+['\"]?");
+                    "(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+)(\\s*=\\s*)"
+                            + "(?:\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^'\\\\]|\\\\.)*'|[^'\"\\s,;&]+)");
 
     private static final Pattern JDBC_URL_PATTERN =
             Pattern.compile("(?i)(jdbc:[a-z:]+://[^:]+:)([^@]+)@", Pattern.CASE_INSENSITIVE);
