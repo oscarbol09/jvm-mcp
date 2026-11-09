@@ -1,6 +1,7 @@
 package dev.jvmmcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -9,6 +10,7 @@ import dev.jvmmcp.core.model.Framework;
 import dev.jvmmcp.core.model.JvmProcess;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -222,5 +224,48 @@ class DoctorCommandTest {
         java.nio.file.Files.writeString(ptrace, "1\n");
         DoctorCommand.checkLinuxPtraceScope(ptrace, ps);
         assertThat(out.toString()).contains("Linux yama/ptrace_scope is set to 1");
+    }
+
+    @Test
+    @DisplayName(
+            "doctor should report a clean diagnostic (not crash) when the jdk.attach module is"
+                    + " missing")
+    void shouldHandleMissingAttachModuleGracefully() {
+        JvmAttachService mockAttach = mock(JvmAttachService.class);
+        when(mockAttach.listJvms())
+                .thenThrow(new NoClassDefFoundError("com/sun/tools/attach/VirtualMachine"));
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        int exitCode;
+        try {
+            System.setOut(new PrintStream(out, true, StandardCharsets.UTF_8));
+            exitCode = new DoctorCommand(mockAttach).call();
+        } finally {
+            System.setOut(originalOut);
+        }
+
+        String output = out.toString(StandardCharsets.UTF_8);
+        assertThat(exitCode).isEqualTo(1);
+        assertThat(output).contains("jdk.attach module missing");
+        assertThat(output).doesNotContain("Exception in thread");
+    }
+
+    @Test
+    @DisplayName("doctor should not propagate NoClassDefFoundError to the caller")
+    void shouldNotPropagateLinkageError() {
+        JvmAttachService mockAttach = mock(JvmAttachService.class);
+        when(mockAttach.listJvms())
+                .thenThrow(new NoClassDefFoundError("com/sun/tools/attach/VirtualMachine"));
+
+        PrintStream originalOut = System.out;
+        try {
+            System.setOut(
+                    new PrintStream(new ByteArrayOutputStream(), true, StandardCharsets.UTF_8));
+            DoctorCommand doctor = new DoctorCommand(mockAttach);
+            assertThatCode(doctor::call).doesNotThrowAnyException();
+        } finally {
+            System.setOut(originalOut);
+        }
     }
 }
