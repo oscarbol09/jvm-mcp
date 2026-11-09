@@ -446,7 +446,13 @@ class JvmAttachServiceTest {
             "/usr/lib/jvm/java-21-openjdk-amd64/bin/java, 21",
             "C:\\Program Files\\Java\\jdk-21.0.12\\bin\\java.exe, 21.0.12",
             "/opt/jre1.8.0_382/bin/java, 1.8.0_382",
-            "/opt/jdk-21.0.12.101-hotspot/bin/java, 21.0.12.101"
+            "/opt/jdk-21.0.12.101-hotspot/bin/java, 21.0.12.101",
+            "/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home/bin/java, 21",
+            "/Library/Java/JavaVirtualMachines/corretto-17.0.10.jdk/Contents/Home/bin/java, 17.0.10",
+            "/Users/dev/.sdkman/candidates/java/21.0.2-tem/bin/java, 21.0.2",
+            "/Users/dev/.sdkman/candidates/java/17.0.10-amzn/bin/java, 17.0.10",
+            "/Users/dev/.asdf/installs/java/adoptopenjdk-21.0.2/bin/java, 21.0.2",
+            "/Users/dev/.asdf/installs/java/corretto-21.0.2/bin/java, 21.0.2"
         })
         @DisplayName("should infer versions from common Java installation paths")
         void shouldInferVersionFromJavaHomePath(String command, String expectedVersion) {
