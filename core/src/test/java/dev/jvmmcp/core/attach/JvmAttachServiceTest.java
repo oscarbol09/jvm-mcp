@@ -467,6 +467,9 @@ class JvmAttachServiceTest {
                     "/opt/tools/java-wrapper/bin/java",
                     "/opt/java-17-wrapper/bin/java",
                     "/opt/jdk-21-custom/bin/java",
+                    "/Library/Java/JavaVirtualMachines/custom-tool.jdk/Contents/Home/bin/java",
+                    "/Users/dev/.sdkman/candidates/java/mybuild/bin/java",
+                    "/Users/dev/.asdf/installs/java/nightly/bin/java",
                     ""
                 })
         @DisplayName(
