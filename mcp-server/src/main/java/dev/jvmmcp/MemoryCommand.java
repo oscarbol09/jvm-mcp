@@ -255,7 +255,7 @@ public class MemoryCommand implements Callable<Integer> {
                             }
                         } else {
                             System.err.println(
-                                    "[jvm-mcp] Could not extract live heap histogram: "
+                                    "[jvm-mcp] Could not extract heap histogram: "
                                             + histogramError);
                         }
                     }
