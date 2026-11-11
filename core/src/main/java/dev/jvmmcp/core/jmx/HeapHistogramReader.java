@@ -15,9 +15,9 @@ import javax.management.MBeanServerConnection;
 import javax.management.ObjectName;
 
 /**
- * Executes and parses JVM class histograms ({@code GC.class_histogram}) over the Attach API,
- * with a JMX DiagnosticCommand fallback for runtimes where {@code executeJCmd} is unavailable.
- * Live-only histograms trigger a full stop-the-world GC on HotSpot; all-object histograms do not.
+ * Executes and parses JVM class histograms ({@code GC.class_histogram}) over the Attach API, with a
+ * JMX DiagnosticCommand fallback for runtimes where {@code executeJCmd} is unavailable. Live-only
+ * histograms trigger a full stop-the-world GC on HotSpot; all-object histograms do not.
  */
 public class HeapHistogramReader {
 
@@ -52,8 +52,8 @@ public class HeapHistogramReader {
     /**
      * Reads the heap histogram through the platform {@code
      * com.sun.management:type=DiagnosticCommand} MBean, as a fallback for modular runtimes without
-     * {@code --add-opens jdk.attach/sun.tools.attach}, non-HotSpot JVMs, and self-inspection without
-     * a {@link VirtualMachine} handle.
+     * {@code --add-opens jdk.attach/sun.tools.attach}, non-HotSpot JVMs, and self-inspection
+     * without a {@link VirtualMachine} handle.
      */
     public HeapHistogram readHistogram(MBeanServerConnection mbsc, long pid, int topN)
             throws Exception {
@@ -89,8 +89,8 @@ public class HeapHistogramReader {
         return parseHistogramStream(in, pid, topN, true);
     }
 
-    public HeapHistogram parseHistogramStream(
-            InputStream in, long pid, int topN, boolean liveOnly) throws Exception {
+    public HeapHistogram parseHistogramStream(InputStream in, long pid, int topN, boolean liveOnly)
+            throws Exception {
         if (in == null) {
             return new HeapHistogram(pid, 0, 0, 0.0, List.of(), liveOnly);
         }

@@ -401,7 +401,8 @@ class JvmDiagnosticToolHandlerTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("liveOnly")
                 .hasMessageContaining("boolean");
-        verify(mockAttachService, org.mockito.Mockito.never()).attach(org.mockito.Mockito.anyString());
+        verify(mockAttachService, org.mockito.Mockito.never())
+                .attach(org.mockito.Mockito.anyString());
     }
 
     @Test

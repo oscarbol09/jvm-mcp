@@ -352,7 +352,8 @@ class MemoryCommandTest {
     @DisplayName("memory command --all uses GC.class_histogram -all")
     void shouldAvoidFullGcWhenAllObjectsRequested() {
         long targetPid = ProcessHandle.current().pid();
-        String rawHistogram = """
+        String rawHistogram =
+                """
              num     #instances         #bytes  class name (module)
             -------------------------------------------------------
                1:         10000        2400000  java.lang.String (java.base@21)
@@ -428,7 +429,7 @@ class MemoryCommandTest {
             Integer exitCode = command.call();
 
             assertThat(exitCode).isEqualTo(1);
-            assertThat(err.toString()).contains("[jvm-mcp] Could not extract live heap histogram");
+            assertThat(err.toString()).contains("[jvm-mcp] Could not extract heap histogram");
         } finally {
             System.setErr(originalErr);
         }

@@ -35,12 +35,14 @@ public class MemoryCommand implements Callable<Integer> {
 
     @Option(
             names = {"--histogram", "-H"},
-            description = "Include live heap class histogram (may trigger a full stop-the-world GC on HotSpot)")
+            description =
+                    "Include live heap class histogram (may trigger a full stop-the-world GC on HotSpot)")
     boolean histogram;
 
     @Option(
             names = {"--all"},
-            description = "Include unreachable objects and avoid the full GC (requires --histogram)")
+            description =
+                    "Include unreachable objects and avoid the full GC (requires --histogram)")
     boolean allObjects;
 
     @Option(

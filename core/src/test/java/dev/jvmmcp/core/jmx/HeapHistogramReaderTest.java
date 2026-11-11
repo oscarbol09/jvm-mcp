@@ -275,11 +275,12 @@ class HeapHistogramReaderTest {
 
         org.mockito.ArgumentCaptor<Object[]> arguments =
                 org.mockito.ArgumentCaptor.forClass(Object[].class);
-        org.mockito.Mockito.verify(mbsc).invoke(
-                org.mockito.ArgumentMatchers.any(javax.management.ObjectName.class),
-                org.mockito.ArgumentMatchers.eq("gcClassHistogram"),
-                arguments.capture(),
-                org.mockito.ArgumentMatchers.any());
+        org.mockito.Mockito.verify(mbsc)
+                .invoke(
+                        org.mockito.ArgumentMatchers.any(javax.management.ObjectName.class),
+                        org.mockito.ArgumentMatchers.eq("gcClassHistogram"),
+                        arguments.capture(),
+                        org.mockito.ArgumentMatchers.any());
         assertThat((String[]) arguments.getValue()[0]).containsExactly("-all");
     }
 
@@ -301,11 +302,12 @@ class HeapHistogramReaderTest {
 
         org.mockito.ArgumentCaptor<Object[]> arguments =
                 org.mockito.ArgumentCaptor.forClass(Object[].class);
-        org.mockito.Mockito.verify(mbsc).invoke(
-                org.mockito.ArgumentMatchers.any(javax.management.ObjectName.class),
-                org.mockito.ArgumentMatchers.eq("gcClassHistogram"),
-                arguments.capture(),
-                org.mockito.ArgumentMatchers.any());
+        org.mockito.Mockito.verify(mbsc)
+                .invoke(
+                        org.mockito.ArgumentMatchers.any(javax.management.ObjectName.class),
+                        org.mockito.ArgumentMatchers.eq("gcClassHistogram"),
+                        arguments.capture(),
+                        org.mockito.ArgumentMatchers.any());
         assertThat((String[]) arguments.getValue()[0]).isEmpty();
     }
 
