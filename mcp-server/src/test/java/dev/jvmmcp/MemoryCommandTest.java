@@ -326,6 +326,35 @@ class MemoryCommandTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(ints = {0, -1, 1001})
+    @DisplayName("memory command with --histogram should reject --top outside 1..1000")
+    void shouldRejectOutOfRangeTopForHistogram(int top) {
+        long targetPid = ProcessHandle.current().pid();
+        MemoryCommand command = new MemoryCommand(mockAttachService);
+        command.pid = targetPid;
+        command.histogram = true;
+        command.topN = top;
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        PrintStream originalErr = System.err;
+        try {
+            System.setOut(new PrintStream(out));
+            System.setErr(new PrintStream(err));
+            Integer exitCode = command.call();
+
+            assertThat(exitCode).isEqualTo(1);
+            assertThat(err.toString()).contains("--top must be between 1 and 1000");
+            assertThat(out.toString()).doesNotContain("HEAP HISTOGRAM");
+            org.mockito.Mockito.verifyNoInteractions(mockAttachService);
+        } finally {
+            System.setOut(originalOut);
+            System.setErr(originalErr);
+        }
+    }
+
     @Test
     @DisplayName("memory command with --histogram and VM absent should query histogram over JMX")
     void shouldPrintHeapHistogramWhenVmAbsent() {
