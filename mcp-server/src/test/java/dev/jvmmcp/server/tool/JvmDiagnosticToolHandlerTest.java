@@ -344,6 +344,67 @@ class JvmDiagnosticToolHandlerTest {
     }
 
     @Test
+    @DisplayName("get_heap_histogram documents the live-only full-GC default")
+    void testHeapHistogramSchemaDocumentsLiveOnlyDefault() {
+        Map<String, Object> definition =
+                new JvmDiagnosticToolHandler()
+                        .toolDefinitions().stream()
+                                .filter(tool -> "get_heap_histogram".equals(tool.get("name")))
+                                .findFirst()
+                                .orElseThrow();
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> schema = (Map<String, Object>) definition.get("inputSchema");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> properties = (Map<String, Object>) schema.get("properties");
+        Map<?, ?> liveOnly = (Map<?, ?>) properties.get("liveOnly");
+
+        assertThat(liveOnly.get("type")).isEqualTo("boolean");
+        assertThat(liveOnly.get("default")).isEqualTo(true);
+        assertThat(definition.get("description").toString())
+                .contains("full stop-the-world GC")
+                .contains("unreachable objects");
+    }
+
+    @Test
+    @DisplayName("get_heap_histogram can include unreachable objects without a full GC")
+    void testGetHeapHistogramAllObjectsMode() throws Exception {
+        when(mockAttachService.attach("100")).thenReturn(AttachResult.success("100", null));
+
+        JvmDiagnosticToolHandler handler =
+                new JvmDiagnosticToolHandler(
+                        mockAttachService, (vm, p) -> JmxConnectionManager.connectLocal());
+
+        Map<String, Object> result =
+                handler.execute("get_heap_histogram", Map.of("pid", 100, "liveOnly", false));
+        assertThat(result.get("isError")).isNull();
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
+        Map<String, Object> histogram =
+                SimpleJson.parseObject(content.getFirst().get("text").toString());
+        assertThat(histogram).containsEntry("liveOnly", false);
+    }
+
+    @Test
+    @DisplayName("get_heap_histogram rejects a non-boolean liveOnly argument before attaching")
+    void testHeapHistogramRejectsInvalidLiveOnlyArgument() {
+        JvmDiagnosticToolHandler handler =
+                new JvmDiagnosticToolHandler(
+                        mockAttachService, (vm, p) -> JmxConnectionManager.connectLocal());
+
+        assertThatThrownBy(
+                        () ->
+                                handler.execute(
+                                        "get_heap_histogram",
+                                        Map.of("pid", 100, "liveOnly", "sometimes")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("liveOnly")
+                .hasMessageContaining("boolean");
+        verify(mockAttachService, org.mockito.Mockito.never()).attach(org.mockito.Mockito.anyString());
+    }
+
+    @Test
     @DisplayName("get_heap_histogram executes with default and bounded limits")
     void testGetHeapHistogramLimits() throws Exception {
         when(mockAttachService.attach("100")).thenReturn(AttachResult.success("100", null));
