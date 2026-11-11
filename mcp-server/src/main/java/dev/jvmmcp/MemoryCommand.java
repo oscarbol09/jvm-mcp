@@ -66,6 +66,11 @@ public class MemoryCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
+        if (allObjects && !histogram) {
+            System.err.println("[jvm-mcp] The --all option requires --histogram.");
+            return 1;
+        }
+
         if (pid <= 0) {
             System.err.println("[jvm-mcp] Error: A valid target PID must be specified.");
             return 1;
