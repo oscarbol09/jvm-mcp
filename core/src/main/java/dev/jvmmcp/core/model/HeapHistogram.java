@@ -8,4 +8,15 @@ public record HeapHistogram(
         long totalInstances,
         long totalBytes,
         double totalMegabytes,
-        List<ClassHistogramItem> topClasses) {}
+        List<ClassHistogramItem> topClasses,
+        boolean liveOnly) {
+
+    public HeapHistogram(
+            long pid,
+            long totalInstances,
+            long totalBytes,
+            double totalMegabytes,
+            List<ClassHistogramItem> topClasses) {
+        this(pid, totalInstances, totalBytes, totalMegabytes, topClasses, true);
+    }
+}
