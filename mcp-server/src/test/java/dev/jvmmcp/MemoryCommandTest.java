@@ -288,6 +288,24 @@ class MemoryCommandTest {
     }
 
     @Test
+    @DisplayName("memory command rejects --all without --histogram")
+    void shouldRejectAllWithoutHistogram() {
+        MemoryCommand command = new MemoryCommand(mockAttachService);
+        command.pid = 100L;
+        command.allObjects = true;
+
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        PrintStream originalErr = System.err;
+        try {
+            System.setErr(new PrintStream(err));
+            assertThat(command.call()).isEqualTo(1);
+            assertThat(err.toString()).contains("--all option requires --histogram");
+        } finally {
+            System.setErr(originalErr);
+        }
+    }
+
+    @Test
     @DisplayName("memory command with --histogram and VM attached should print histogram table")
     void shouldPrintHeapHistogramWhenVmPresent() {
         long targetPid = ProcessHandle.current().pid();
