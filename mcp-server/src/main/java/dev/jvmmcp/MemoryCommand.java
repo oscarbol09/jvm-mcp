@@ -122,7 +122,10 @@ public class MemoryCommand implements Callable<Integer> {
                                 // Self-inspection has no VM handle; read the histogram over JMX
                                 hist =
                                         reader.readHistogram(
-                                                jmxManager.getMBeanServerConnection(), pid, topN);
+                                                jmxManager.getMBeanServerConnection(),
+                                                pid,
+                                                topN,
+                                                !allObjects);
                             }
                         } catch (Exception e) {
                             histogramError = e.getMessage();
@@ -228,7 +231,7 @@ public class MemoryCommand implements Callable<Integer> {
                         System.out.printf(Locale.ROOT, "HEAP HISTOGRAM (TOP %d CLASSES)%n", topN);
                         System.out.println(
                                 "Mode: "
-                                        + (hist == null || hist.liveOnly()
+                                        + (!allObjects
                                                 ? "LIVE OBJECTS (full GC on HotSpot)"
                                                 : "ALL OBJECTS (includes unreachable; no full GC)"));
                         System.out.printf(
