@@ -64,6 +64,41 @@ class ActuatorClientTest {
         assertThat(paths).containsExactly(expectedPath, expectedPath);
     }
 
+    @Test
+    void testFetchEndpointPreservesServletContextPath() {
+        server.removeContext("/actuator/health");
+        List<String> contextPaths = List.of("/api", "/my-service/");
+
+        for (String contextPath : contextPaths) {
+            List<String> requestedPaths = new CopyOnWriteArrayList<>();
+
+            server.createContext(
+                    contextPath.replaceAll("/+$", "") + "/actuator/health",
+                    exchange -> {
+                        requestedPaths.add(exchange.getRequestURI().getRawPath());
+
+                        byte[] response = "{\"status\":\"UP\"}".getBytes(StandardCharsets.UTF_8);
+
+                        exchange.sendResponseHeaders(200, response.length);
+
+                        try (OutputStream os = exchange.getResponseBody()) {
+                            os.write(response);
+                        }
+                    });
+
+            ActuatorClient contextPathClient =
+                    new ActuatorClient("http://127.0.0.1:" + port + contextPath, ActuatorAuth.NONE);
+
+            String response = contextPathClient.fetchEndpoint("/actuator/health");
+
+            assertThat(response).isEqualTo("{\"status\":\"UP\"}");
+
+            String expectedPath = contextPath.replaceAll("/+$", "") + "/actuator/health";
+
+            assertThat(requestedPaths).containsExactly(expectedPath);
+        }
+    }
+
     @BeforeEach
     void setUp() throws IOException {
         server = HttpServer.create(new InetSocketAddress(0), 0);

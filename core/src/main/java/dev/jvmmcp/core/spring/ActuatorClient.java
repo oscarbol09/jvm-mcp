@@ -243,8 +243,9 @@ public class ActuatorClient {
                     "SSRF Protection: Path traversal sequences are prohibited in endpoint: "
                             + endpoint);
         }
-        URI baseUri = URI.create(baseUrl);
-        URI resolvedUri = baseUri.resolve(URI.create(targetPath).normalize());
+        URI baseUri = URI.create(baseUrl.endsWith("/") ? baseUrl : baseUrl + "/");
+        String relativePath = targetPath.replaceFirst("^/+", "");
+        URI resolvedUri = baseUri.resolve(URI.create(relativePath).normalize());
         if (!Objects.equals(resolvedUri.getScheme(), baseUri.getScheme())
                 || !Objects.equals(resolvedUri.getHost(), baseUri.getHost())
                 || resolvedUri.getPort() != baseUri.getPort()) {
