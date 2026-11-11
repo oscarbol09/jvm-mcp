@@ -67,6 +67,7 @@ class MemoryCommandTest {
     public static class StubVirtualMachine extends VirtualMachine {
         private final InputStream stream;
         private final boolean shouldThrow;
+        private String lastCommand;
 
         StubVirtualMachine(InputStream stream) {
             super(new DummyAttachProvider(), "100");
@@ -81,6 +82,7 @@ class MemoryCommandTest {
         }
 
         public InputStream executeJCmd(String command) throws Exception {
+            lastCommand = command;
             if (shouldThrow) {
                 throw new RuntimeException("jcmd error");
             }
@@ -321,6 +323,42 @@ class MemoryCommandTest {
             assertThat(output).contains("RANK   INSTANCES      BYTES (MB)     CLASS NAME");
             assertThat(output).contains("java.lang.String");
             assertThat(output).contains("java.util.HashMap$Node");
+            assertThat(output).contains("LIVE OBJECTS (full GC on HotSpot)");
+            assertThat(((StubVirtualMachine) stubVm).lastCommand).isEqualTo("GC.class_histogram");
+        } finally {
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
+    @DisplayName("memory command --all uses GC.class_histogram -all")
+    void shouldAvoidFullGcWhenAllObjectsRequested() {
+        long targetPid = ProcessHandle.current().pid();
+        String rawHistogram = """
+             num     #instances         #bytes  class name (module)
+            -------------------------------------------------------
+               1:         10000        2400000  java.lang.String (java.base@21)
+            Total         10000        2400000
+            """;
+        VirtualMachine stubVm =
+                new StubVirtualMachine(
+                        new ByteArrayInputStream(rawHistogram.getBytes(StandardCharsets.UTF_8)));
+        when(mockAttachService.attach(String.valueOf(targetPid)))
+                .thenReturn(AttachResult.success(String.valueOf(targetPid), stubVm));
+
+        MemoryCommand command = new MemoryCommand(mockAttachService);
+        command.pid = targetPid;
+        command.histogram = true;
+        command.allObjects = true;
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try {
+            System.setOut(new PrintStream(out));
+            assertThat(command.call()).isZero();
+            assertThat(((StubVirtualMachine) stubVm).lastCommand)
+                    .isEqualTo("GC.class_histogram -all");
+            assertThat(out.toString()).contains("ALL OBJECTS (includes unreachable; no full GC)");
         } finally {
             System.setOut(originalOut);
         }
