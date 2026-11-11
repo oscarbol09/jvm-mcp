@@ -183,7 +183,10 @@ class HeapHistogramReaderTest {
             super(new DummyProvider(), "123");
         }
 
+        private String lastCommand;
+
         public InputStream executeJCmd(String cmd) {
+            lastCommand = cmd;
             return new ByteArrayInputStream(SAMPLE_HISTOGRAM.getBytes(StandardCharsets.UTF_8));
         }
 
@@ -228,6 +231,12 @@ class HeapHistogramReaderTest {
 
         assertThat(histogram).isNotNull();
         assertThat(histogram.topClasses()).hasSize(2);
+        assertThat(histogram.liveOnly()).isTrue();
+        assertThat(fakeVm.lastCommand).isEqualTo("GC.class_histogram");
+
+        HeapHistogram allObjects = reader.readHistogram(fakeVm, 123L, 2, false);
+        assertThat(allObjects.liveOnly()).isFalse();
+        assertThat(fakeVm.lastCommand).isEqualTo("GC.class_histogram -all");
     }
 
     @Test
@@ -255,13 +264,49 @@ class HeapHistogramReaderTest {
                 .thenReturn(SAMPLE_HISTOGRAM);
 
         HeapHistogramReader reader = new HeapHistogramReader();
-        HeapHistogram histogram = reader.readHistogram(mbsc, 123L, 2);
+        HeapHistogram histogram = reader.readHistogram(mbsc, 123L, 2, false);
 
         assertThat(histogram).isNotNull();
         assertThat(histogram.pid()).isEqualTo(123L);
         assertThat(histogram.topClasses()).hasSize(2);
         assertThat(histogram.topClasses().get(0).className()).contains("java.lang.String");
         assertThat(histogram.topClasses().get(0).instances()).isEqualTo(45231L);
+        assertThat(histogram.liveOnly()).isFalse();
+
+        org.mockito.ArgumentCaptor<Object[]> arguments =
+                org.mockito.ArgumentCaptor.forClass(Object[].class);
+        org.mockito.Mockito.verify(mbsc).invoke(
+                org.mockito.ArgumentMatchers.any(javax.management.ObjectName.class),
+                org.mockito.ArgumentMatchers.eq("gcClassHistogram"),
+                arguments.capture(),
+                org.mockito.ArgumentMatchers.any());
+        assertThat((String[]) arguments.getValue()[0]).containsExactly("-all");
+    }
+
+    @Test
+    @DisplayName("readHistogram uses empty MBean arguments for the default live-only mode")
+    void shouldUseLiveOnlyModeByDefaultForDiagnosticCommandMBean() throws Exception {
+        javax.management.MBeanServerConnection mbsc =
+                org.mockito.Mockito.mock(javax.management.MBeanServerConnection.class);
+        org.mockito.Mockito.when(
+                        mbsc.invoke(
+                                org.mockito.ArgumentMatchers.any(javax.management.ObjectName.class),
+                                org.mockito.ArgumentMatchers.eq("gcClassHistogram"),
+                                org.mockito.ArgumentMatchers.any(),
+                                org.mockito.ArgumentMatchers.any()))
+                .thenReturn(SAMPLE_HISTOGRAM);
+
+        HeapHistogram histogram = new HeapHistogramReader().readHistogram(mbsc, 123L, 2);
+        assertThat(histogram.liveOnly()).isTrue();
+
+        org.mockito.ArgumentCaptor<Object[]> arguments =
+                org.mockito.ArgumentCaptor.forClass(Object[].class);
+        org.mockito.Mockito.verify(mbsc).invoke(
+                org.mockito.ArgumentMatchers.any(javax.management.ObjectName.class),
+                org.mockito.ArgumentMatchers.eq("gcClassHistogram"),
+                arguments.capture(),
+                org.mockito.ArgumentMatchers.any());
+        assertThat((String[]) arguments.getValue()[0]).isEmpty();
     }
 
     @Test
