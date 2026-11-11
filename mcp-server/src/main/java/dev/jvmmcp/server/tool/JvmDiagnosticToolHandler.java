@@ -152,7 +152,8 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
                                         "required", requiredPidArguments())),
                 Map.of(
                         "name", "get_heap_histogram",
-                        "description", "Retrieves a histogram of class instances in the JVM heap",
+                        "description",
+                                "Retrieves a JVM heap class histogram. On HotSpot, live-only mode (default) triggers a full stop-the-world GC; set liveOnly=false to avoid that GC and include unreachable objects.",
                         "inputSchema",
                                 Map.of(
                                         "type", "object",
@@ -169,7 +170,15 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
                                                                         "type",
                                                                         "number",
                                                                         "description",
-                                                                        "Limit of classes to return (default 100)")),
+                                                                        "Limit of classes to return (default 100)"),
+                                                        "liveOnly",
+                                                                Map.of(
+                                                                        "type",
+                                                                        "boolean",
+                                                                        "default",
+                                                                        true,
+                                                                        "description",
+                                                                        "Return only live objects; on HotSpot this triggers a full stop-the-world GC. Set false to include unreachable objects without that GC.")),
                                         "required", requiredPidArguments())),
                 Map.of(
                         "name", "get_thread_dump",
@@ -227,6 +236,9 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
         boolean includeVirtualThreads =
                 ("get_thread_diagnostics".equals(toolName) || "get_thread_dump".equals(toolName))
                         && ToolArgs.getBooleanArg(args, "includeVirtualThreads", false);
+        boolean liveOnly =
+                "get_heap_histogram".equals(toolName)
+                        && ToolArgs.getBooleanArg(args, "liveOnly", true);
         AttachResult attachResult = attachService.attach(String.valueOf(pid));
         if (!attachResult.isSuccessful()) {
             throw new IllegalStateException(attachResult.message());
@@ -260,7 +272,8 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
                                             histoReader.readHistogram(
                                                     jmxManager.getMBeanServerConnection(),
                                                     pid,
-                                                    limit))));
+                                                    limit,
+                                                    liveOnly))));
                 } else if ("get_thread_diagnostics".equals(toolName)) {
                     int topCpuLimit = ToolArgs.getIntArg(args, "topCpuLimit", 5, 1, 100);
                     String javaSpecificationVersion =
