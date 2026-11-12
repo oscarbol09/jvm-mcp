@@ -9,7 +9,9 @@ import com.sun.tools.attach.VirtualMachine;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.lang.reflect.Constructor;
+import java.time.Duration;
 import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
 import javax.management.MBeanServer;
 import javax.management.MBeanServerConnection;
 import javax.management.remote.JMXConnector;
@@ -179,6 +181,47 @@ class JmxConnectionManagerTest {
         assertThat(thrown).isSameAs(connectionFailure);
         assertThat(thrown.getSuppressed()).containsExactly(closeFailure);
         verify(connector).close();
+    }
+
+    @Test
+    @DisplayName("connectWithTimeout returns the connector when it connects before the timeout")
+    void shouldReturnConnectorWithinTimeout() throws Exception {
+        JMXConnector connector = mock(JMXConnector.class);
+        JMXServiceURL url = new JMXServiceURL("service:jmx:rmi:///jndi/rmi://localhost:0/jmxrmi");
+
+        JMXConnector result =
+                JmxConnectionManager.connectWithTimeout(
+                        url, Duration.ofSeconds(1), ignored -> connector);
+
+        assertThat(result).isSameAs(connector);
+    }
+
+    @Test
+    @DisplayName("connectWithTimeout throws IOException when the connector does not answer in time")
+    void shouldTimeOutWhenConnectorHangs() throws Exception {
+        JMXServiceURL url = new JMXServiceURL("service:jmx:rmi:///jndi/rmi://localhost:0/jmxrmi");
+        CountDownLatch release = new CountDownLatch(1);
+
+        try {
+            assertThatThrownBy(
+                            () ->
+                                    JmxConnectionManager.connectWithTimeout(
+                                            url,
+                                            Duration.ofMillis(100),
+                                            ignored -> {
+                                                try {
+                                                    release.await();
+                                                } catch (InterruptedException e) {
+                                                    Thread.currentThread().interrupt();
+                                                    throw new IOException("interrupted", e);
+                                                }
+                                                return mock(JMXConnector.class);
+                                            }))
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("Timed out");
+        } finally {
+            release.countDown();
+        }
     }
 
     @Test
