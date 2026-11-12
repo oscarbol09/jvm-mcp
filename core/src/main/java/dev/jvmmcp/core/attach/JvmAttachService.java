@@ -26,6 +26,22 @@ public class JvmAttachService {
             Pattern.compile(
                     "(?i)(?:^|[/\\\\])(?:jdk|jre|java)[-_]?(?<version>(?:1\\.)?\\d+(?:[._]\\d+)*)(?:[-_](?:hotspot|openjdk|oracle|temurin|zulu|corretto|liberica|graalvm)[^/\\\\]*)?[/\\\\]bin[/\\\\]java(?:\\.exe)?$");
 
+    // macOS JDK/JRE bundle layout: .../<name>.jdk/Contents/Home/bin/java (also .jre).
+    private static final Pattern MACOS_BUNDLE =
+            Pattern.compile(
+                    "(?i)[/\\\\](?<dir>[^/\\\\]+)\\.(?:jdk|jre)[/\\\\]Contents[/\\\\]Home[/\\\\]bin[/\\\\]java(?:\\.exe)?$");
+
+    // Version-manager layout (SDKMAN, asdf, mise, jabba): .../java/<install-dir>/bin/java.
+    private static final Pattern VERSION_MANAGER_DIR =
+            Pattern.compile(
+                    "(?i)[/\\\\]java[/\\\\](?<dir>[^/\\\\]+)[/\\\\]bin[/\\\\]java(?:\\.exe)?$");
+
+    // Version token inside an install-directory name: an optional known vendor prefix followed by
+    // the version digits (e.g. 21.0.2-tem, corretto-21.0.2, temurin-21).
+    private static final Pattern DISTRO_DIR_VERSION =
+            Pattern.compile(
+                    "(?i)^(?:(?:adoptopenjdk|adoptium|temurin|corretto|zulu|liberica|graalvm|openjdk|oracle|semeru|microsoft|dragonwell|sapmachine|hotspot|jdk|jre|java)[-_]?)?(?<version>\\d+(?:[._]\\d+)*)");
+
     private final Function<Long, Optional<ProcessHandle>> processLookup;
     private final Supplier<ProcessHandle> currentProcessSupplier;
 
@@ -102,8 +118,45 @@ public class JvmAttachService {
             return "unknown";
         }
 
-        Matcher matcher = JAVA_HOME_VERSION.matcher(command.get());
-        return matcher.find() ? matcher.group("version") : "unknown";
+        String path = command.get();
+
+        // 1. Vendor-prefixed jdk/jre/java directory immediately above bin/ (Linux packages,
+        // Windows).
+        Matcher matcher = JAVA_HOME_VERSION.matcher(path);
+        if (matcher.find()) {
+            return matcher.group("version");
+        }
+
+        // 2. macOS bundle: <name>.jdk/Contents/Home/bin/java (the version lives in <name>).
+        Matcher macos = MACOS_BUNDLE.matcher(path);
+        if (macos.find()) {
+            String version = versionFromDirName(macos.group("dir"));
+            if (version != null) {
+                return version;
+            }
+        }
+
+        // 3. Version managers: .../java/<install-dir>/bin/java (SDKMAN, asdf, mise, jabba).
+        Matcher managed = VERSION_MANAGER_DIR.matcher(path);
+        if (managed.find()) {
+            String version = versionFromDirName(managed.group("dir"));
+            if (version != null) {
+                return version;
+            }
+        }
+
+        return "unknown";
+    }
+
+    /**
+     * Extracts a version token from a JDK installation directory name, accepting either a leading
+     * semantic version (SDKMAN style, e.g. {@code 21.0.2-tem}) or a known vendor prefix followed by
+     * a version (e.g. {@code corretto-21.0.2}, {@code temurin-21}). Returns {@code null} when the
+     * name carries no recognizable version so unrelated directories remain {@code "unknown"}.
+     */
+    private static String versionFromDirName(String dirName) {
+        Matcher matcher = DISTRO_DIR_VERSION.matcher(dirName);
+        return matcher.find() ? matcher.group("version") : null;
     }
 
     public AttachResult attach(String pid) {
