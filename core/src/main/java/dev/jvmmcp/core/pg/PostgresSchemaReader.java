@@ -4,6 +4,7 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import dev.jvmmcp.core.pg.PostgresModels.*;
 import dev.jvmmcp.core.util.SensitiveDataRedactor;
+import java.lang.System.Logger;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -14,8 +15,15 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 public class PostgresSchemaReader implements AutoCloseable {
+
+    private static final Logger LOGGER = System.getLogger(PostgresSchemaReader.class.getName());
 
     public static final long DEFAULT_MIN_TABLE_SIZE_BYTES = 1024L * 1024L;
     public static final int DEFAULT_SLOW_QUERY_LIMIT = 20;
@@ -62,6 +70,7 @@ public class PostgresSchemaReader implements AutoCloseable {
     private final String jdbcUrl;
     private final String username;
     private final String password;
+    private final ExecutorService queryExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
     public PostgresSchemaReader(String jdbcUrl, String username, String password) {
         validateJdbcUrl(jdbcUrl);
@@ -195,7 +204,46 @@ public class PostgresSchemaReader implements AutoCloseable {
     }
 
     @Override
-    public void close() {}
+    public void close() {
+        queryExecutor.shutdownNow();
+    }
+
+    /**
+     * Runs a blocking JDBC call on a separate thread so the caller can wait in an interruptible
+     * {@link Future#get()}. When the caller is interrupted, the in-flight statement is cancelled
+     * before the interruption is propagated.
+     */
+    <T> T executeCancellable(Statement statement, Callable<T> query) throws SQLException {
+        Future<T> future = queryExecutor.submit(query);
+        try {
+            return future.get();
+        } catch (InterruptedException e) {
+            cancelQuery(statement, future);
+            Thread.currentThread().interrupt();
+            throw new SQLException("Interrupted while executing PostgreSQL query", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof SQLException sqlException) {
+                throw sqlException;
+            }
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new SQLException("Failed to execute PostgreSQL query", cause);
+        }
+    }
+
+    private void cancelQuery(Statement statement, Future<?> future) {
+        try {
+            statement.cancel();
+        } catch (SQLException e) {
+            LOGGER.log(Logger.Level.DEBUG, "Failed to cancel in-flight PostgreSQL statement", e);
+        }
+        future.cancel(true);
+    }
 
     private Connection getConnection() throws SQLException {
         String cacheKey = buildCacheKey(jdbcUrl, username, password);
@@ -251,22 +299,26 @@ public class PostgresSchemaReader implements AutoCloseable {
             WHERE
                 t.table_schema = ? AND t.table_type = 'BASE TABLE'
             """;
-        List<TableInfo> result = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setQueryTimeout(QUERY_TIMEOUT_SECONDS);
             ps.setString(1, schemaName);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    result.add(
-                            new TableInfo(
-                                    rs.getString("table_name"),
-                                    rs.getLong("estimated_row_count"),
-                                    rs.getInt("column_count"),
-                                    rs.getLong("size_bytes")));
-                }
-            }
+            return executeCancellable(
+                    ps,
+                    () -> {
+                        List<TableInfo> result = new ArrayList<>();
+                        try (ResultSet rs = ps.executeQuery()) {
+                            while (rs.next()) {
+                                result.add(
+                                        new TableInfo(
+                                                rs.getString("table_name"),
+                                                rs.getLong("estimated_row_count"),
+                                                rs.getInt("column_count"),
+                                                rs.getLong("size_bytes")));
+                            }
+                        }
+                        return result;
+                    });
         }
-        return result;
     }
 
     private List<IndexInfo> getIndexes(Connection conn, String schemaName) throws SQLException {
@@ -287,24 +339,28 @@ public class PostgresSchemaReader implements AutoCloseable {
             WHERE
                 i.schemaname = ?
             """;
-        List<IndexInfo> result = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setQueryTimeout(QUERY_TIMEOUT_SECONDS);
             ps.setString(1, schemaName);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    result.add(
-                            new IndexInfo(
-                                    rs.getString("table_name"),
-                                    rs.getString("index_name"),
-                                    rs.getString("index_def"),
-                                    rs.getLong("size_bytes"),
-                                    rs.getBoolean("is_unique"),
-                                    rs.getBoolean("is_primary")));
-                }
-            }
+            return executeCancellable(
+                    ps,
+                    () -> {
+                        List<IndexInfo> result = new ArrayList<>();
+                        try (ResultSet rs = ps.executeQuery()) {
+                            while (rs.next()) {
+                                result.add(
+                                        new IndexInfo(
+                                                rs.getString("table_name"),
+                                                rs.getString("index_name"),
+                                                rs.getString("index_def"),
+                                                rs.getLong("size_bytes"),
+                                                rs.getBoolean("is_unique"),
+                                                rs.getBoolean("is_primary")));
+                            }
+                        }
+                        return result;
+                    });
         }
-        return result;
     }
 
     private List<ForeignKeyInfo> getForeignKeys(Connection conn, String schemaName)
@@ -326,27 +382,34 @@ public class PostgresSchemaReader implements AutoCloseable {
             WHERE c.contype = 'f'
             AND n.nspname = ?
             """;
-        List<ForeignKeyInfo> result = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setQueryTimeout(QUERY_TIMEOUT_SECONDS);
             ps.setString(1, schemaName);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    // Extract just the table name without schema prefix if it exists
-                    String srcTable = stripSchemaPrefix(rs.getString("source_table"), schemaName);
-                    String tgtTable = stripSchemaPrefix(rs.getString("foreign_table"), schemaName);
+            return executeCancellable(
+                    ps,
+                    () -> {
+                        List<ForeignKeyInfo> result = new ArrayList<>();
+                        try (ResultSet rs = ps.executeQuery()) {
+                            while (rs.next()) {
+                                // Extract just the table name without schema prefix if it exists
+                                String srcTable =
+                                        stripSchemaPrefix(rs.getString("source_table"), schemaName);
+                                String tgtTable =
+                                        stripSchemaPrefix(
+                                                rs.getString("foreign_table"), schemaName);
 
-                    result.add(
-                            new ForeignKeyInfo(
-                                    srcTable,
-                                    rs.getString("constraint_name"),
-                                    rs.getString("source_column"),
-                                    tgtTable,
-                                    rs.getString("foreign_column")));
-                }
-            }
+                                result.add(
+                                        new ForeignKeyInfo(
+                                                srcTable,
+                                                rs.getString("constraint_name"),
+                                                rs.getString("source_column"),
+                                                tgtTable,
+                                                rs.getString("foreign_column")));
+                            }
+                        }
+                        return result;
+                    });
         }
-        return result;
     }
 
     private String stripSchemaPrefix(String tableName, String currentSchema) {
@@ -389,25 +452,31 @@ public class PostgresSchemaReader implements AutoCloseable {
                 seq_tup_read DESC
             LIMIT 20
             """;
-        List<MissingIndexCandidate> candidates = new ArrayList<>();
         try (Connection conn = getConnection();
                 PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setQueryTimeout(QUERY_TIMEOUT_SECONDS);
             ps.setString(1, safeSchema);
             ps.setLong(2, minTableSizeBytes);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    candidates.add(
-                            new MissingIndexCandidate(
-                                    rs.getString("table_name"),
-                                    rs.getLong("seq_scan"),
-                                    rs.getLong("seq_tup_read"),
-                                    rs.getLong("idx_scan"),
-                                    rs.getLong("idx_tup_fetch")));
-                }
-            }
+            List<MissingIndexCandidate> candidates =
+                    executeCancellable(
+                            ps,
+                            () -> {
+                                List<MissingIndexCandidate> rows = new ArrayList<>();
+                                try (ResultSet rs = ps.executeQuery()) {
+                                    while (rs.next()) {
+                                        rows.add(
+                                                new MissingIndexCandidate(
+                                                        rs.getString("table_name"),
+                                                        rs.getLong("seq_scan"),
+                                                        rs.getLong("seq_tup_read"),
+                                                        rs.getLong("idx_scan"),
+                                                        rs.getLong("idx_tup_fetch")));
+                                    }
+                                }
+                                return rows;
+                            });
+            return new MissingIndexAnalysis(candidates);
         }
-        return new MissingIndexAnalysis(candidates);
     }
 
     public SlowQueryAnalysis findSlowQueries() throws SQLException {
@@ -424,15 +493,24 @@ public class PostgresSchemaReader implements AutoCloseable {
         try (Connection conn = getConnection()) {
             try (Statement stmt = conn.createStatement()) {
                 stmt.setQueryTimeout(QUERY_TIMEOUT_SECONDS);
-                try (ResultSet rs =
-                        stmt.executeQuery(
-                                "SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements'")) {
-                    if (rs.next()) {
-                        hasExtension = true;
-                    }
-                }
+                hasExtension =
+                        executeCancellable(
+                                stmt,
+                                () -> {
+                                    try (ResultSet rs =
+                                            stmt.executeQuery(
+                                                    "SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements'")) {
+                                        return rs.next();
+                                    }
+                                });
             } catch (SQLException e) {
-                // Ignore, might not have permission to read pg_extension
+                if (Thread.currentThread().isInterrupted()) {
+                    throw e;
+                }
+                LOGGER.log(
+                        Logger.Level.DEBUG,
+                        "Could not check pg_stat_statements availability; assuming it is absent",
+                        e);
             }
 
             if (!hasExtension) {
@@ -465,24 +543,34 @@ public class PostgresSchemaReader implements AutoCloseable {
                     compatible_mean_time DESC
                 LIMIT ?
                 """;
-            List<SlowQueryInfo> slowQueries = new ArrayList<>();
+            List<SlowQueryInfo> slowQueries;
             try (PreparedStatement stmt = conn.prepareStatement(sql)) {
                 stmt.setQueryTimeout(QUERY_TIMEOUT_SECONDS);
                 stmt.setInt(1, effectiveLimit);
-                try (ResultSet rs = stmt.executeQuery()) {
-                    while (rs.next()) {
-                        String rawQuery = rs.getString("query");
-                        String sanitizedQuery = sanitizeQuery(rawQuery);
-                        slowQueries.add(
-                                new SlowQueryInfo(
-                                        sanitizedQuery,
-                                        rs.getLong("calls"),
-                                        rs.getDouble("compatible_mean_time"),
-                                        rs.getDouble("compatible_max_time"),
-                                        rs.getLong("rows")));
-                    }
-                }
+                slowQueries =
+                        executeCancellable(
+                                stmt,
+                                () -> {
+                                    List<SlowQueryInfo> rows = new ArrayList<>();
+                                    try (ResultSet rs = stmt.executeQuery()) {
+                                        while (rs.next()) {
+                                            String rawQuery = rs.getString("query");
+                                            String sanitizedQuery = sanitizeQuery(rawQuery);
+                                            rows.add(
+                                                    new SlowQueryInfo(
+                                                            sanitizedQuery,
+                                                            rs.getLong("calls"),
+                                                            rs.getDouble("compatible_mean_time"),
+                                                            rs.getDouble("compatible_max_time"),
+                                                            rs.getLong("rows")));
+                                        }
+                                    }
+                                    return rows;
+                                });
             } catch (SQLException e) {
+                if (Thread.currentThread().isInterrupted()) {
+                    throw e;
+                }
                 throw new SQLException("Failed to read pg_stat_statements: " + e.getMessage(), e);
             }
             return new SlowQueryAnalysis(true, slowQueries);
