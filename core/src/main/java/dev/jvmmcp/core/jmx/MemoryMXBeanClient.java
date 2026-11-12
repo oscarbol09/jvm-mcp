@@ -142,10 +142,23 @@ public class MemoryMXBeanClient implements MemoryDiagnosticPort {
 
         double maxMemoryRatio = Math.max(heapRatio, maxMetaspaceRatio);
 
-        long totalGcTime = gcs.stream().mapToLong(GarbageCollectorInfo::collectionTimeMs).sum();
-        long totalGcCount = gcs.stream().mapToLong(GarbageCollectorInfo::collectionCount).sum();
+        // -1 means the MXBean has no reading. Cycle collectors overlap the mutator,
+        // so the alarm ratio uses pause time only. totalGcTimeMs still sums every reading.
+        long totalGcTime = 0;
+        long totalGcCount = 0;
+        long pauseGcTime = 0;
+        for (GarbageCollectorInfo gc : gcs) {
+            long time = Math.max(0, gc.collectionTimeMs());
+            long count = Math.max(0, gc.collectionCount());
+            totalGcTime += time;
+            totalGcCount += count;
+            if (isPauseCollector(gc.name())) {
+                pauseGcTime += time;
+            }
+        }
 
-        double gcOverhead = uptimeMs > 0 ? ((double) totalGcTime / (double) uptimeMs) : 0.0;
+        double gcOverhead =
+                uptimeMs > 0 ? Math.min(1.0, (double) pauseGcTime / (double) uptimeMs) : 0.0;
 
         MemoryPressureLevel level;
         String recommendation;
@@ -155,7 +168,7 @@ public class MemoryMXBeanClient implements MemoryDiagnosticPort {
             recommendation =
                     "CRITICAL: GC Lifetime Overhead is "
                             + Math.round(gcOverhead * 100)
-                            + "%. The JVM is spending excessive time in Garbage Collection (Thrashing), severely degrading throughput. Inspect for memory leaks.";
+                            + "% (accumulated GC pause time over JVM uptime). The JVM is spending excessive time in Garbage Collection (Thrashing), severely degrading throughput. Inspect for memory leaks.";
         } else if (maxMemoryRatio >= 0.95) {
             level = MemoryPressureLevel.CRITICAL;
             if (maxMetaspaceRatio >= 0.95) {
@@ -171,7 +184,7 @@ public class MemoryMXBeanClient implements MemoryDiagnosticPort {
                 recommendation =
                         "ELEVATED: GC Overhead is "
                                 + Math.round(gcOverhead * 100)
-                                + "%. Frequent GC cycles are introducing latency spikes. Monitor object allocation rates.";
+                                + "% (accumulated GC pause time over JVM uptime). Frequent GC cycles are introducing latency spikes. Monitor object allocation rates.";
             } else {
                 recommendation = "ELEVATED: Memory utilization exceeds 85%. Monitor memory pools.";
             }
@@ -189,6 +202,11 @@ public class MemoryMXBeanClient implements MemoryDiagnosticPort {
                 totalGcTime,
                 totalGcCount,
                 recommendation);
+    }
+
+    /** Pause collectors stop the mutator. Concurrent and cycle beans do not. */
+    private static boolean isPauseCollector(String name) {
+        return !name.contains("Concurrent") && !name.endsWith("Cycles");
     }
 
     @Override
