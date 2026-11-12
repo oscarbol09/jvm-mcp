@@ -150,6 +150,26 @@ class SensitiveDataRedactorTest {
     }
 
     @Test
+    @DisplayName("Redacts entire quoted assignment values containing spaces and separators")
+    void testQuotedAssignmentSecrets() {
+        String input =
+                "password=\"Super Secret 2026!\" clientSecret='a phrase, with; punctuation'"
+                        + " apiKey = \"a \\\"quoted\\\" secret\"";
+
+        assertThat(SensitiveDataRedactor.redact(input))
+                .isEqualTo("password=*** clientSecret=*** apiKey=***")
+                .doesNotContain("Secret 2026", "phrase, with", "quoted");
+    }
+
+    @Test
+    @DisplayName("Preserves benign quoted assignments containing spaces")
+    void testNonSensitiveQuotedAssignments() {
+        String input = "message=\"a harmless sentence\" tokenizer='some, ordinary; text'";
+
+        assertThat(SensitiveDataRedactor.redact(input)).isEqualTo(input);
+    }
+
+    @Test
     @DisplayName("Redacts JDBC connection password in URLs")
     void testJdbcUrlPassword() {
         String url = "Connecting to jdbc:postgresql://postgres:secretDbPass123@localhost:5432/mydb";
