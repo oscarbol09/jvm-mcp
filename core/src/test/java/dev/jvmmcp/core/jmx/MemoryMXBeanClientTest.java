@@ -144,6 +144,53 @@ class MemoryMXBeanClientTest {
     }
 
     @Test
+    @DisplayName(
+            "evaluatePressure ignores undefined GC times and concurrent cycle time when the heap is low")
+    void shouldIgnoreUndefinedAndConcurrentCycleTime() {
+        MemoryUsageInfo normalHeap = new MemoryUsageInfo(100, 200, 1000, 1000, 20.0, 20.0, 100.0);
+        MemoryPressure pressure =
+                memoryClient.evaluatePressure(
+                        normalHeap,
+                        List.of(),
+                        List.of(
+                                new GarbageCollectorInfo(
+                                        "G1 Young", -1, -1, new String[] {"G1 Eden"}),
+                                new GarbageCollectorInfo(
+                                        "G1 Concurrent GC", 3, 9000, new String[] {"G1 Old Gen"}),
+                                new GarbageCollectorInfo(
+                                        "ZGC Cycles", 4, 5000, new String[] {"ZHeap"})),
+                        10000L);
+
+        assertThat(pressure.level()).isEqualTo(MemoryPressureLevel.NORMAL);
+        assertThat(pressure.totalGcTimeMs()).isEqualTo(14000);
+        assertThat(pressure.totalGcCount()).isEqualTo(7);
+        assertThat(pressure.recommendation()).doesNotContain("CRITICAL");
+    }
+
+    @Test
+    @DisplayName(
+            "evaluatePressure flags CRITICAL for pause time over 20% of uptime and caps the percent at 100")
+    void shouldFlagCriticalPauseOverheadAndCapThePercent() {
+        MemoryUsageInfo normalHeap = new MemoryUsageInfo(100, 200, 1000, 1000, 20.0, 20.0, 100.0);
+        MemoryPressure pressure =
+                memoryClient.evaluatePressure(
+                        normalHeap,
+                        List.of(),
+                        List.of(
+                                new GarbageCollectorInfo(
+                                        "ZGC Pauses", 8, 25000, new String[] {"ZHeap"})),
+                        10000L);
+
+        assertThat(pressure.level()).isEqualTo(MemoryPressureLevel.CRITICAL);
+        assertThat(pressure.totalGcTimeMs()).isEqualTo(25000);
+        assertThat(pressure.totalGcCount()).isEqualTo(8);
+        assertThat(pressure.recommendation()).contains("GC Lifetime Overhead");
+        assertThat(pressure.recommendation()).contains("100%");
+        assertThat(pressure.recommendation()).contains("pause");
+        assertThat(pressure.recommendation()).doesNotContain("250");
+    }
+
+    @Test
     @DisplayName("evaluatePressure flags ELEVATED when heap ratio is between 85% and 95%")
     void shouldFlagElevatedPressure() {
         MemoryUsageInfo elevatedUsage =
