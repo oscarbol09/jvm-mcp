@@ -66,6 +66,14 @@ public class MemoryCommand implements Callable<Integer> {
             return 1;
         }
 
+        if (histogram && (topN <= 0 || topN > HeapHistogramReader.MAX_TOP_N)) {
+            System.err.println(
+                    "[jvm-mcp] Error: --top must be between 1 and "
+                            + HeapHistogramReader.MAX_TOP_N
+                            + ".");
+            return 1;
+        }
+
         try {
             AttachResult attachResult = attachService.attach(String.valueOf(pid));
 
