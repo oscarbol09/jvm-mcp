@@ -369,6 +369,7 @@ class MemoryCommandTest {
         command.pid = targetPid;
         command.histogram = true;
         command.allObjects = true;
+        command.topN = 20;
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         PrintStream originalOut = System.out;
@@ -492,6 +493,7 @@ class MemoryCommandTest {
     void shouldInitializeWithDefaultConstructor() {
         MemoryCommand command = new MemoryCommand();
         assertThat(command).isNotNull();
+        assertThat(command.topN).isEqualTo(20);
     }
 
     @Test

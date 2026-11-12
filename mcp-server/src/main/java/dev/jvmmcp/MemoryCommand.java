@@ -54,7 +54,7 @@ public class MemoryCommand implements Callable<Integer> {
             names = {"--top", "-n"},
             defaultValue = "20",
             description = "Number of top classes in histogram (default: 20)")
-    int topN;
+    int topN = 20;
 
     private final JvmAttachService attachService;
 
