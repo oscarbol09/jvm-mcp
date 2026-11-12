@@ -16,6 +16,7 @@ import java.io.PrintStream;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -612,5 +613,60 @@ class PgCommandTest {
         assertThat(exitCode).isZero();
         assertThat(capturedUser.get()).isEqualTo("alt_user");
         assertThat(capturedPassword.get()).isEqualTo("cli_pass");
+    }
+
+    private static String captureEffectiveUrl(Function<String, String> env, String url)
+            throws Exception {
+        java.util.concurrent.atomic.AtomicReference<String> captured =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        PostgresSchemaReader reader = mock(PostgresSchemaReader.class);
+        when(reader.findMissingIndexes(anyString(), anyLong()))
+                .thenReturn(new PostgresModels.MissingIndexAnalysis(List.of()));
+        PgCommand.SchemaReaderFactory factory =
+                (u, user, pw) -> {
+                    captured.set(u);
+                    return reader;
+                };
+        int exitCode =
+                new CommandLine(new PgCommand(factory, env))
+                        .execute("--url", url, "--action", "missing-indexes");
+        assertThat(exitCode).isZero();
+        return captured.get();
+    }
+
+    @Test
+    @DisplayName("appends PGDATABASE when the JDBC URL has no database path")
+    void appliesPgDatabaseWhenUrlHasNoDatabase() throws Exception {
+        String effective =
+                captureEffectiveUrl(
+                        Map.of("PGDATABASE", "myapp")::get, "jdbc:postgresql://localhost:5432");
+        assertThat(effective).isEqualTo("jdbc:postgresql://localhost:5432/myapp");
+    }
+
+    @Test
+    @DisplayName("falls back to the legacy PG_DATABASE variable")
+    void fallsBackToLegacyPgDatabase() throws Exception {
+        String effective =
+                captureEffectiveUrl(
+                        Map.of("PG_DATABASE", "legacy_db")::get,
+                        "jdbc:postgresql://localhost:5432/");
+        assertThat(effective).isEqualTo("jdbc:postgresql://localhost:5432/legacy_db");
+    }
+
+    @Test
+    @DisplayName("keeps an explicit database already present in the URL")
+    void keepsExplicitDatabaseInUrl() throws Exception {
+        String effective =
+                captureEffectiveUrl(
+                        Map.of("PGDATABASE", "myapp")::get,
+                        "jdbc:postgresql://localhost:5432/explicit");
+        assertThat(effective).isEqualTo("jdbc:postgresql://localhost:5432/explicit");
+    }
+
+    @Test
+    @DisplayName("leaves the URL unchanged when no database environment variable is set")
+    void leavesUrlUnchangedWhenNoDatabaseEnv() throws Exception {
+        String effective = captureEffectiveUrl(key -> null, "jdbc:postgresql://localhost:5432");
+        assertThat(effective).isEqualTo("jdbc:postgresql://localhost:5432");
     }
 }

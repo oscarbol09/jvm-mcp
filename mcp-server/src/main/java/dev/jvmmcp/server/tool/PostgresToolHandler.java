@@ -3,9 +3,6 @@ package dev.jvmmcp.server.tool;
 import dev.jvmmcp.core.pg.PostgresSchemaReader;
 import dev.jvmmcp.core.util.SimpleJson;
 import java.math.BigDecimal;
-import java.net.URI;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -240,22 +237,6 @@ public class PostgresToolHandler implements ToolHandler {
     }
 
     private String withDefaultDatabase(String url) {
-        URI uri = URI.create(url.substring("jdbc:".length()));
-        String path = uri.getRawPath();
-        if (path != null && !path.isEmpty() && !"/".equals(path)) {
-            return url;
-        }
-        String database = firstEnv("PGDATABASE", "PG_DATABASE");
-        if (database == null || database.isEmpty()) {
-            return url;
-        }
-        String encodedDatabase =
-                URLEncoder.encode(database, StandardCharsets.UTF_8).replace("+", "%20");
-        return "jdbc:postgresql://"
-                + uri.getRawAuthority()
-                + "/"
-                + encodedDatabase
-                + (uri.getRawQuery() != null ? "?" + uri.getRawQuery() : "")
-                + (uri.getRawFragment() != null ? "#" + uri.getRawFragment() : "");
+        return PostgresUrls.withDefaultDatabase(url, envProvider);
     }
 }

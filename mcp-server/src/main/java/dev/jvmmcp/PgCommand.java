@@ -3,6 +3,7 @@ package dev.jvmmcp;
 import dev.jvmmcp.core.pg.PostgresModels.*;
 import dev.jvmmcp.core.pg.PostgresSchemaReader;
 import dev.jvmmcp.core.util.SimpleJson;
+import dev.jvmmcp.server.tool.PostgresUrls;
 import java.util.Locale;
 import java.util.concurrent.Callable;
 import java.util.function.Function;
@@ -101,8 +102,10 @@ public class PgCommand implements Callable<Integer> {
         String normalizedAction =
                 action == null ? "" : action.trim().toLowerCase(Locale.ROOT).replace('_', '-');
 
+        String effectiveUrl = PostgresUrls.withDefaultDatabase(url, envProvider);
+
         try (PostgresSchemaReader reader =
-                readerFactory.create(url, effectiveUser, effectivePassword)) {
+                readerFactory.create(effectiveUrl, effectiveUser, effectivePassword)) {
             switch (normalizedAction) {
                 case "schema" -> {
                     SchemaInfo info = reader.inspectSchema(schema);
