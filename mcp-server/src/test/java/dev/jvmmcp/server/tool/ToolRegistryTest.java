@@ -5,6 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -281,6 +285,154 @@ class ToolRegistryTest {
         List<?> content = (List<?>) result.get("content");
         Map<?, ?> item = (Map<?, ?>) content.get(0);
         assertThat(item.get("text").toString()).contains("Tool execution timed out");
+    }
+
+    @Test
+    @DisplayName("execute interrupts the handler thread when the tool times out")
+    void testTimeoutInterruptsHandlerThread() throws Exception {
+        ToolRegistry registry = new ToolRegistry(java.time.Duration.ofMillis(500));
+        AtomicReference<Thread> handlerThread = new AtomicReference<>();
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch interrupted = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+
+        ToolHandler handler =
+                new StubToolHandler(
+                        List.of("hung_tool"),
+                        List.of(Map.of("name", "hung_tool")),
+                        (name, args) -> {
+                            handlerThread.set(Thread.currentThread());
+                            started.countDown();
+                            try {
+                                release.await();
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                interrupted.countDown();
+                                throw e;
+                            }
+                            return Map.of(
+                                    "content", List.of(Map.of("type", "text", "text", "done")));
+                        });
+        registry.register(handler);
+
+        try {
+            Map<String, Object> result = registry.execute("hung_tool", Map.of());
+
+            assertThat(result.get("isError")).isEqualTo(true);
+            List<?> content = (List<?>) result.get("content");
+            Map<?, ?> item = (Map<?, ?>) content.get(0);
+            assertThat(item.get("text").toString()).contains("Tool execution timed out");
+
+            assertThat(started.await(1, TimeUnit.SECONDS)).isTrue();
+            Thread thread = handlerThread.get();
+            assertThat(thread).isNotNull();
+
+            assertThat(interrupted.await(2, TimeUnit.SECONDS)).isTrue();
+            assertThat(thread.isInterrupted()).isTrue();
+        } finally {
+            release.countDown();
+            registry.close();
+        }
+    }
+
+    @Test
+    @DisplayName("execute rejects with isError when the concurrency limit is saturated")
+    void testConcurrencyLimitRejectsExcessExecutions() throws Exception {
+        ToolRegistry registry = new ToolRegistry(java.time.Duration.ofSeconds(5), 1);
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger invocations = new AtomicInteger();
+
+        ToolHandler handler =
+                new StubToolHandler(
+                        List.of("limited_tool"),
+                        List.of(Map.of("name", "limited_tool")),
+                        (name, args) -> {
+                            invocations.incrementAndGet();
+                            started.countDown();
+                            release.await();
+                            return Map.of(
+                                    "content", List.of(Map.of("type", "text", "text", "done")));
+                        });
+        registry.register(handler);
+
+        Thread first = new Thread(() -> registry.execute("limited_tool", Map.of()));
+        first.start();
+
+        try {
+            assertThat(started.await(2, TimeUnit.SECONDS)).isTrue();
+
+            Map<String, Object> rejected = registry.execute("limited_tool", Map.of());
+            assertThat(rejected.get("isError")).isEqualTo(true);
+            List<?> content = (List<?>) rejected.get("content");
+            Map<?, ?> item = (Map<?, ?>) content.get(0);
+            assertThat(item.get("text").toString()).contains("concurrency limit");
+            assertThat(invocations.get()).isEqualTo(1);
+
+            release.countDown();
+            first.join(2000);
+            assertThat(first.isAlive()).isFalse();
+
+            Map<String, Object> accepted = registry.execute("limited_tool", Map.of());
+            assertThat(accepted.get("isError")).isNull();
+            assertThat(invocations.get()).isEqualTo(2);
+        } finally {
+            release.countDown();
+            registry.close();
+        }
+    }
+
+    @Test
+    @DisplayName("execute restores the interrupt flag when the calling thread is interrupted")
+    void testExecuteRestoresInterruptFlagOnCallerThread() throws Exception {
+        ToolRegistry registry = new ToolRegistry(java.time.Duration.ofSeconds(10));
+        AtomicReference<Map<String, Object>> callerResult = new AtomicReference<>();
+        AtomicReference<Boolean> callerInterruptFlag = new AtomicReference<>();
+        CountDownLatch handlerStarted = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+
+        ToolHandler handler =
+                new StubToolHandler(
+                        List.of("blocking_tool"),
+                        List.of(Map.of("name", "blocking_tool")),
+                        (name, args) -> {
+                            handlerStarted.countDown();
+                            try {
+                                release.await();
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                throw e;
+                            }
+                            return Map.of(
+                                    "content", List.of(Map.of("type", "text", "text", "done")));
+                        });
+        registry.register(handler);
+
+        Thread caller =
+                new Thread(
+                        () -> {
+                            Map<String, Object> result =
+                                    registry.execute("blocking_tool", Map.of());
+                            callerResult.set(result);
+                            callerInterruptFlag.set(Thread.currentThread().isInterrupted());
+                        });
+        caller.start();
+
+        try {
+            assertThat(handlerStarted.await(2, TimeUnit.SECONDS)).isTrue();
+
+            caller.interrupt();
+            caller.join(2000);
+
+            assertThat(caller.isAlive()).isFalse();
+            assertThat(callerResult.get()).isNotNull();
+            assertThat(callerResult.get().get("isError")).isEqualTo(true);
+            assertThat(callerInterruptFlag.get()).isNotNull();
+            assertThat(callerInterruptFlag.get()).isTrue();
+        } finally {
+            release.countDown();
+            registry.close();
+        }
     }
 
     @Test

@@ -4,6 +4,7 @@ import dev.jvmmcp.core.util.SensitiveDataRedactor;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Manages registration and lookup of ToolHandlers and delegates execution. Enforces per-tool
@@ -12,10 +13,13 @@ import java.util.concurrent.*;
 public class ToolRegistry implements AutoCloseable {
 
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(15);
+    private static final int DEFAULT_MAX_CONCURRENT_EXECUTIONS = 8;
 
     private final List<ToolHandler> registeredHandlers = new ArrayList<>();
     private final Map<String, ToolHandler> handlerMap = new LinkedHashMap<>();
     private final Duration toolTimeout;
+    private final int maxConcurrentExecutions;
+    private final Semaphore executionSlots;
     private final ExecutorService executorService;
 
     public ToolRegistry() {
@@ -23,7 +27,16 @@ public class ToolRegistry implements AutoCloseable {
     }
 
     public ToolRegistry(Duration toolTimeout) {
+        this(toolTimeout, DEFAULT_MAX_CONCURRENT_EXECUTIONS);
+    }
+
+    ToolRegistry(Duration toolTimeout, int maxConcurrentExecutions) {
+        if (maxConcurrentExecutions <= 0) {
+            throw new IllegalArgumentException("maxConcurrentExecutions must be positive");
+        }
         this.toolTimeout = toolTimeout != null ? toolTimeout : DEFAULT_TIMEOUT;
+        this.maxConcurrentExecutions = maxConcurrentExecutions;
+        this.executionSlots = new Semaphore(maxConcurrentExecutions);
         this.executorService = Executors.newVirtualThreadPerTaskExecutor();
     }
 
@@ -72,23 +85,67 @@ public class ToolRegistry implements AutoCloseable {
                     true);
         }
 
-        CompletableFuture<Map<String, Object>> future =
-                CompletableFuture.supplyAsync(
-                        () -> {
-                            try {
-                                return handler.execute(toolName, arguments);
-                            } catch (Exception e) {
-                                throw new CompletionException(e);
-                            }
-                        },
-                        executorService);
+        if (!executionSlots.tryAcquire()) {
+            return Map.of(
+                    "content",
+                    List.of(
+                            Map.of(
+                                    "type",
+                                    "text",
+                                    "text",
+                                    "Tool execution rejected: concurrency limit reached (max "
+                                            + maxConcurrentExecutions
+                                            + ")")),
+                    "isError",
+                    true);
+        }
+
+        AtomicBoolean permitReleased = new AtomicBoolean(false);
+        Runnable releasePermit =
+                () -> {
+                    if (permitReleased.compareAndSet(false, true)) {
+                        executionSlots.release();
+                    }
+                };
+        AtomicBoolean workerStarted = new AtomicBoolean(false);
+
+        Future<Map<String, Object>> future;
+        try {
+            future =
+                    executorService.submit(
+                            () -> {
+                                workerStarted.set(true);
+                                try {
+                                    return handler.execute(toolName, arguments);
+                                } finally {
+                                    releasePermit.run();
+                                }
+                            });
+        } catch (RuntimeException e) {
+            releasePermit.run();
+            throw e;
+        }
 
         try {
             Map<String, Object> rawResult =
                     future.get(toolTimeout.toMillis(), TimeUnit.MILLISECONDS);
             return sanitizeResult(rawResult);
+        } catch (InterruptedException e) {
+            cancelWorker(future, workerStarted, releasePermit);
+            Thread.currentThread().interrupt();
+            return Map.of(
+                    "content",
+                    List.of(
+                            Map.of(
+                                    "type",
+                                    "text",
+                                    "text",
+                                    "Tool execution interrupted " + toolName)),
+                    "isError",
+                    true);
+
         } catch (TimeoutException e) {
-            future.cancel(true);
+            cancelWorker(future, workerStarted, releasePermit);
             return Map.of(
                     "content",
                     List.of(
@@ -118,6 +175,7 @@ public class ToolRegistry implements AutoCloseable {
                     "isError",
                     true);
         } catch (Exception e) {
+            cancelWorker(future, workerStarted, releasePermit);
             String sanitizedMsg =
                     SensitiveDataRedactor.redact(
                             e.getMessage() != null ? e.getMessage() : "Execution error");
@@ -131,6 +189,14 @@ public class ToolRegistry implements AutoCloseable {
                                     "Error executing tool: " + sanitizedMsg)),
                     "isError",
                     true);
+        }
+    }
+
+    private void cancelWorker(
+            Future<?> future, AtomicBoolean workerStarted, Runnable releasePermit) {
+        future.cancel(true);
+        if (!workerStarted.get()) {
+            releasePermit.run();
         }
     }
 

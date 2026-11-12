@@ -155,6 +155,45 @@ class HeapHistogramReaderTest {
         assertThat(histogram.topClasses().get(0).className()).isEqualTo("java.lang.String");
     }
 
+    @Test
+    @DisplayName(
+            "parseHistogramStream aborts with InterruptedException when the thread is interrupted")
+    void shouldAbortParsingWhenInterrupted() {
+        byte[] data = SAMPLE_HISTOGRAM.getBytes(StandardCharsets.UTF_8);
+        InputStream interrupting = new InterruptingInputStream(data);
+        HeapHistogramReader reader = new HeapHistogramReader();
+
+        try {
+            assertThatThrownBy(() -> reader.parseHistogramStream(interrupting, 123L, 10))
+                    .isInstanceOf(InterruptedException.class)
+                    .hasMessageContaining("interrupted");
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    private static final class InterruptingInputStream extends InputStream {
+
+        private final byte[] data;
+        private int position;
+
+        private InterruptingInputStream(byte[] data) {
+            this.data = data;
+        }
+
+        @Override
+        public int read() {
+            if (position == data.length / 2) {
+                Thread.currentThread().interrupt();
+            }
+            if (position >= data.length) {
+                return -1;
+            }
+            return data[position++] & 0xFF;
+        }
+    }
+
     // Dummy VM class with executeJCmd for reflection test
     public static class DummyProvider extends com.sun.tools.attach.spi.AttachProvider {
         @Override

@@ -108,7 +108,14 @@ public class HeapHistogramReader {
             boolean headerFound = false;
             int parsedLines = 0;
 
-            while ((line = reader.readLine()) != null) {
+            while (true) {
+                if (Thread.currentThread().isInterrupted()) {
+                    throw new InterruptedException("Heap histogram parsing interrupted");
+                }
+                line = reader.readLine();
+                if (line == null) {
+                    break;
+                }
                 if (++parsedLines > MAX_PARSED_LINES) {
                     break;
                 }

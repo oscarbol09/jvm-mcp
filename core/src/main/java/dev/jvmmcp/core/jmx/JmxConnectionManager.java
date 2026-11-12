@@ -3,7 +3,14 @@ package dev.jvmmcp.core.jmx;
 import com.sun.tools.attach.VirtualMachine;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
+import java.time.Duration;
 import java.util.Properties;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import javax.management.MBeanServerConnection;
 import javax.management.remote.JMXConnector;
 import javax.management.remote.JMXConnectorFactory;
@@ -14,6 +21,8 @@ import javax.management.remote.JMXServiceURL;
  * via Attach API.
  */
 public class JmxConnectionManager implements AutoCloseable {
+
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
 
     @FunctionalInterface
     interface ConnectorFactory {
@@ -78,7 +87,7 @@ public class JmxConnectionManager implements AutoCloseable {
         JMXServiceURL url = new JMXServiceURL(connectorAddress);
         JMXConnector connector = null;
         try {
-            connector = factory.connect(url);
+            connector = connectWithTimeout(url, CONNECT_TIMEOUT, factory);
             MBeanServerConnection connection = connector.getMBeanServerConnection();
             return new JmxConnectionManager(pid, vm, connector, connection);
         } catch (IOException | RuntimeException e) {
@@ -90,6 +99,44 @@ public class JmxConnectionManager implements AutoCloseable {
                 }
             }
             throw e;
+        }
+    }
+
+    static JMXConnector connectWithTimeout(JMXServiceURL url, Duration timeout) throws IOException {
+        return connectWithTimeout(url, timeout, JMXConnectorFactory::connect);
+    }
+
+    static JMXConnector connectWithTimeout(
+            JMXServiceURL url, Duration timeout, ConnectorFactory factory) throws IOException {
+        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        try {
+            Future<JMXConnector> future = executor.submit(() -> factory.connect(url));
+            try {
+                return future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+            } catch (TimeoutException e) {
+                future.cancel(true);
+                throw new IOException(
+                        "Timed out after "
+                                + timeout.toMillis()
+                                + "ms connecting to JMX service "
+                                + url,
+                        e);
+            } catch (InterruptedException e) {
+                future.cancel(true);
+                Thread.currentThread().interrupt();
+                throw new IOException("Interrupted while connecting to JMX service " + url, e);
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof IOException ioException) {
+                    throw ioException;
+                }
+                if (cause instanceof RuntimeException runtimeException) {
+                    throw runtimeException;
+                }
+                throw new IOException("Failed to connect to JMX service " + url, cause);
+            }
+        } finally {
+            executor.shutdownNow();
         }
     }
 
