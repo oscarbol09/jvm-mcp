@@ -62,6 +62,16 @@ public class DoctorCommand implements Callable<Integer> {
                 System.out.println(
                         "\nNote: No Java processes found. Ensure your target applications are running as the same OS user.");
             }
+        } catch (LinkageError e) {
+            // NoClassDefFoundError (com/sun/tools/attach/VirtualMachine) is an Error, not an
+            // Exception, so it escapes a bare catch(Exception) and crashes doctor with a stack
+            // trace. It surfaces when the jdk.attach module is absent, e.g. running on a JRE.
+            System.out.println(
+                    "[ERROR] JVM Attach API unavailable (jdk.attach module missing): "
+                            + e.getMessage());
+            System.out.println(
+                    "    Resolution: Run jvm-mcp on a full JDK (Java Development Kit), not a bare JRE.");
+            return 1;
         } catch (Exception e) {
             System.out.println("[ERROR] Attach API failed to initialize: " + e.getMessage());
             System.out.println(
