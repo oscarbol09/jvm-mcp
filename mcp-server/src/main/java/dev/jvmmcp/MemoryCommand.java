@@ -35,8 +35,15 @@ public class MemoryCommand implements Callable<Integer> {
 
     @Option(
             names = {"--histogram", "-H"},
-            description = "Include live heap class histogram")
+            description =
+                    "Include live heap class histogram (may trigger a full stop-the-world GC on HotSpot)")
     boolean histogram;
+
+    @Option(
+            names = {"--all"},
+            description =
+                    "Include unreachable objects and avoid the full GC (requires --histogram)")
+    boolean allObjects;
 
     @Option(
             names = {"--json"},
@@ -61,6 +68,11 @@ public class MemoryCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
+        if (allObjects && !histogram) {
+            System.err.println("[jvm-mcp] The --all option requires --histogram.");
+            return 1;
+        }
+
         if (pid <= 0) {
             System.err.println("[jvm-mcp] Error: A valid target PID must be specified.");
             return 1;
@@ -104,7 +116,10 @@ public class MemoryCommand implements Callable<Integer> {
                                 try {
                                     hist =
                                             reader.readHistogram(
-                                                    attachResult.virtualMachine().get(), pid, topN);
+                                                    attachResult.virtualMachine().get(),
+                                                    pid,
+                                                    topN,
+                                                    !allObjects);
                                 } catch (NoSuchMethodException
                                         | IllegalAccessException
                                         | java.lang.reflect.InaccessibleObjectException e) {
@@ -115,13 +130,17 @@ public class MemoryCommand implements Callable<Integer> {
                                             reader.readHistogram(
                                                     jmxManager.getMBeanServerConnection(),
                                                     pid,
-                                                    topN);
+                                                    topN,
+                                                    !allObjects);
                                 }
                             } else {
                                 // Self-inspection has no VM handle; read the histogram over JMX
                                 hist =
                                         reader.readHistogram(
-                                                jmxManager.getMBeanServerConnection(), pid, topN);
+                                                jmxManager.getMBeanServerConnection(),
+                                                pid,
+                                                topN,
+                                                !allObjects);
                             }
                         } catch (Exception e) {
                             histogramError = e.getMessage();
@@ -225,6 +244,11 @@ public class MemoryCommand implements Callable<Integer> {
                     if (histogram) {
                         System.out.println("-".repeat(80));
                         System.out.printf(Locale.ROOT, "HEAP HISTOGRAM (TOP %d CLASSES)%n", topN);
+                        System.out.println(
+                                "Mode: "
+                                        + (!allObjects
+                                                ? "LIVE OBJECTS (full GC on HotSpot)"
+                                                : "ALL OBJECTS (includes unreachable; no full GC)"));
                         System.out.printf(
                                 Locale.ROOT,
                                 "%-6s %-14s %-14s %s%n",
@@ -246,7 +270,7 @@ public class MemoryCommand implements Callable<Integer> {
                             }
                         } else {
                             System.err.println(
-                                    "[jvm-mcp] Could not extract live heap histogram: "
+                                    "[jvm-mcp] Could not extract heap histogram: "
                                             + histogramError);
                         }
                     }

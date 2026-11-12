@@ -260,7 +260,7 @@ jvm-mcp doctor
 jvm-mcp list
 
 # Inspect memory pools, GC pauses, and heap histogram (add --histogram for class histogram, --json for JSON)
-jvm-mcp memory <pid> [--histogram] [--top=<n>] [--json]
+jvm-mcp memory <pid> [--histogram] [--top=<n>] [--all] [--json]
 
 # Diagnose thread states and detect deadlocks (add --top-cpu, --dump, --deadlocks, --blocked, --json, or --virtual for Loom)
 jvm-mcp threads <pid> [--top-cpu] [--dump] [--deadlocks] [--blocked] [--virtual] [--json]
@@ -280,6 +280,17 @@ jvm-mcp serve [--attach <pid>] [--actuator <url>]
 
 When using `--json` with `jvm-mcp memory --histogram`, the output produces a
 structured JSON document containing both the `summary` and the `histogram`.
+The histogram includes a `liveOnly` field describing which object population was
+counted. By default, live-only histograms can trigger a full stop-the-world GC on
+HotSpot. Pass `--all` to include unreachable objects and avoid that GC:
+
+```bash
+jvm-mcp memory <pid> --histogram --all
+```
+
+The MCP `get_heap_histogram` tool exposes the same choice through
+`liveOnly: false`; the default `true` preserves the existing live-object
+semantics.
 
 When using `--json` with `jvm-mcp threads`, the output serializes the specific
 diagnostic model selected by `--dump`, `--deadlocks`, `--top-cpu`, or `--blocked`.
@@ -298,7 +309,7 @@ The server exposes 14 diagnostic tools to AI assistants:
 | :--- | :--- | :--- |
 | `list_jvms` | Lists running JVMs with PID, display name, and detected framework (Spring Boot, Quarkus, Micronaut). | *None* |
 | `get_memory_summary` | Live heap/non-heap regions, GC pauses, and memory pressure. | `pid` (number) |
-| `get_heap_histogram` | Top class instance counts and memory consumption via `jcmd`. | `pid` (number), `limit` (number, optional) |
+| `get_heap_histogram` | Top class instance counts and memory consumption. Live-only mode triggers a full stop-the-world GC on HotSpot; set `liveOnly=false` to avoid that GC and include unreachable objects. | `pid` (number), `limit` (number, optional), `liveOnly` (boolean, optional, default `true`) |
 | `get_thread_diagnostics` | Thread states breakdown, deadlock detection, top CPU consumer ranking, and opt-in virtual threads summary (Java 21+). | `pid` (number), `includeVirtualThreads` (boolean, optional, default `false`), `topCpuLimit` (integer, optional, default 5, max 100) |
 | `get_thread_dump` | Thread dump with lock stack traces; platform-only by default, opt-in virtual-thread details on Java 21+. | `pid` (number), `includeVirtualThreads` (boolean, optional, default `false`) |
 | `list_spring_beans` | Paginated Spring beans by context via JMX/Actuator, with `totalBeans` and `truncated`; `summary` returns per-context counts and top 10 packages instead. | `pid` (number), `filter` (string, optional), `limit` (integer, optional, default 200, max 2000), `offset` (integer, optional, default 0), `summary` (boolean, optional) |

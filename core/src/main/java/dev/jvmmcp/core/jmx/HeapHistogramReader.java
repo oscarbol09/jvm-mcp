@@ -15,8 +15,9 @@ import javax.management.MBeanServerConnection;
 import javax.management.ObjectName;
 
 /**
- * Executes and parses live JVM class histograms ({@code GC.class_histogram}) over the Attach API,
- * with a JMX DiagnosticCommand fallback for runtimes where {@code executeJCmd} is unavailable.
+ * Executes and parses JVM class histograms ({@code GC.class_histogram}) over the Attach API, with a
+ * JMX DiagnosticCommand fallback for runtimes where {@code executeJCmd} is unavailable. Live-only
+ * histograms trigger a full stop-the-world GC on HotSpot; all-object histograms do not.
  */
 public class HeapHistogramReader {
 
@@ -27,25 +28,40 @@ public class HeapHistogramReader {
     private static final int MAX_PARSED_LINES = 100_000;
 
     public HeapHistogram readHistogram(VirtualMachine vm, long pid, int topN) throws Exception {
+        return readHistogram(vm, pid, topN, true);
+    }
+
+    /**
+     * Reads a class histogram. Live-only mode triggers a full stop-the-world GC on HotSpot;
+     * requesting all objects avoids that GC and includes unreachable objects.
+     */
+    public HeapHistogram readHistogram(VirtualMachine vm, long pid, int topN, boolean liveOnly)
+            throws Exception {
         if (vm == null) {
             throw new IllegalArgumentException(
                     "VirtualMachine cannot be null to read live heap histogram.");
         }
 
         Method executeJCmdMethod = vm.getClass().getMethod("executeJCmd", String.class);
-        try (InputStream in = (InputStream) executeJCmdMethod.invoke(vm, "GC.class_histogram")) {
-            return parseHistogramStream(in, pid, topN);
+        String command = liveOnly ? "GC.class_histogram" : "GC.class_histogram -all";
+        try (InputStream in = (InputStream) executeJCmdMethod.invoke(vm, command)) {
+            return parseHistogramStream(in, pid, topN, liveOnly);
         }
     }
 
     /**
-     * Reads the live heap histogram through the platform {@code
-     * com.sun.management:type=DiagnosticCommand} MBean, as a fallback for non-HotSpot JVMs, modular
-     * runtimes without {@code --add-opens jdk.attach/sun.tools.attach}, and self-inspection without
-     * a {@link VirtualMachine} handle.
+     * Reads the heap histogram through the platform {@code
+     * com.sun.management:type=DiagnosticCommand} MBean, as a fallback for modular runtimes without
+     * {@code --add-opens jdk.attach/sun.tools.attach}, non-HotSpot JVMs, and self-inspection
+     * without a {@link VirtualMachine} handle.
      */
     public HeapHistogram readHistogram(MBeanServerConnection mbsc, long pid, int topN)
             throws Exception {
+        return readHistogram(mbsc, pid, topN, true);
+    }
+
+    public HeapHistogram readHistogram(
+            MBeanServerConnection mbsc, long pid, int topN, boolean liveOnly) throws Exception {
         if (mbsc == null) {
             throw new IllegalArgumentException(
                     "MBeanServerConnection cannot be null to read live heap histogram.");
@@ -55,22 +71,28 @@ public class HeapHistogramReader {
                 mbsc.invoke(
                         new ObjectName(DIAGNOSTIC_COMMAND_MBEAN),
                         "gcClassHistogram",
-                        new Object[] {new String[0]},
+                        new Object[] {liveOnly ? new String[0] : new String[] {"-all"}},
                         new String[] {String[].class.getName()});
 
         if (result == null) {
-            return new HeapHistogram(pid, 0, 0, 0.0, List.of());
+            return new HeapHistogram(pid, 0, 0, 0.0, List.of(), liveOnly);
         }
 
         return parseHistogramStream(
                 new ByteArrayInputStream(result.toString().getBytes(StandardCharsets.UTF_8)),
                 pid,
-                topN);
+                topN,
+                liveOnly);
     }
 
     public HeapHistogram parseHistogramStream(InputStream in, long pid, int topN) throws Exception {
+        return parseHistogramStream(in, pid, topN, true);
+    }
+
+    public HeapHistogram parseHistogramStream(InputStream in, long pid, int topN, boolean liveOnly)
+            throws Exception {
         if (in == null) {
-            return new HeapHistogram(pid, 0, 0, 0.0, List.of());
+            return new HeapHistogram(pid, 0, 0, 0.0, List.of(), liveOnly);
         }
 
         int effectiveTopN = topN <= 0 ? DEFAULT_TOP_N : Math.min(topN, MAX_TOP_N);
@@ -140,7 +162,12 @@ public class HeapHistogramReader {
 
         double totalMb = totalBytes / (1024.0 * 1024.0);
         return new HeapHistogram(
-                pid, totalInstances, totalBytes, Math.round(totalMb * 100.0) / 100.0, items);
+                pid,
+                totalInstances,
+                totalBytes,
+                Math.round(totalMb * 100.0) / 100.0,
+                items,
+                liveOnly);
     }
 
     /**
