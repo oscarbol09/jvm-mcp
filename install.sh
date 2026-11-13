@@ -52,8 +52,27 @@ if [ "$UNINSTALL" = true ]; then
     echo "Uninstalling JVM-MCP..."
     rm -f "${BIN_DIR}/${EXECUTABLE_NAME}"
     rm -rf "${INSTALL_DIR}"
+
+    for rc in "${HOME}/.bashrc" "${HOME}/.zshrc" "${HOME}/.bash_profile" "${HOME}/.profile"; do
+        [ -f "$rc" ] && [ ! -L "$rc" ] || continue
+        grep -Fxq '# >>> jvm-mcp >>>' "$rc" || continue
+        temp="$(mktemp "${rc}.jvm-mcp.XXXXXX")"
+        cp -p "$rc" "$temp"
+        if awk '
+            /^# >>> jvm-mcp >>>$/ { if (inside) exit 1; inside = 1; next }
+            /^# <<< jvm-mcp <<<$/{ if (!inside) exit 1; inside = 0; next }
+            !inside { print }
+            END { if (inside) exit 1 }
+        ' "$rc" > "$temp"; then
+            mv -f "$temp" "$rc"
+            echo "Cleaned JVM-MCP PATH block from ${rc}"
+        else
+            rm -f "$temp"
+            echo "Warning: unmatched JVM-MCP markers in ${rc}; left unchanged" >&2
+            exit 1
+        fi
+    done
     echo "JVM-MCP has been completely uninstalled from ${INSTALL_DIR} and ${BIN_DIR}."
-    echo "Note: If ${BIN_DIR} was added to ~/.bashrc or ~/.zshrc, you may optionally remove the '# >>> jvm-mcp >>>' block."
     exit 0
 fi
 
