@@ -230,11 +230,16 @@ public class VirtualThreadDumpReader {
                             }
                         }
                     }
+                    String state =
+                            threadMap.get("state") != null
+                                    ? threadMap.get("state").toString()
+                                    : "WAITING";
+
                     virtualThreads.add(
                             new ThreadDetail(
                                     tid,
                                     name,
-                                    "VIRTUAL",
+                                    state,
                                     null,
                                     null,
                                     null,
