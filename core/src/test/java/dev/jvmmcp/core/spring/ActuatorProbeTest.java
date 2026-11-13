@@ -413,7 +413,7 @@ class ActuatorProbeTest {
                 org.mockito.Mockito.mockStatic(
                         javax.net.ssl.SSLContext.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
             sslStatic
-                    .when(() -> javax.net.ssl.SSLContext.getInstance("TLS"))
+                    .when(() -> javax.net.ssl.SSLContext.getInstance("TLSv1.3"))
                     .thenThrow(new java.security.NoSuchAlgorithmException("Simulated"));
 
             org.assertj.core.api.Assertions.assertThatThrownBy(
