@@ -108,7 +108,8 @@ class LiveVirtualThreadIntegrationTest {
                             .orElse(null);
 
             assertThat(vthread).isNotNull();
-            assertThat(vthread.state()).isEqualTo("VIRTUAL");
+            assertThat(vthread.state())
+                    .isIn("NEW", "RUNNABLE", "BLOCKED", "WAITING", "TIMED_WAITING", "TERMINATED");
             assertThat(vthread.stackTrace()).isNotEmpty();
         }
     }

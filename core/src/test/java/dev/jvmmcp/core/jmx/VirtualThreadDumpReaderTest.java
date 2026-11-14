@@ -25,6 +25,9 @@ import org.junit.jupiter.api.Test;
 @DisplayName("VirtualThreadDumpReader Unit Tests")
 class VirtualThreadDumpReaderTest {
 
+    private static final String VIRTUAL_THREAD_FRAME =
+            "java.base/java.lang.VirtualThread.run(VirtualThread.java:329)";
+
     @Test
     @DisplayName("Constructor throws IllegalArgumentException when MBeanServerConnection is null")
     void shouldThrowWhenMbscIsNull() {
@@ -67,8 +70,7 @@ class VirtualThreadDumpReaderTest {
                                                                 "name",
                                                                 "vthread-1",
                                                                 "stack",
-                                                                List.of(
-                                                                        "java.base/java.lang.VirtualThread.run(VirtualThread.java:329)")))),
+                                                                List.of(VIRTUAL_THREAD_FRAME)))),
                                         Map.of(
                                                 "container",
                                                 "java.util.concurrent.ThreadPerTaskExecutor@123",
@@ -80,18 +82,14 @@ class VirtualThreadDumpReaderTest {
                                                                 "name",
                                                                 "vthread-2",
                                                                 "stack",
-                                                                List.of(
-                                                                        "java.base/java.lang.VirtualThread.run(VirtualThread.java:329)")),
-                                                        // Duplicate tid 21 in another container
-                                                        // should not be counted twice
+                                                                List.of(VIRTUAL_THREAD_FRAME)),
                                                         Map.of(
                                                                 "tid",
                                                                 "21",
                                                                 "name",
                                                                 "vthread-2-dup",
                                                                 "stack",
-                                                                List.of(
-                                                                        "java.base/java.lang.VirtualThread.run(VirtualThread.java:329)")))),
+                                                                List.of(VIRTUAL_THREAD_FRAME)))),
                                         Map.of(
                                                 "container",
                                                 "ForkJoinPool-1/jdk.internal.vm.SharedThreadContainer@456",
@@ -106,16 +104,16 @@ class VirtualThreadDumpReaderTest {
                                                                 List.of(
                                                                         "java.base/java.util.concurrent.ForkJoinPool.runWorker(ForkJoinPool.java:1809)")))))));
 
-        // Platform thread IDs: 1 (main), 2 (carrier worker)
         Set<Long> platformIds = Set.of(1L, 2L);
 
         VirtualThreadSummary summary = reader.parseVirtualThreadSummary(dumpJson, platformIds);
         assertThat(summary).isNotNull();
-        assertThat(summary.totalCount()).isEqualTo(2); // vthread-1 (20) and vthread-2 (21)
+        assertThat(summary.totalCount()).isEqualTo(2);
     }
 
     @Test
-    @DisplayName("parseVirtualThreads returns structured ThreadDetail list with VIRTUAL state")
+    @DisplayName(
+            "parseVirtualThreads returns structured ThreadDetail list with WAITING state by default")
     void shouldParseVirtualThreadsList() {
         VirtualThreadDumpReader reader =
                 new VirtualThreadDumpReader(mock(MBeanServerConnection.class));
@@ -132,8 +130,9 @@ class VirtualThreadDumpReaderTest {
                                                 "threads",
                                                 List.of(
                                                         Map.of(
-                                                                "tid", "1", "name", "main", "stack",
-                                                                List.of()),
+                                                                "tid", "1",
+                                                                "name", "main",
+                                                                "stack", List.of()),
                                                         Map.of(
                                                                 "tid",
                                                                 "101",
@@ -142,22 +141,138 @@ class VirtualThreadDumpReaderTest {
                                                                 "stack",
                                                                 List.of(
                                                                         "com.example.OrderService.process(OrderService.java:42)",
-                                                                        "java.base/java.lang.VirtualThread.run(VirtualThread.java:329)")))))));
+                                                                        VIRTUAL_THREAD_FRAME)))))));
 
         Set<Long> platformIds = Set.of(1L);
+
         List<ThreadDetail> virtualThreads = reader.parseVirtualThreads(dumpJson, platformIds);
 
         assertThat(virtualThreads).hasSize(1);
+
         ThreadDetail detail = virtualThreads.get(0);
+
         assertThat(detail.threadId()).isEqualTo(101L);
         assertThat(detail.threadName()).isEqualTo("order-processor");
-        assertThat(detail.state()).isEqualTo("VIRTUAL");
+        assertThat(detail.state()).isEqualTo("WAITING");
+
         assertThat(detail.stackTrace()).hasSize(2);
+
         assertThat(detail.stackTrace().get(0).className()).isEqualTo("com.example.OrderService");
+
         assertThat(detail.stackTrace().get(0).methodName()).isEqualTo("process");
+
         assertThat(detail.stackTrace().get(0).fileName()).isEqualTo("OrderService.java");
+
         assertThat(detail.stackTrace().get(0).lineNumber()).isEqualTo(42);
+
         assertThat(detail.stackTrace().get(1).className()).isEqualTo("java.lang.VirtualThread");
+    }
+
+    @Test
+    @DisplayName("parseVirtualThreads extracts actual virtual thread states")
+    void shouldExtractActualVirtualThreadStates() {
+        VirtualThreadDumpReader reader =
+                new VirtualThreadDumpReader(mock(MBeanServerConnection.class));
+
+        Map<String, Object> dumpJson =
+                Map.of(
+                        "threadDump",
+                        Map.of(
+                                "threadContainers",
+                                List.of(
+                                        Map.of(
+                                                "container",
+                                                "<root>",
+                                                "threads",
+                                                List.of(
+                                                        Map.of(
+                                                                "tid", "101",
+                                                                "name", "waiting-thread",
+                                                                "state", "WAITING",
+                                                                "stack",
+                                                                        List.of(
+                                                                                VIRTUAL_THREAD_FRAME)),
+                                                        Map.of(
+                                                                "tid", "102",
+                                                                "name", "runnable-thread",
+                                                                "state", "RUNNABLE",
+                                                                "stack",
+                                                                        List.of(
+                                                                                VIRTUAL_THREAD_FRAME)),
+                                                        Map.of(
+                                                                "tid", "103",
+                                                                "name", "timed-waiting-thread",
+                                                                "state", "TIMED_WAITING",
+                                                                "stack",
+                                                                        List.of(
+                                                                                VIRTUAL_THREAD_FRAME)))))));
+
+        List<ThreadDetail> threads = reader.parseVirtualThreads(dumpJson, Set.of());
+
+        assertThat(threads).hasSize(3);
+        assertThat(threads)
+                .extracting(ThreadDetail::state)
+                .containsExactly("WAITING", "RUNNABLE", "TIMED_WAITING");
+    }
+
+    @Test
+    @DisplayName("parseVirtualThreads defaults to WAITING when state is missing")
+    void shouldUseWaitingWhenStateIsMissing() {
+        VirtualThreadDumpReader reader =
+                new VirtualThreadDumpReader(mock(MBeanServerConnection.class));
+
+        Map<String, Object> dumpJson =
+                Map.of(
+                        "threadDump",
+                        Map.of(
+                                "threadContainers",
+                                List.of(
+                                        Map.of(
+                                                "container",
+                                                "<root>",
+                                                "threads",
+                                                List.of(
+                                                        Map.of(
+                                                                "tid", "101",
+                                                                "name", "missing-state-thread",
+                                                                "stack",
+                                                                        List.of(
+                                                                                VIRTUAL_THREAD_FRAME)))))));
+
+        List<ThreadDetail> threads = reader.parseVirtualThreads(dumpJson, Set.of());
+
+        assertThat(threads).hasSize(1);
+        assertThat(threads.get(0).state()).isEqualTo("WAITING");
+    }
+
+    @Test
+    @DisplayName("parseVirtualThreads defaults to WAITING when state is null")
+    void shouldUseWaitingWhenStateIsNull() {
+        VirtualThreadDumpReader reader =
+                new VirtualThreadDumpReader(mock(MBeanServerConnection.class));
+
+        Map<String, Object> thread = new HashMap<>();
+        thread.put("tid", "101");
+        thread.put("name", "null-state-thread");
+        thread.put("state", null);
+        thread.put("stack", List.of(VIRTUAL_THREAD_FRAME));
+
+        Map<String, Object> dumpJson =
+                Map.of(
+                        "threadDump",
+                        Map.of(
+                                "threadContainers",
+                                List.of(
+                                        Map.of(
+                                                "container",
+                                                "<root>",
+                                                "threads",
+                                                List.of(thread)))));
+
+        List<ThreadDetail> threads = reader.parseVirtualThreads(dumpJson, Set.of());
+
+        assertThat(threads).hasSize(1);
+        assertThat(threads.get(0).state()).isEqualTo("WAITING");
     }
 
     @Test
@@ -194,7 +309,7 @@ class VirtualThreadDumpReaderTest {
                                                                 "stack",
                                                                 List.of(
                                                                         "pkg.Worker.work(Worker.java:20)",
-                                                                        "java.base/java.lang.VirtualThread.run(VirtualThread.java:329)")))))));
+                                                                        VIRTUAL_THREAD_FRAME)))))));
 
         VirtualThreadSummary summary = reader.parseVirtualThreadSummary(dumpJson, Set.of());
         assertThat(summary).isNotNull();
@@ -227,12 +342,9 @@ class VirtualThreadDumpReaderTest {
                                                                 List.of(
                                                                         "pkg.Main.main(Main.java:10)")),
                                                         Map.of(
-                                                                "tid",
-                                                                "2",
-                                                                "name",
-                                                                "Reference Handler",
-                                                                "stack",
-                                                                List.of()))))));
+                                                                "tid", "2",
+                                                                "name", "Reference Handler",
+                                                                "stack", List.of()))))));
 
         VirtualThreadSummary summary = reader.parseVirtualThreadSummary(dumpJson, Set.of(1L, 2L));
         assertThat(summary).isNotNull();
@@ -246,20 +358,20 @@ class VirtualThreadDumpReaderTest {
         VirtualThreadDumpReader reader =
                 new VirtualThreadDumpReader(mock(MBeanServerConnection.class));
 
-        // Missing threadContainers field
         assertThat(reader.parseVirtualThreadSummary(Map.of("threadDump", Map.of()), Set.of()))
                 .isNull();
 
-        // Incorrectly typed threadContainers (string, number, map)
         assertThat(
                         reader.parseVirtualThreadSummary(
                                 Map.of("threadDump", Map.of("threadContainers", "not-a-list")),
                                 Set.of()))
                 .isNull();
+
         assertThat(
                         reader.parseVirtualThreadSummary(
                                 Map.of("threadDump", Map.of("threadContainers", 12345)), Set.of()))
                 .isNull();
+
         assertThat(
                         reader.parseVirtualThreadSummary(
                                 Map.of("threadDump", Map.of("threadContainers", Map.of())),
@@ -312,6 +424,7 @@ class VirtualThreadDumpReaderTest {
                                                         "not-a-thread-map",
                                                         Map.of("tid", "invalid-number"),
                                                         Map.of("no-tid", "value"))))));
+
         assertThat(reader.parseVirtualThreadSummary(invalidContainers, Set.of()).totalCount())
                 .isZero();
         assertThat(reader.parseVirtualThreads(invalidContainers, Set.of())).isEmpty();
@@ -322,7 +435,6 @@ class VirtualThreadDumpReaderTest {
     void shouldCleanUpTempFileOnSuccess() throws Exception {
         MBeanServerConnection mbsc = mock(MBeanServerConnection.class);
 
-        // When threadDumpToFile is invoked, write dummy JSON to the output file
         when(mbsc.invoke(any(ObjectName.class), eq("threadDumpToFile"), any(), any()))
                 .thenAnswer(
                         invocation -> {
@@ -408,7 +520,6 @@ class VirtualThreadDumpReaderTest {
     void shouldDifferentiateMissingContainersFromEmptyContainersInReadThreads() throws Exception {
         MBeanServerConnection mbsc = mock(MBeanServerConnection.class);
 
-        // First invocation writes JSON without threadContainers (malformed)
         when(mbsc.invoke(any(ObjectName.class), eq("threadDumpToFile"), any(), any()))
                 .thenAnswer(
                         invocation -> {
@@ -418,7 +529,6 @@ class VirtualThreadDumpReaderTest {
                             Files.writeString(Path.of(path), "{\"threadDump\":{}}");
                             return "Created " + path;
                         })
-                // Second invocation writes JSON with valid empty threadContainers
                 .thenAnswer(
                         invocation -> {
                             Object[] args = (Object[]) invocation.getArgument(2);
@@ -431,11 +541,9 @@ class VirtualThreadDumpReaderTest {
 
         VirtualThreadDumpReader reader = new VirtualThreadDumpReader(mbsc);
 
-        // Missing threadContainers -> malformed -> Optional.empty()
         Optional<List<ThreadDetail>> missingResult = reader.readVirtualThreads(new long[] {1L});
         assertThat(missingResult).isEmpty();
 
-        // Valid empty threadContainers -> genuine zero threads -> Optional.of(List.of())
         Optional<List<ThreadDetail>> emptyResult = reader.readVirtualThreads(new long[] {1L});
         assertThat(emptyResult).isPresent();
         assertThat(emptyResult.get()).isEmpty();
@@ -447,7 +555,6 @@ class VirtualThreadDumpReaderTest {
     void shouldDifferentiateMissingContainersFromEmptyContainersInReadSummary() throws Exception {
         MBeanServerConnection mbsc = mock(MBeanServerConnection.class);
 
-        // First invocation writes JSON without threadContainers (malformed)
         when(mbsc.invoke(any(ObjectName.class), eq("threadDumpToFile"), any(), any()))
                 .thenAnswer(
                         invocation -> {
@@ -457,7 +564,6 @@ class VirtualThreadDumpReaderTest {
                             Files.writeString(Path.of(path), "{\"threadDump\":{}}");
                             return "Created " + path;
                         })
-                // Second invocation writes JSON with valid empty threadContainers
                 .thenAnswer(
                         invocation -> {
                             Object[] args = (Object[]) invocation.getArgument(2);
@@ -470,13 +576,10 @@ class VirtualThreadDumpReaderTest {
 
         VirtualThreadDumpReader reader = new VirtualThreadDumpReader(mbsc);
 
-        // Missing threadContainers -> malformed -> Optional.empty()
         Optional<VirtualThreadSummary> missingResult =
                 reader.readVirtualThreadSummary(new long[] {1L});
         assertThat(missingResult).isEmpty();
 
-        // Valid empty threadContainers -> genuine zero count ->
-        // Optional.of(VirtualThreadSummary(0))
         Optional<VirtualThreadSummary> emptyResult =
                 reader.readVirtualThreadSummary(new long[] {1L});
         assertThat(emptyResult).isPresent();
