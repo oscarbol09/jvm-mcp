@@ -325,4 +325,53 @@ class SensitiveDataRedactorTest {
                 .containsEntry("tokenizer", "simple")
                 .containsEntry("passwordless", "true");
     }
+
+    @Test
+    @DisplayName("Redacts numeric and array secrets regardless of their value type")
+    @SuppressWarnings("unchecked")
+    void testDeepRedactionWithNonStringSecrets() {
+        Map<String, Object> input = new LinkedHashMap<>();
+        input.put("pin", 123456);
+        input.put("authToken", 987654321L);
+        input.put("dbPassword", new char[] {'p', 'a', 's', 's'});
+        input.put("clientSecret", new byte[] {1, 2, 3});
+        input.put("ordinaryCount", 123);
+
+        Map<String, Object> result = (Map<String, Object>) SensitiveDataRedactor.redactDeep(input);
+        assertThat(result)
+                .containsEntry("pin", "***")
+                .containsEntry("authToken", "***")
+                .containsEntry("dbPassword", "***")
+                .containsEntry("clientSecret", "***")
+                .containsEntry("ordinaryCount", 123);
+        assertThat(SensitiveDataRedactor.redactDeep(new StringBuilder("password=hunter2")))
+                .isEqualTo("password=***");
+    }
+
+    @Test
+    @DisplayName("Redacts standalone AWS, GitHub and Slack credentials")
+    void testCloudTokensInDiagnosticText() {
+        String aws = "AKIA" + "AB12".repeat(4);
+        String github = "ghp_" + "Ab12".repeat(9);
+        String slack = "xoxb-123456789012-987654321098-" + "Ab12".repeat(6);
+
+        assertThat(SensitiveDataRedactor.redact("AWS " + aws + " GitHub " + github + " Slack " + slack))
+                .isEqualTo("AWS *** GitHub *** Slack ***");
+        assertThat(SensitiveDataRedactor.redact("AKIA123 ghp_short xoxb-123"))
+                .isEqualTo("AKIA123 ghp_short xoxb-123");
+    }
+
+    @Test
+    @DisplayName("Redacts complete and truncated PEM private key blocks")
+    void testPemPrivateKeys() {
+        String block =
+                "-----BEGIN OPENSSH PRIVATE KEY-----\nsynthetic-key-bytes\n"
+                        + "-----END OPENSSH PRIVATE KEY-----";
+        assertThat(SensitiveDataRedactor.redact("start\n" + block + "\nend"))
+                .isEqualTo("start\n***\nend");
+        assertThat(SensitiveDataRedactor.redact("-----BEGIN RSA PRIVATE KEY-----\nsecret-data"))
+                .isEqualTo("***");
+        assertThat(SensitiveDataRedactor.redact("-----BEGIN CERTIFICATE-----\npublic"))
+                .isEqualTo("-----BEGIN CERTIFICATE-----\npublic");
+    }
 }
