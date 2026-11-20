@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Spring bean pagination and summary** (#217): `list_spring_beans` accepts `limit` (default 200, max 2000), `offset` and `summary`. Paginated responses include `totalBeans`, `returnedBeans` and `truncated`; summary mode returns per-context bean counts and the top 10 packages. `get_bean_detail` passes `beanName` to the parser so only matching name/alias candidates are built.
 
 ### Changed
+- **Pitest Maven plugin bump** (#300): Bumped `org.pitest:pitest-maven` from 1.30.1 to 1.30.2 in `pom.xml`.
+- **GitHub Actions dependency updates** (#301): Bumped `docker/login-action` to 4.8.0 (`8aa5831fb8d48d8f76594c7ddde61ae58019f550`) and `softprops/action-gh-release` to 3.0.4 (`8a0cd651e5b2365bd640854a3fa5dfc70e4875f3`) in `.github/workflows/docker.yml` and `release.yml`.
 - **Spotless Maven plugin and Setup-Java action bumps** (#289, #290): Bumped `spotless-maven-plugin` to 3.11.0 and `actions/setup-java` to 6.2.0 in CI workflows.
 - **Docker login-action dependency bump** (#270): Bumped `docker/login-action` to 4.7.0 (`81c6f93d4bc991e510b342a00b419b3bb4efc5c6`) in `.github/workflows/docker.yml`.
 - **Maven plugin dependency updates** (#269): Bumped `maven-surefire-plugin` and `maven-failsafe-plugin` to 3.6.1, and `jacoco-maven-plugin` to 0.8.16 in `pom.xml`.
