@@ -355,7 +355,9 @@ class SensitiveDataRedactorTest {
         String github = "ghp_" + "Ab12".repeat(9);
         String slack = "xoxb-123456789012-987654321098-" + "Ab12".repeat(6);
 
-        assertThat(SensitiveDataRedactor.redact("AWS " + aws + " GitHub " + github + " Slack " + slack))
+        assertThat(
+                        SensitiveDataRedactor.redact(
+                                "AWS " + aws + " GitHub " + github + " Slack " + slack))
                 .isEqualTo("AWS *** GitHub *** Slack ***");
         assertThat(SensitiveDataRedactor.redact("AKIA123 ghp_short xoxb-123"))
                 .isEqualTo("AKIA123 ghp_short xoxb-123");
