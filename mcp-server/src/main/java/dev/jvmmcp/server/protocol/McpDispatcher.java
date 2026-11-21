@@ -67,23 +67,7 @@ public class McpDispatcher {
             return Optional.empty();
         }
 
-        // 1. Validate JSON-RPC version
-        Object jsonrpc = req.get("jsonrpc");
-        if (!"2.0".equals(jsonrpc)) {
-            return Optional.of(
-                    formatInvalidRequest(
-                            req.get("id"), "Invalid Request: 'jsonrpc' must be exactly '2.0'"));
-        }
-
-        // 2. Validate method
-        Object methodObj = req.get("method");
-        if (!(methodObj instanceof String method) || method.isBlank()) {
-            return Optional.of(
-                    formatInvalidRequest(
-                            req.get("id"), "Invalid Request: 'method' must be a non-empty string"));
-        }
-
-        // 3. Validate id type
+        // 1. Validate id type first to avoid echoing an invalid id in error responses.
         if (req.containsKey("id")) {
             Object id = req.get("id");
             if (id != null && !(id instanceof String) && !(id instanceof Number)) {
@@ -91,6 +75,22 @@ public class McpDispatcher {
                         formatInvalidRequest(
                                 null, "Invalid Request: 'id' must be a String, Number, or null"));
             }
+        }
+
+        // 2. Validate JSON-RPC version
+        Object jsonrpc = req.get("jsonrpc");
+        if (!"2.0".equals(jsonrpc)) {
+            return Optional.of(
+                    formatInvalidRequest(
+                            req.get("id"), "Invalid Request: 'jsonrpc' must be exactly '2.0'"));
+        }
+
+        // 3. Validate method
+        Object methodObj = req.get("method");
+        if (!(methodObj instanceof String method) || method.isBlank()) {
+            return Optional.of(
+                    formatInvalidRequest(
+                            req.get("id"), "Invalid Request: 'method' must be a non-empty string"));
         }
 
         // 4. Distinguish notifications from requests
@@ -149,7 +149,9 @@ public class McpDispatcher {
 
         if ("tools/call".equals(method)) {
             Map<String, Object> params = ToolArgs.asMap(req.get("params"));
-            if (params != null && params.get("name") instanceof String toolName) {
+            if (params != null
+                    && params.get("name") instanceof String toolName
+                    && !toolName.isBlank()) {
                 Object rawArgs = params.get("arguments");
                 if (rawArgs != null && !(rawArgs instanceof Map<?, ?>)) {
                     return Map.of(

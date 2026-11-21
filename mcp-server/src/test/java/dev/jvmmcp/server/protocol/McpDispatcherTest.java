@@ -336,6 +336,43 @@ class McpDispatcherTest {
                 .contains("Invalid Request: 'id' must be a String, Number, or null");
     }
 
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "{\"jsonrpc\":\"1.0\",\"id\":[1,2],\"method\":\"ping\"}",
+                "{\"jsonrpc\":\"2.0\",\"id\":true,\"method\":123}",
+                "{\"jsonrpc\":\"2.0\",\"id\":{},\"method\":\"\"}"
+            })
+    @DisplayName("invalid id types are never echoed even when other request fields are invalid")
+    void testInvalidIdTakesPrecedence(String line) {
+        Map<String, Object> response = dispatcher.dispatch(line).orElseThrow();
+
+        assertThat(response.get("id")).isNull();
+        assertThat(response).containsKey("error").doesNotContainKey("result");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> error = (Map<String, Object>) response.get("error");
+        assertThat(error.get("code")).isEqualTo(-32600);
+        assertThat(error.get("message").toString()).contains("'id'");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", " ", "   "})
+    @DisplayName("tools/call rejects empty or whitespace-only tool names")
+    void testBlankToolName(String toolName) {
+        String line =
+                "{\"jsonrpc\":\"2.0\",\"id\":205,\"method\":\"tools/call\",\"params\":{\"name\":\""
+                        + toolName
+                        + "\"}}";
+        Map<String, Object> response = dispatcher.dispatch(line).orElseThrow();
+
+        assertThat(response.get("id")).isEqualTo(205);
+        assertThat(response).containsKey("error").doesNotContainKey("result");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> error = (Map<String, Object>) response.get("error");
+        assertThat(error.get("code")).isEqualTo(-32602);
+        assertThat(error.get("message")).isEqualTo("Invalid params");
+    }
+
     @Test
     @DisplayName("dispatch supports requests with explicit id: null")
     void testExplicitNullId() {
