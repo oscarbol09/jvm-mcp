@@ -119,7 +119,8 @@ class PostgresUrlsTest {
     }
 
     @Test
-    @DisplayName("leaves an opaque jdbc:postgresql URL unchanged instead of corrupting it (issue #305)")
+    @DisplayName(
+            "leaves an opaque jdbc:postgresql URL unchanged instead of corrupting it (issue #305)")
     void leavesOpaquePostgresUrlUnchanged() {
         // jdbc:postgresql:mydb has no //authority; it must not be turned into
         // jdbc:postgresql://null/envdb.
@@ -135,7 +136,6 @@ class PostgresUrlsTest {
         // An unencoded space in the query used to throw IllegalArgumentException from
         // URI.create; the URL must now be returned untouched for validation to report.
         String malformed = "jdbc:postgresql://localhost:5432/db?a=b c";
-        assertThat(PostgresUrls.withDefaultDatabase(malformed, env(Map.of())))
-                .isEqualTo(malformed);
+        assertThat(PostgresUrls.withDefaultDatabase(malformed, env(Map.of()))).isEqualTo(malformed);
     }
 }
