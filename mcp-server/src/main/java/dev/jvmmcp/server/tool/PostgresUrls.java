@@ -20,10 +20,23 @@ public final class PostgresUrls {
      * is set.
      */
     public static String withDefaultDatabase(String url, Function<String, String> envProvider) {
-        if (url == null || !url.startsWith("jdbc:")) {
+        if (url == null || !url.startsWith("jdbc:postgresql://")) {
+            // Only canonical hierarchical pgjdbc URLs carry an authority we can rewrite. Other
+            // JDBC schemes (e.g. jdbc:mysql://...) and opaque forms (e.g. jdbc:postgresql:mydb)
+            // are left untouched so JDBC URL validation downstream still sees the original URL.
             return url;
         }
-        URI uri = URI.create(url.substring("jdbc:".length()));
+        URI uri;
+        try {
+            uri = URI.create(url.substring("jdbc:".length()));
+        } catch (IllegalArgumentException e) {
+            // A malformed URL (e.g. an unencoded space in the query) must not blow up here;
+            // return it unchanged and let JDBC URL validation report the problem cleanly.
+            return url;
+        }
+        if (uri.getRawAuthority() == null) {
+            return url;
+        }
         String path = uri.getRawPath();
         if (path != null && !path.isEmpty() && !"/".equals(path)) {
             return url;

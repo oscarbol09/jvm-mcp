@@ -102,10 +102,11 @@ public class PgCommand implements Callable<Integer> {
         String normalizedAction =
                 action == null ? "" : action.trim().toLowerCase(Locale.ROOT).replace('_', '-');
 
-        String effectiveUrl = PostgresUrls.withDefaultDatabase(url, envProvider);
-
         try (PostgresSchemaReader reader =
-                readerFactory.create(effectiveUrl, effectiveUser, effectivePassword)) {
+                readerFactory.create(
+                        PostgresUrls.withDefaultDatabase(url, envProvider),
+                        effectiveUser,
+                        effectivePassword)) {
             switch (normalizedAction) {
                 case "schema" -> {
                     SchemaInfo info = reader.inspectSchema(schema);

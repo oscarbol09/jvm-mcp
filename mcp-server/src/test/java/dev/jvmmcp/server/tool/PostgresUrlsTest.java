@@ -106,4 +106,36 @@ class PostgresUrlsTest {
                                 "postgresql://localhost:5432", env(Map.of("PGDATABASE", "myapp"))))
                 .isEqualTo("postgresql://localhost:5432");
     }
+
+    @Test
+    @DisplayName("leaves a non-PostgreSQL JDBC scheme unchanged (issue #305)")
+    void leavesOtherJdbcSchemesUnchanged() {
+        // Only jdbc:postgresql:// URLs may be rewritten; a mysql URL must pass through so the
+        // downstream scheme validation still sees the original, unrewritten URL.
+        assertThat(
+                        PostgresUrls.withDefaultDatabase(
+                                "jdbc:mysql://localhost:3306", env(Map.of("PGDATABASE", "mydb"))))
+                .isEqualTo("jdbc:mysql://localhost:3306");
+    }
+
+    @Test
+    @DisplayName(
+            "leaves an opaque jdbc:postgresql URL unchanged instead of corrupting it (issue #305)")
+    void leavesOpaquePostgresUrlUnchanged() {
+        // jdbc:postgresql:mydb has no //authority; it must not be turned into
+        // jdbc:postgresql://null/envdb.
+        assertThat(
+                        PostgresUrls.withDefaultDatabase(
+                                "jdbc:postgresql:mydb", env(Map.of("PGDATABASE", "envdb"))))
+                .isEqualTo("jdbc:postgresql:mydb");
+    }
+
+    @Test
+    @DisplayName("returns a malformed URL unchanged instead of throwing (issue #305)")
+    void returnsMalformedUrlUnchanged() {
+        // An unencoded space in the query used to throw IllegalArgumentException from
+        // URI.create; the URL must now be returned untouched for validation to report.
+        String malformed = "jdbc:postgresql://localhost:5432/db?a=b c";
+        assertThat(PostgresUrls.withDefaultDatabase(malformed, env(Map.of()))).isEqualTo(malformed);
+    }
 }
