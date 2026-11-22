@@ -183,6 +183,11 @@ public class SpringBeansToolHandler implements ToolHandler {
 
     @Override
     public Map<String, Object> execute(String toolName, Map<String, Object> args) throws Exception {
+
+        if (toolName == null || !toolNames().contains(toolName)) {
+            throw new IllegalArgumentException("Unknown Spring Beans tool: " + toolName);
+        }
+
         long pid = resolvePid(args);
 
         int limit = DEFAULT_BEAN_LIMIT;
@@ -227,11 +232,12 @@ public class SpringBeansToolHandler implements ToolHandler {
                         "JMX connection failed (" + e.getClass().getSimpleName() + ")");
             }
 
+            if (report.discoverySource() != null
+                    && report.discoverySource().startsWith("NOT_AVAILABLE")) {
+                return discoveryErrorResult(report.discoverySource());
+            }
+
             if ("list_spring_beans".equals(toolName)) {
-                if (report.discoverySource() != null
-                        && report.discoverySource().startsWith("NOT_AVAILABLE")) {
-                    return discoveryErrorResult(report.discoverySource());
-                }
                 Map<String, Object> response =
                         summary ? summarizeBeans(report) : paginateBeans(report, limit, offset);
                 content.add(Map.of("type", "text", "text", SimpleJson.toJson(response)));

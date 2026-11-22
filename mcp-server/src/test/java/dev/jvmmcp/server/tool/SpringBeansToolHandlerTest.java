@@ -500,8 +500,6 @@ class SpringBeansToolHandlerTest {
     @Test
     @DisplayName("execute throws on unknown tool name")
     void testUnknownTool() {
-        when(mockAttachService.attach("123")).thenReturn(AttachResult.success("123", null));
-
         SpringBeansToolHandler handler =
                 new SpringBeansToolHandler(
                         mockAttachService,
@@ -722,5 +720,38 @@ class SpringBeansToolHandlerTest {
                 .hasMessageContaining("PID 456 was not found");
 
         verify(mockAttachService).attach("456");
+    }
+
+    @Test
+    @DisplayName("get_bean_detail returns a discovery error when discovery is unavailable")
+    @SuppressWarnings("unchecked")
+    void testGetBeanDetailDiscoveryFailure() throws Exception {
+        when(mockAttachService.attach("123")).thenReturn(AttachResult.success("123", null));
+
+        SpringBeansReport report =
+                new SpringBeansReport(
+                        123,
+                        "NOT_AVAILABLE (JMX MBean not registered: org.springframework.boot:type=Endpoint,name=Beans)",
+                        0,
+                        List.of());
+
+        when(mockBeansClient.inspectBeanDetailWithJmxProvider(
+                        eq(123L), any(), any(), eq("orderService")))
+                .thenReturn(report);
+
+        SpringBeansToolHandler handler =
+                new SpringBeansToolHandler(mockAttachService, mockBeansClient);
+
+        Map<String, Object> result =
+                handler.execute("get_bean_detail", Map.of("pid", 123, "beanName", "orderService"));
+
+        assertThat(result.get("isError")).isEqualTo(true);
+        List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
+        assertThat(content).hasSize(1);
+        assertThat(content.get(0).get("text").toString())
+                .contains("Unable to discover Spring beans")
+                .contains("NOT_AVAILABLE")
+                .contains("spring.jmx.enabled=true")
+                .doesNotContain("Bean not found");
     }
 }
