@@ -79,7 +79,7 @@ public class ActuatorToolHandler implements ToolHandler {
                 Map.of(
                         "name", "get_actuator_metrics",
                         "description",
-                                "Fetches Spring Boot Actuator /metrics endpoint. Optionally pass metricName to get a specific metric.",
+                                "Fetches Spring Boot Actuator /metrics endpoint. Optionally pass metrics to get specific metric(s).",
                         "inputSchema",
                                 Map.of(
                                         "type", "object",
@@ -131,10 +131,7 @@ public class ActuatorToolHandler implements ToolHandler {
         String token = envProvider.apply("ACTUATOR_TOKEN");
         boolean insecure = "true".equalsIgnoreCase(envProvider.apply("ACTUATOR_INSECURE"));
 
-        ActuatorAuth auth =
-                token != null
-                        ? ActuatorAuth.bearer(token, insecure)
-                        : ActuatorAuth.basic(user, password, insecure);
+        ActuatorAuth auth = new ActuatorAuth(user, password, token, insecure);
         auth.validate()
                 .ifPresent(
                         error -> {

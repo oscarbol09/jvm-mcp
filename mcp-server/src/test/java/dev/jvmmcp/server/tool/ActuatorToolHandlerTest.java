@@ -31,6 +31,22 @@ class ActuatorToolHandlerTest {
     }
 
     @Test
+    @DisplayName("metrics tool description documents the actual metrics parameter")
+    void testMetricsToolDescription() {
+        Map<String, Object> definition =
+                handlerToolDefinition(new ActuatorToolHandler((url, auth) -> mockClient));
+        assertThat(definition.get("description").toString()).contains("metrics").doesNotContain("metricName");
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> handlerToolDefinition(ActuatorToolHandler handler) {
+        return handler.toolDefinitions().stream()
+                .filter(definition -> "get_actuator_metrics".equals(definition.get("name")))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    @Test
     @DisplayName("execute throws on missing url")
     void testMissingUrl() {
         ActuatorToolHandler handler = new ActuatorToolHandler((url, auth) -> mockClient);
@@ -43,7 +59,6 @@ class ActuatorToolHandlerTest {
     @Test
     @DisplayName("execute throws when auth configuration is invalid")
     void testInvalidAuth() {
-        // user provided without password
         Map<String, String> env = Map.of("ACTUATOR_USER", "admin");
         ActuatorToolHandler handler = new ActuatorToolHandler((url, auth) -> mockClient, env::get);
 
@@ -54,6 +69,48 @@ class ActuatorToolHandlerTest {
                                         Map.of("url", "http://localhost:8080")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Username and password must be provided together");
+    }
+
+    @Test
+    @DisplayName("blank bearer token does not prevent Basic authentication")
+    void testBlankBearerTokenFallsBackToBasicAuth() throws Exception {
+        Map<String, String> env =
+                Map.of(
+                        "ACTUATOR_USER", "admin",
+                        "ACTUATOR_PASSWORD", "secret",
+                        "ACTUATOR_TOKEN", "");
+        ActuatorToolHandler handler =
+                new ActuatorToolHandler(
+                        (url, auth) -> {
+                            assertThat(auth.user()).isEqualTo("admin");
+                            assertThat(auth.password()).isEqualTo("secret");
+                            assertThat(auth.bearerToken()).isEmpty();
+                            assertThat(auth.authorizationHeader()).hasValueSatisfying(value -> assertThat(value).startsWith("Basic "));
+                            return mockClient;
+                        },
+                        env::get);
+
+        handler.execute("get_actuator_health", Map.of("url", "http://localhost:8080"));
+    }
+
+    @Test
+    @DisplayName("bearer token and Basic credentials cannot be configured together")
+    void testConflictingAuthCredentialsAreRejected() {
+        Map<String, String> env =
+                Map.of(
+                        "ACTUATOR_USER", "admin",
+                        "ACTUATOR_PASSWORD", "secret",
+                        "ACTUATOR_TOKEN", "token");
+        ActuatorToolHandler handler = new ActuatorToolHandler((url, auth) -> mockClient, env::get);
+
+        assertThatThrownBy(
+                        () ->
+                                handler.execute(
+                                        "get_actuator_health",
+                                        Map.of("url", "http://localhost:8080")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(
+                        "Use either bearer token or username/password credentials, not both");
     }
 
     @Test
