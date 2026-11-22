@@ -115,7 +115,8 @@ public class ToolRegistry implements AutoCloseable {
             future =
                     executorService.submit(
                             () -> {
-                                if (!workerState.compareAndSet(WorkerState.PENDING, WorkerState.RUNNING)) {
+                                if (!workerState.compareAndSet(
+                                        WorkerState.PENDING, WorkerState.RUNNING)) {
                                     return Map.of();
                                 }
                                 try {
@@ -200,9 +201,7 @@ public class ToolRegistry implements AutoCloseable {
     }
 
     private void cancelWorker(
-            Future<?> future,
-            AtomicReference<WorkerState> workerState,
-            Runnable releasePermit) {
+            Future<?> future, AtomicReference<WorkerState> workerState, Runnable releasePermit) {
         future.cancel(true);
         if (workerState.compareAndSet(WorkerState.PENDING, WorkerState.CANCELLED)) {
             releasePermit.run();
@@ -210,9 +209,7 @@ public class ToolRegistry implements AutoCloseable {
     }
 
     private Map<String, Object> errorResult(String message) {
-        return Map.of(
-                "content", List.of(Map.of("type", "text", "text", message)),
-                "isError", true);
+        return Map.of("content", List.of(Map.of("type", "text", "text", message)), "isError", true);
     }
 
     private enum WorkerState {
