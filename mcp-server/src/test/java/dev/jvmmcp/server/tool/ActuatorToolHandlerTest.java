@@ -35,7 +35,9 @@ class ActuatorToolHandlerTest {
     void testMetricsToolDescription() {
         Map<String, Object> definition =
                 handlerToolDefinition(new ActuatorToolHandler((url, auth) -> mockClient));
-        assertThat(definition.get("description").toString()).contains("metrics").doesNotContain("metricName");
+        assertThat(definition.get("description").toString())
+                .contains("metrics")
+                .doesNotContain("metricName");
     }
 
     @SuppressWarnings("unchecked")
@@ -85,7 +87,9 @@ class ActuatorToolHandlerTest {
                             assertThat(auth.user()).isEqualTo("admin");
                             assertThat(auth.password()).isEqualTo("secret");
                             assertThat(auth.bearerToken()).isEmpty();
-                            assertThat(auth.authorizationHeader()).hasValueSatisfying(value -> assertThat(value).startsWith("Basic "));
+                            assertThat(auth.authorizationHeader())
+                                    .hasValueSatisfying(
+                                            value -> assertThat(value).startsWith("Basic "));
                             return mockClient;
                         },
                         env::get);
