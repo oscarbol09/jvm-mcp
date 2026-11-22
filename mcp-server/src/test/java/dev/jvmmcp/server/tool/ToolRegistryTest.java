@@ -503,9 +503,7 @@ class ToolRegistryTest {
                         });
         registry.register(handler);
 
-        Thread caller =
-                new Thread(
-                        () -> firstResult.set(registry.execute("blocking_tool", Map.of())));
+        Thread caller = new Thread(() -> firstResult.set(registry.execute("blocking_tool", Map.of())));
         caller.start();
 
         try {
