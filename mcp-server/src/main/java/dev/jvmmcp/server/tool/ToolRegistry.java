@@ -115,8 +115,7 @@ public class ToolRegistry implements AutoCloseable {
             future =
                     executorService.submit(
                             () -> {
-                                if (!workerState.compareAndSet(
-                                        WorkerState.PENDING, WorkerState.RUNNING)) {
+                                if (!workerState.compareAndSet(WorkerState.PENDING, WorkerState.RUNNING)) {
                                     return Map.of();
                                 }
                                 try {
@@ -201,7 +200,9 @@ public class ToolRegistry implements AutoCloseable {
     }
 
     private void cancelWorker(
-            Future<?> future, AtomicReference<WorkerState> workerState, Runnable releasePermit) {
+            Future<?> future,
+            AtomicReference<WorkerState> workerState,
+            Runnable releasePermit) {
         future.cancel(true);
         if (workerState.compareAndSet(WorkerState.PENDING, WorkerState.CANCELLED)) {
             releasePermit.run();
