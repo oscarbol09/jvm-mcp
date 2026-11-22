@@ -90,6 +90,8 @@ class ActuatorToolHandlerTest {
                         },
                         env::get);
 
+        when(mockClient.getHealth()).thenReturn("{\"status\":\"UP\"}");
+
         handler.execute("get_actuator_health", Map.of("url", "http://localhost:8080"));
     }
 
