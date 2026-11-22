@@ -115,7 +115,8 @@ public class ToolRegistry implements AutoCloseable {
             future =
                     executorService.submit(
                             () -> {
-                                if (!workerState.compareAndSet(WorkerState.PENDING, WorkerState.RUNNING)) {
+                                if (!workerState.compareAndSet(
+                                        WorkerState.PENDING, WorkerState.RUNNING)) {
                                     return Map.of();
                                 }
                                 try {
