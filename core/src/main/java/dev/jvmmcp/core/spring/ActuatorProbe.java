@@ -103,29 +103,60 @@ public class ActuatorProbe {
     }
 
     private HttpRequest.Builder newRequest(String urlStr, Duration timeout) {
+        URI originalUri = validateUrl(urlStr);
+        HttpRequest.Builder builder =
+                HttpRequest.newBuilder()
+                        .uri(originalUri)
+                        .timeout(timeout)
+                        .header("Accept", "application/json")
+                        .header("Accept-Encoding", "gzip, deflate");
+
+        auth.authorizationHeader().ifPresent(value -> builder.header("Authorization", value));
+
+        return builder;
+    }
+
+    private static URI validateUrl(String url) {
+        String trimmed = trimBaseUrl(url);
+        final URI uri;
         try {
-            URI originalUri = URI.create(urlStr);
-            String host = originalUri.getHost();
-
-            if (host == null) {
-                throw new SecurityException("Invalid URL: No host provided");
-            }
-
-            ActuatorClient.validateLoopbackHost(host);
-
-            HttpRequest.Builder builder =
-                    HttpRequest.newBuilder()
-                            .uri(originalUri)
-                            .timeout(timeout)
-                            .header("Accept", "application/json")
-                            .header("Accept-Encoding", "gzip, deflate");
-
-            auth.authorizationHeader().ifPresent(value -> builder.header("Authorization", value));
-
-            return builder;
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to create safe request: " + e.getMessage(), e);
+            uri = URI.create(trimmed);
+        } catch (IllegalArgumentException e) {
+            // URI parsing exceptions include the input, which may contain credentials.
+            throw new IllegalArgumentException("SSRF Protection: Malformed Actuator URL");
         }
+
+        String scheme = uri.getScheme();
+        if (scheme == null
+                || (!scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https"))) {
+            throw new IllegalArgumentException("SSRF Protection: URL scheme must be http or https");
+        }
+        if (uri.getUserInfo() != null) {
+            throw new IllegalArgumentException(
+                    "SSRF Protection: UserInfo not permitted in Actuator URL");
+        }
+        if (uri.getQuery() != null) {
+            throw new IllegalArgumentException(
+                    "SSRF Protection: Query parameters not permitted in Actuator URL");
+        }
+        if (uri.getFragment() != null) {
+            throw new IllegalArgumentException(
+                    "SSRF Protection: URI fragments not permitted in Actuator URL");
+        }
+        String host = uri.getHost();
+        if (host == null) {
+            throw new IllegalArgumentException("SSRF Protection: Malformed or missing host in URL");
+        }
+        ActuatorClient.validateLoopbackHost(host);
+        return uri;
+    }
+
+    private static String trimBaseUrl(String baseUrl) {
+        if (baseUrl == null || baseUrl.isBlank()) {
+            throw new IllegalArgumentException(
+                    "SSRF Protection: Actuator URL cannot be null or blank");
+        }
+        return baseUrl.trim();
     }
 
     public Optional<ProbeResult> probe(VirtualMachine vm) {
@@ -184,10 +215,18 @@ public class ActuatorProbe {
         return Optional.empty();
     }
 
+    /**
+     * Fetches beans from an explicit loopback HTTP(S) URL, trying the standard endpoint paths.
+     *
+     * @return the response body, or empty when no candidate endpoint is reachable
+     * @throws IllegalArgumentException if the URL is malformed or rejected by SSRF validation
+     */
     public Optional<String> fetchFromUrl(String baseUrl) {
+        // Validate before modifying the URL so normalization cannot hide forbidden components.
+        validateUrl(baseUrl);
         for (String targetUrl : candidateBeansUrls(baseUrl)) {
+            HttpRequest request = newRequest(targetUrl, Duration.ofSeconds(3)).GET().build();
             try {
-                HttpRequest request = newRequest(targetUrl, Duration.ofSeconds(3)).GET().build();
                 HttpResponse<String> response =
                         httpClient.send(
                                 request,
@@ -204,13 +243,12 @@ public class ActuatorProbe {
     }
 
     static List<String> candidateBeansUrls(String baseUrl) {
-        String trimmed = baseUrl.trim();
+        String base = trimBaseUrl(baseUrl).replaceAll("/+$", "");
 
-        if (trimmed.endsWith("/beans")) {
-            return List.of(trimmed);
+        if (base.endsWith("/beans")) {
+            return List.of(base);
         }
 
-        String base = trimmed.endsWith("/") ? trimmed.substring(0, trimmed.length() - 1) : trimmed;
         return List.of(base + "/actuator/beans", base + "/beans");
     }
 

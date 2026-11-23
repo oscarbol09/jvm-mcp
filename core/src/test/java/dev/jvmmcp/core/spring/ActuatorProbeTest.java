@@ -1,6 +1,10 @@
 package dev.jvmmcp.core.spring;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.sun.net.httpserver.HttpServer;
@@ -16,12 +20,16 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.net.ssl.KeyManagerFactory;
@@ -34,6 +42,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -53,7 +64,7 @@ class ActuatorProbeTest {
 
     @BeforeEach
     void startServer() throws IOException {
-        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         port = server.getAddress().getPort();
     }
 
@@ -272,6 +283,133 @@ class ActuatorProbeTest {
         ActuatorProbe probe = new ActuatorProbe();
         Optional<String> result = probe.fetchFromUrl("http://127.0.0.1:1");
         assertThat(result).isEmpty();
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(
+            strings = {
+                "   ",
+                "\t\n",
+                "http://169.254.169.254/latest/meta-data",
+                "http://192.0.2.1",
+                "http://[2001:db8::1]",
+                "ftp://127.0.0.1",
+                "file:///tmp/beans",
+                "gopher://127.0.0.1",
+                "127.0.0.1:8080",
+                "//127.0.0.1:8080",
+                "/actuator/beans",
+                "http:///beans",
+                "http://127.0.0.1/%zz?token=secret-value",
+                "http://user:secret-value@127.0.0.1",
+                "http://127.0.0.1?token=secret-value",
+                "http://127.0.0.1?",
+                "http://127.0.0.1#secret-value",
+                "http://127.0.0.1#",
+                "http://127.0.0.1?///",
+                "http://127.0.0.1#///"
+            })
+    @DisplayName("fetchFromUrl rejects unsafe URLs before sending any HTTP request")
+    void shouldRejectInvalidUrlBeforeSending(String url) {
+        HttpClient httpClient = mock(HttpClient.class);
+        ActuatorProbe probe = new ActuatorProbe(httpClient);
+
+        assertThatThrownBy(() -> probe.fetchFromUrl(url))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("SSRF Protection:")
+                .hasMessageNotContaining("secret-value");
+        verifyNoInteractions(httpClient);
+    }
+
+    @Test
+    @DisplayName("fetchFromUrl propagates host rejection during request construction")
+    void shouldPropagateRequestValidationFailure() {
+        HttpClient httpClient = mock(HttpClient.class);
+        ActuatorProbe probe = new ActuatorProbe(httpClient);
+        IllegalArgumentException rejection =
+                new IllegalArgumentException("SSRF Protection: Host is no longer loopback");
+
+        try (var validator = mockStatic(ActuatorClient.class)) {
+            validator
+                    .when(() -> ActuatorClient.validateLoopbackHost("127.0.0.1"))
+                    .thenAnswer(invocation -> null)
+                    .thenThrow(rejection);
+
+            assertThatThrownBy(() -> probe.fetchFromUrl("http://127.0.0.1")).isSameAs(rejection);
+            verifyNoInteractions(httpClient);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "http://127.0.0.1",
+                "https://127.0.0.1",
+                "HTTP://localhost",
+                "HTTPS://[::1]"
+            })
+    @SuppressWarnings("unchecked")
+    void shouldAcceptLoopbackHttpAndHttpsUrls(String url) throws Exception {
+        HttpClient httpClient = mock(HttpClient.class);
+        HttpResponse<String> response = mock(HttpResponse.class);
+        when(response.statusCode()).thenReturn(200);
+        when(response.body()).thenReturn(BEANS_PAYLOAD);
+        when(httpClient.send(
+                        org.mockito.ArgumentMatchers.any(HttpRequest.class),
+                        org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
+                .thenReturn(response);
+
+        assertThat(new ActuatorProbe(httpClient).fetchFromUrl(url)).contains(BEANS_PAYLOAD);
+        var request = org.mockito.ArgumentCaptor.forClass(HttpRequest.class);
+        org.mockito.Mockito.verify(httpClient)
+                .send(request.capture(), org.mockito.ArgumentMatchers.any());
+        assertThat(request.getValue().uri().toString()).isEqualTo(url + "/actuator/beans");
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"   ", "\t\n"})
+    void shouldRejectBlankCandidateBaseUrl(String url) {
+        assertThatThrownBy(() -> ActuatorProbe.candidateBeansUrls(url))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "/", "///"})
+    void shouldNormalizeCandidateBaseUrl(String suffix) {
+        assertThat(ActuatorProbe.candidateBeansUrls(" https://host:8443/app" + suffix + " "))
+                .containsExactly(
+                        "https://host:8443/app/actuator/beans", "https://host:8443/app/beans");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/beans", "/actuator/beans", "/management/beans"})
+    void shouldPreserveDirectBeansUrlAfterTrimmingSlashes(String path) {
+        assertThat(ActuatorProbe.candidateBeansUrls(" http://localhost:8080" + path + "/// "))
+                .containsExactly("http://localhost:8080" + path);
+    }
+
+    @Test
+    void shouldFetchNormalizedContextPathWithFallback() {
+        List<String> paths = new CopyOnWriteArrayList<>();
+        server.createContext(
+                "/",
+                exchange -> {
+                    String path = exchange.getRequestURI().getPath();
+                    paths.add(path);
+                    byte[] body = BEANS_PAYLOAD.getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(
+                            path.equals("/app/beans") ? 200 : 404, body.length);
+                    try (var output = exchange.getResponseBody()) {
+                        output.write(body);
+                    }
+                });
+        server.start();
+
+        assertThat(new ActuatorProbe().fetchFromUrl(" http://127.0.0.1:" + port + "/app/// "))
+                .contains(BEANS_PAYLOAD);
+        assertThat(paths).containsExactly("/app/actuator/beans", "/app/beans");
     }
 
     @Test

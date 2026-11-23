@@ -124,7 +124,12 @@ public class BeansCommand implements Callable<Integer> {
         SpringBeansReport report;
 
         if (actuatorUrl != null && !actuatorUrl.isBlank()) {
-            report = client.inspectFromActuatorUrl(pid, actuatorUrl, filter);
+            try {
+                report = client.inspectFromActuatorUrl(pid, actuatorUrl, filter);
+            } catch (IllegalArgumentException e) {
+                System.err.println("[jvm-mcp] Error: " + e.getMessage());
+                return 1;
+            }
         } else {
             if (pid <= 0) {
                 System.err.println(
