@@ -88,11 +88,22 @@ jobs:
           MATRIX_SUFFIX: ${{ matrix.suffix }}
         run: |
           # Use jlink to assemble custom minimal JRE with required modules
-          jlink --add-modules java.base,java.management,java.net.http,java.sql,java.naming,jdk.attach,jdk.management,jdk.management.agent,java.instrument,jdk.internal.jvmstat \
+          # Keep this list in sync with Dockerfile: jdk.crypto.ec carries EC/X25519 TLS for HTTPS
+          # Actuator targets, and jdk.jfr is what gives the DiagnosticCommand MBean its operations
+          # (heap histograms, virtual-thread dumps).
+          jlink --add-modules java.base,java.management,java.net.http,java.sql,java.naming,jdk.attach,jdk.management,jdk.management.agent,java.instrument,jdk.internal.jvmstat,jdk.crypto.ec,jdk.jfr \
                 --output custom-jre \
                 --strip-debug \
                 --no-man-pages \
                 --no-header-files
+
+          # Fail the release if the runtime image lost one of those modules, instead of shipping it.
+          for module in jdk.crypto.ec jdk.jfr; do
+            if ! ./custom-jre/bin/java --list-modules | grep -q "^${module}@"; then
+              echo "Error: custom-jre is missing ${module}" >&2
+              exit 1
+            fi
+          done
 
           # Dynamically locate the shaded fat jar (eliminating hardcoded SNAPSHOT)
           SHADED_JAR=$(find mcp-server/target -maxdepth 1 -name "jvm-mcp-server-*.jar" ! -name "original-*" | head -n 1)
