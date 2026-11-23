@@ -3,6 +3,7 @@ package dev.jvmmcp.core.pg;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.Locale;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -76,6 +77,79 @@ class PostgresSchemaReaderValidationTest {
         assertThatThrownBy(() -> PostgresSchemaReader.validateJdbcUrl(url))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Dangerous JDBC connection parameter");
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "jdbc:postgresql://localhost:5432/db?authenticationPluginClassName=com.evil.Plugin",
+                "jdbc:postgresql://localhost:5432/db?sslhostnameverifier=com.evil.Verifier",
+                "jdbc:postgresql://localhost:5432/db?sslpassword=correct-horse",
+                "jdbc:postgresql://localhost:5432/db?service=prod",
+                "jdbc:postgresql://localhost:5432/db?jaasApplicationName=evil",
+                "jdbc:postgresql://localhost:5432/db?gsslib=evil",
+                "jdbc:postgresql://localhost:5432/db?sspiServiceClass=evil",
+                "jdbc:postgresql://localhost:5432/db?classLoaderStrategy=com.evil.Strategy"
+            })
+    @DisplayName("pgjdbc properties that load classes or override the connection are rejected")
+    void shouldRejectAdditionalDangerousParameters(String url) {
+        assertThatThrownBy(() -> PostgresSchemaReader.validateJdbcUrl(url))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Dangerous JDBC connection parameter");
+    }
+
+    @Test
+    @DisplayName("Blocked parameter names are matched case-insensitively under a Turkish locale")
+    void shouldMatchBlockedParametersRegardlessOfLocale() {
+        Locale previous = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+            assertThatThrownBy(
+                            () ->
+                                    PostgresSchemaReader.validateJdbcUrl(
+                                            "jdbc:postgresql://localhost:5432/db?LOGGERFILE=/tmp/pwn"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("loggerfile");
+            assertThatThrownBy(
+                            () ->
+                                    PostgresSchemaReader.validateJdbcUrl(
+                                            "jdbc:postgresql://localhost:5432/db?SSLMODE=DISABLE"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("sslmode");
+        } finally {
+            Locale.setDefault(previous);
+        }
+    }
+
+    @Test
+    @DisplayName("Validation reports the blocked parameter name without echoing query values")
+    void shouldNotLeakQueryValuesInErrorMessage() {
+        String url = "jdbc:postgresql://localhost:5432/db?password=hunter2&sslpassword=topsecret";
+        assertThatThrownBy(() -> PostgresSchemaReader.validateJdbcUrl(url))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("sslpassword")
+                .hasMessageNotContaining("topsecret")
+                .hasMessageNotContaining("hunter2");
+    }
+
+    @Test
+    @DisplayName("A blocked word inside a harmless value is not rejected")
+    void shouldAllowHarmlessParametersThatMentionBlockedWords() {
+        assertThatCode(
+                        () ->
+                                PostgresSchemaReader.validateJdbcUrl(
+                                        "jdbc:postgresql://localhost:5432/db?applicationName=loggerfile"))
+                .doesNotThrowAnyException();
+        assertThatCode(
+                        () ->
+                                PostgresSchemaReader.validateJdbcUrl(
+                                        "jdbc:postgresql://localhost:5432/db?sslmode=require&connectTimeout=5"))
+                .doesNotThrowAnyException();
+        assertThatCode(
+                        () ->
+                                PostgresSchemaReader.validateJdbcUrl(
+                                        "jdbc:postgresql://localhost:5432/db?applicationName=100%25"))
+                .doesNotThrowAnyException();
     }
 
     @Test
