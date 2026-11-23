@@ -450,6 +450,97 @@ class ToolRegistryTest {
     }
 
     @Test
+    @DisplayName("execute returns an error when the registry is closed")
+    void testExecuteAfterCloseReturnsError() {
+        ToolRegistry registry = new ToolRegistry();
+        registry.register(
+                new StubToolHandler(
+                        List.of("closed_tool"),
+                        List.of(Map.of("name", "closed_tool")),
+                        (name, args) -> Map.of("unexpected", "executed")));
+
+        registry.close();
+
+        Map<String, Object> result = registry.execute("closed_tool", Map.of());
+        assertThat(result.get("isError")).isEqualTo(true);
+        List<?> content = (List<?>) result.get("content");
+        Map<?, ?> item = (Map<?, ?>) content.get(0);
+        assertThat(item.get("text")).isEqualTo("Tool registry is closed");
+    }
+
+    @Test
+    @DisplayName("timeout does not release a concurrency permit while the worker is still running")
+    void testTimeoutKeepsPermitUntilWorkerStops() throws Exception {
+        ToolRegistry registry = new ToolRegistry(java.time.Duration.ofMillis(200), 1);
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch finished = new CountDownLatch(1);
+        AtomicInteger invocations = new AtomicInteger();
+        AtomicReference<Map<String, Object>> firstResult = new AtomicReference<>();
+
+        ToolHandler handler =
+                new StubToolHandler(
+                        List.of("blocking_tool"),
+                        List.of(Map.of("name", "blocking_tool")),
+                        (name, args) -> {
+                            invocations.incrementAndGet();
+                            started.countDown();
+                            boolean interrupted = false;
+                            while (true) {
+                                try {
+                                    release.await();
+                                    break;
+                                } catch (InterruptedException e) {
+                                    interrupted = true;
+                                }
+                            }
+                            if (interrupted) {
+                                Thread.currentThread().interrupt();
+                            }
+                            finished.countDown();
+                            return Map.of(
+                                    "content", List.of(Map.of("type", "text", "text", "done")));
+                        });
+        registry.register(handler);
+
+        Thread caller =
+                new Thread(() -> firstResult.set(registry.execute("blocking_tool", Map.of())));
+        caller.start();
+
+        try {
+            assertThat(started.await(2, TimeUnit.SECONDS)).isTrue();
+            caller.join(2000);
+            assertThat(caller.isAlive()).isFalse();
+            assertThat(firstResult.get()).isNotNull();
+            assertThat(firstResult.get().get("isError")).isEqualTo(true);
+
+            Map<String, Object> rejected = registry.execute("blocking_tool", Map.of());
+            assertThat(rejected.get("isError")).isEqualTo(true);
+            assertThat(invocations.get()).isEqualTo(1);
+
+            release.countDown();
+            assertThat(finished.await(2, TimeUnit.SECONDS)).isTrue();
+
+            Map<String, Object> accepted = null;
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (System.nanoTime() < deadline) {
+                accepted = registry.execute("blocking_tool", Map.of());
+                if (!Boolean.TRUE.equals(accepted.get("isError"))) {
+                    break;
+                }
+                Thread.yield();
+            }
+            assertThat(accepted).isNotNull();
+            assertThat(accepted.get("isError")).isNull();
+            assertThat(invocations.get()).isEqualTo(2);
+        } finally {
+            release.countDown();
+            caller.join(2000);
+            registry.close();
+        }
+    }
+
+    @Test
     @DisplayName("execute performs deep redaction on complex nested maps and lists")
     void testExecuteDeepRedaction() {
         try (ToolRegistry registry = new ToolRegistry()) {

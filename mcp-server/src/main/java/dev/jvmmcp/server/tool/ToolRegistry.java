@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Manages registration and lookup of ToolHandlers and delegates execution. Enforces per-tool
@@ -107,20 +108,27 @@ public class ToolRegistry implements AutoCloseable {
                         executionSlots.release();
                     }
                 };
-        AtomicBoolean workerStarted = new AtomicBoolean(false);
+        AtomicReference<WorkerState> workerState = new AtomicReference<>(WorkerState.PENDING);
 
         Future<Map<String, Object>> future;
         try {
             future =
                     executorService.submit(
                             () -> {
-                                workerStarted.set(true);
+                                if (!workerState.compareAndSet(
+                                        WorkerState.PENDING, WorkerState.RUNNING)) {
+                                    return Map.of();
+                                }
                                 try {
                                     return handler.execute(toolName, arguments);
                                 } finally {
                                     releasePermit.run();
                                 }
                             });
+        } catch (RejectedExecutionException e) {
+            workerState.compareAndSet(WorkerState.PENDING, WorkerState.CANCELLED);
+            releasePermit.run();
+            return errorResult("Tool registry is closed");
         } catch (RuntimeException e) {
             releasePermit.run();
             throw e;
@@ -131,7 +139,7 @@ public class ToolRegistry implements AutoCloseable {
                     future.get(toolTimeout.toMillis(), TimeUnit.MILLISECONDS);
             return sanitizeResult(rawResult);
         } catch (InterruptedException e) {
-            cancelWorker(future, workerStarted, releasePermit);
+            cancelWorker(future, workerState, releasePermit);
             Thread.currentThread().interrupt();
             return Map.of(
                     "content",
@@ -145,7 +153,7 @@ public class ToolRegistry implements AutoCloseable {
                     true);
 
         } catch (TimeoutException e) {
-            cancelWorker(future, workerStarted, releasePermit);
+            cancelWorker(future, workerState, releasePermit);
             return Map.of(
                     "content",
                     List.of(
@@ -175,7 +183,7 @@ public class ToolRegistry implements AutoCloseable {
                     "isError",
                     true);
         } catch (Exception e) {
-            cancelWorker(future, workerStarted, releasePermit);
+            cancelWorker(future, workerState, releasePermit);
             String sanitizedMsg =
                     SensitiveDataRedactor.redact(
                             e.getMessage() != null ? e.getMessage() : "Execution error");
@@ -193,11 +201,21 @@ public class ToolRegistry implements AutoCloseable {
     }
 
     private void cancelWorker(
-            Future<?> future, AtomicBoolean workerStarted, Runnable releasePermit) {
+            Future<?> future, AtomicReference<WorkerState> workerState, Runnable releasePermit) {
         future.cancel(true);
-        if (!workerStarted.get()) {
+        if (workerState.compareAndSet(WorkerState.PENDING, WorkerState.CANCELLED)) {
             releasePermit.run();
         }
+    }
+
+    private Map<String, Object> errorResult(String message) {
+        return Map.of("content", List.of(Map.of("type", "text", "text", message)), "isError", true);
+    }
+
+    private enum WorkerState {
+        PENDING,
+        RUNNING,
+        CANCELLED
     }
 
     @Override
