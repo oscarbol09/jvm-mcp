@@ -299,6 +299,16 @@ When Spring bean discovery is unavailable, `jvm-mcp beans` exits with code 1 and
 writes the failure reason and remediation advice to stderr, including with `--json`.
 Successful discovery with no matching beans still exits with code 0.
 
+For `jvm-mcp beans --actuator <url>`, use an HTTP or HTTPS URL whose host resolves
+only to loopback addresses, such as `http://127.0.0.1:8080`. Userinfo credentials,
+query parameters, and fragments are rejected; use the Actuator authentication
+options or environment variables for credentials instead. Surrounding whitespace
+and trailing slashes are removed. A base URL such as `http://localhost:8080/app///`
+tries `/app/actuator/beans` followed by `/app/beans`; a full URL ending in `/beans`
+(including trailing slashes) is used directly. Invalid URLs exit with code 1 and
+an explicit validation error on stderr, with no success output or stack trace,
+including when `--json` is specified.
+
 ---
 
 ## Exposed MCP Tools

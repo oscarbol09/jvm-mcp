@@ -1,6 +1,7 @@
 package dev.jvmmcp.core.spring;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -352,6 +353,18 @@ class SpringBeansClientTest {
 
         assertThat(unreachableReport.discoverySource()).contains("ACTUATOR_UNREACHABLE");
         assertThat(unreachableReport.totalBeans()).isZero();
+    }
+
+    @Test
+    @DisplayName("inspectFromActuatorUrl propagates URL validation errors")
+    void shouldPropagateActuatorUrlRejection() {
+        String url = "http://169.254.169.254/latest/meta-data";
+        IllegalArgumentException rejection =
+                new IllegalArgumentException("SSRF Protection: Non-loopback host");
+        when(actuatorProbe.fetchFromUrl(url)).thenThrow(rejection);
+
+        assertThatThrownBy(() -> client.inspectFromActuatorUrl(123L, url, null))
+                .isSameAs(rejection);
     }
 
     @Test

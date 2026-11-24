@@ -13,13 +13,16 @@ import java.io.PrintStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -404,6 +407,50 @@ class BeansCommandTest {
                             "ACTUATOR_UNREACHABLE",
                             command.actuatorUrl)
                     .contains("Hint:", "Actuator", "spring.jmx.enabled=true");
+        } finally {
+            System.setOut(originalOut);
+            System.setErr(originalErr);
+        }
+    }
+
+    private static Stream<Arguments> rejectedActuatorUrls() {
+        return Stream.of(
+                        "http://169.254.169.254/latest/meta-data",
+                        serverBaseUrl.replace("http://", "http://user:secret-value@"),
+                        serverBaseUrl + "?token=secret-value",
+                        serverBaseUrl + "/bad path?token=secret-value")
+                .flatMap(url -> Stream.of(Arguments.of(false, url), Arguments.of(true, url)));
+    }
+
+    @ParameterizedTest
+    @MethodSource("rejectedActuatorUrls")
+    @DisplayName(
+            "beans CLI reports URL rejection without secrets, a stack trace, or success output")
+    void shouldExplainRejectedActuatorUrl(boolean json, String url) {
+        BeansCommand command = new BeansCommand(mockAttachService, key -> null);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        PrintStream originalErr = System.err;
+        try {
+            System.setOut(new PrintStream(out));
+            System.setErr(new PrintStream(err));
+
+            String[] args =
+                    json
+                            ? new String[] {"--actuator", url, "--json"}
+                            : new String[] {"--actuator", url};
+            assertThat(new CommandLine(command).execute(args)).isEqualTo(1);
+            assertThat(out.toString()).isEmpty();
+            assertThat(err.toString())
+                    .contains("[jvm-mcp] Error:", "SSRF Protection:")
+                    .doesNotContain(
+                            "secret-value",
+                            "ACTUATOR_UNREACHABLE",
+                            "Hint:",
+                            "IllegalArgumentException",
+                            "\tat ");
+            org.mockito.Mockito.verifyNoInteractions(mockAttachService);
         } finally {
             System.setOut(originalOut);
             System.setErr(originalErr);
