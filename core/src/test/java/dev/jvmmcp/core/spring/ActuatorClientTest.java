@@ -111,6 +111,19 @@ class ActuatorClientTest {
         }
     }
 
+    @Test
+    void testFetchEndpointRejectsAbsoluteUriOutsideServletContextPath() {
+        ActuatorClient contextPathClient =
+                new ActuatorClient("http://127.0.0.1:" + port + "/app", ActuatorAuth.NONE);
+
+        assertThatThrownBy(
+                        () ->
+                                contextPathClient.fetchEndpoint(
+                                        "http://127.0.0.1:" + port + "/admin"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Absolute URIs");
+    }
+
     @BeforeEach
     void setUp() throws IOException {
         server = HttpServer.create(new InetSocketAddress(0), 0);
@@ -479,6 +492,62 @@ class ActuatorClientTest {
     }
 
     @Test
+    void testMetricNamesRejectPathTraversalSegments() {
+        for (String metricName : List.of(".", "..", "jvm/memory.used", "jvm\\memory.used")) {
+            assertThatThrownBy(() -> client.getMetric(metricName))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Invalid metric name");
+
+            assertThatThrownBy(() -> client.getMetricsBatch(List.of(metricName)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Invalid metric name");
+        }
+    }
+
+    @Test
+    void testMetricNamesMustNotBeNullOrBlank() {
+        assertThatThrownBy(() -> client.getMetric(null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Metric name");
+
+        assertThatThrownBy(() -> client.getMetric("  "))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Metric name");
+
+        assertThatThrownBy(() -> client.getMetricsBatch(java.util.Collections.singletonList(null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Metric name");
+
+        assertThatThrownBy(() -> client.getMetricsBatch(List.of("  ")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Metric name");
+    }
+
+    @Test
+    void testMetricNamesAreTrimmedAndSpacesUsePathEncoding() {
+        server.removeContext("/actuator/metrics");
+        List<String> requestedPaths = new CopyOnWriteArrayList<>();
+        server.createContext(
+                "/actuator/metrics",
+                exchange -> {
+                    requestedPaths.add(exchange.getRequestURI().getRawPath());
+                    byte[] response =
+                            "{\"measurements\":[{\"value\":1}]}".getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(200, response.length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(response);
+                    }
+                });
+
+        client.getMetric(" jvm memory ");
+        client.getMetricsBatch(List.of(" jvm memory "));
+
+        assertThat(requestedPaths)
+                .containsExactly(
+                        "/actuator/metrics/jvm%20memory", "/actuator/metrics/jvm%20memory");
+    }
+
+    @Test
     void testSSRFProtectionRejectsNonHttpSchemes() {
         assertThatThrownBy(() -> new ActuatorClient("file:///etc/passwd", ActuatorAuth.NONE))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -496,6 +565,10 @@ class ActuatorClientTest {
                 .hasMessageContaining("SSRF Protection: Path traversal");
 
         assertThatThrownBy(() -> client.fetchEndpoint("/actuator/..\\secret"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("SSRF Protection: Path traversal");
+
+        assertThatThrownBy(() -> client.fetchEndpoint("/actuator/%2e%2e/admin"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("SSRF Protection: Path traversal");
     }

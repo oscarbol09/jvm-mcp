@@ -245,8 +245,24 @@ public class ActuatorClient {
         }
         URI baseUri = URI.create(baseUrl.endsWith("/") ? baseUrl : baseUrl + "/");
         String relativePath = targetPath.replaceFirst("^/+", "");
-        URI resolvedUri = baseUri.resolve(URI.create(relativePath).normalize());
-        if (!Objects.equals(resolvedUri.getScheme(), baseUri.getScheme())
+        URI relativeUri = URI.create(relativePath);
+        if (relativeUri.isAbsolute() || relativeUri.getRawAuthority() != null) {
+            throw new IllegalArgumentException(
+                    "SSRF Protection: Absolute URIs are not permitted in endpoint paths");
+        }
+        String decodedPath = relativeUri.getPath();
+        if (decodedPath == null || decodedPath.contains("..") || decodedPath.contains("\\")) {
+            throw new IllegalArgumentException(
+                    "SSRF Protection: Path traversal sequences are prohibited in endpoint: "
+                            + endpoint);
+        }
+        URI resolvedUri = baseUri.resolve(relativeUri.normalize()).normalize();
+        String basePath = baseUri.normalize().getRawPath();
+        String resolvedPath = resolvedUri.getRawPath();
+        if (basePath == null
+                || resolvedPath == null
+                || !resolvedPath.startsWith(basePath)
+                || !Objects.equals(resolvedUri.getScheme(), baseUri.getScheme())
                 || !Objects.equals(resolvedUri.getHost(), baseUri.getHost())
                 || resolvedUri.getPort() != baseUri.getPort()) {
             throw new IllegalArgumentException(
@@ -318,10 +334,27 @@ public class ActuatorClient {
     }
 
     public String getMetric(String metricName) {
-        return fetchEndpoint(
-                "/actuator/metrics/"
-                        + java.net.URLEncoder.encode(metricName, StandardCharsets.UTF_8));
+        return fetchEndpoint("/actuator/metrics/" + encodeMetricName(metricName));
     }
+
+    private static String encodeMetricName(String metricName) {
+        if (metricName == null || metricName.isBlank()) {
+            throw new IllegalArgumentException("Metric name cannot be null or blank");
+        }
+
+        String normalizedName = metricName.trim();
+        if (normalizedName.equals(".")
+                || normalizedName.equals("..")
+                || normalizedName.contains("/")
+                || normalizedName.contains("\\")) {
+            throw new IllegalArgumentException("SSRF Protection: Invalid metric name");
+        }
+
+        return java.net.URLEncoder.encode(normalizedName, StandardCharsets.UTF_8)
+                .replace("+", "%20");
+    }
+
+    private record EncodedMetricName(String name, String encodedName) {}
 
     private record MetricBatchTask(
             String name,
@@ -343,13 +376,17 @@ public class ActuatorClient {
                         : timeout;
         long timeoutMillis = Math.max(1L, effectiveTimeout.toMillis());
 
-        List<MetricBatchTask> tasks =
+        List<EncodedMetricName> encodedNames =
                 metricNames.stream()
+                        .map(name -> new EncodedMetricName(name, encodeMetricName(name)))
+                        .toList();
+
+        List<MetricBatchTask> tasks =
+                encodedNames.stream()
                         .map(
-                                name -> {
-                                    String encodedName =
-                                            java.net.URLEncoder.encode(
-                                                    name.trim(), StandardCharsets.UTF_8);
+                                metric -> {
+                                    String name = metric.name();
+                                    String encodedName = metric.encodedName();
                                     String targetUrl = baseUrl + "/actuator/metrics/" + encodedName;
                                     HttpRequest request = newRequest(targetUrl).GET().build();
 
