@@ -396,6 +396,14 @@ jvm-mcp pg --url "jdbc:postgresql://localhost:5432/mydb" --action slow-queries -
 5. **Resource Bounding & Execution Timeouts:** Heap histograms accept limits from 1 to 1,000 entries (default 100; parsing capped at 100,000 lines), arguments are bounded via `ToolArgs`, and all tool invocations execute with an enforced 15-second virtual thread timeout.
 6. **ReDoS & Recursion Guards:** Sanitizes glob wildcards in `GlobMatcher` to prevent quadratic backtracking and bounds `SimpleJson` recursion depth to 100.
 
+When stdin closes, the stdio server waits for accepted requests for up to the configured
+tool timeout plus five seconds (20 seconds by default), returning sooner when all responses
+finish. Remaining work is interrupted after this grace period. Unexpected dispatch and
+response serialization failures produce a minimal JSON-RPC internal error (`-32603`)
+with the original valid request ID; notifications remain silent. Malformed JSON still
+produces a parse error (`-32700`). Delivery cannot be guaranteed if stdout is disconnected
+or a request exceeds the shutdown grace period.
+
 ---
 
 ## Platform & Runtime Compatibility Matrix
