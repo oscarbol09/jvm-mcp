@@ -5,6 +5,8 @@ import com.zaxxer.hikari.HikariDataSource;
 import dev.jvmmcp.core.pg.PostgresModels.*;
 import dev.jvmmcp.core.util.SensitiveDataRedactor;
 import java.lang.System.Logger;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -15,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -31,6 +34,31 @@ public class PostgresSchemaReader implements AutoCloseable {
 
     private static final int MAX_CACHED_POOLS = 5;
     private static final int QUERY_TIMEOUT_SECONDS = 10;
+
+    // pgjdbc connection properties that load arbitrary classes, read local files, or override the
+    // connection from local service files. Matched against the lower-cased parameter key.
+    private static final Set<String> DANGEROUS_PARAMETERS =
+            Set.of(
+                    "allowencodingchanges",
+                    "authenticationpluginclassname",
+                    "classloaderstrategy",
+                    "gsslib",
+                    "jaasapplicationname",
+                    "loggerfile",
+                    "loggerlevel",
+                    "options",
+                    "service",
+                    "socketfactory",
+                    "socketfactoryarg",
+                    "sslcert",
+                    "sslfactory",
+                    "sslfactoryarg",
+                    "sslhostnameverifier",
+                    "sslkey",
+                    "sslpassword",
+                    "sslpasswordcallback",
+                    "sslrootcert",
+                    "sspiserviceclass");
 
     // LRU Cache for DataSources to prevent connection leaks across different databases
     private static final Map<String, HikariDataSource> DATA_SOURCES =
@@ -147,27 +175,52 @@ public class PostgresSchemaReader implements AutoCloseable {
                     "SSRF Protection: Unable to resolve host '" + host + "': " + e.getMessage(), e);
         }
 
-        String query = uri.getQuery();
-        if (query != null && !query.isBlank()) {
-            String lower = query.toLowerCase();
-            if (lower.contains("socketfactory")
-                    || lower.contains("socketfactoryarg")
-                    || lower.contains("sslfactory")
-                    || lower.contains("sslfactoryarg")
-                    || lower.contains("sslrootcert")
-                    || lower.contains("sslcert")
-                    || lower.contains("sslkey")
-                    || lower.contains("sslpasswordcallback")
-                    || lower.contains("loggerfile")
-                    || lower.contains("loggerlevel")
-                    || lower.contains("allowencodingchanges")
-                    || lower.contains("options=")
-                    || lower.contains("sslmode=disable")) {
-                throw new IllegalArgumentException(
-                        "Security Protection: Dangerous JDBC connection parameter detected in URL: "
-                                + query);
+        String blockedParameter = findBlockedParameter(uri.getRawQuery());
+        if (blockedParameter != null) {
+            throw new IllegalArgumentException(
+                    "Security Protection: Dangerous JDBC connection parameter detected: "
+                            + blockedParameter);
+        }
+    }
+
+    /**
+     * Returns the name of the first query parameter that allows arbitrary code execution, reads
+     * local files, or rewrites the connection, or {@code null} when every parameter is acceptable.
+     *
+     * <p>Parameters are matched by key rather than by substring, so a blocked word inside an
+     * unrelated value is not a false positive, and a value is never echoed back: a URL carrying
+     * {@code password=...} next to a blocked parameter must not leak that password into the
+     * exception message.
+     */
+    private static String findBlockedParameter(String rawQuery) {
+        if (rawQuery == null || rawQuery.isBlank()) {
+            return null;
+        }
+        for (String pair : rawQuery.split("&", -1)) {
+            if (pair.isEmpty()) {
+                continue;
+            }
+            int separator = pair.indexOf('=');
+            String rawName = separator < 0 ? pair : pair.substring(0, separator);
+            String rawValue = separator < 0 ? "" : pair.substring(separator + 1);
+            // Locale.ROOT: with a Turkish default locale "FILE".toLowerCase() yields a dotless
+            // i, which would slip "LOGGERFILE" past the denylist.
+            String name = decodeParameter(rawName).toLowerCase(Locale.ROOT).trim();
+            if (DANGEROUS_PARAMETERS.contains(name)) {
+                return name;
+            }
+            if ("sslmode".equals(name)
+                    && "disable"
+                            .equals(decodeParameter(rawValue).toLowerCase(Locale.ROOT).trim())) {
+                return name;
             }
         }
+        return null;
+    }
+
+    private static String decodeParameter(String value) {
+        // The URI was already parsed, so every percent escape here is well-formed.
+        return URLDecoder.decode(value, StandardCharsets.UTF_8);
     }
 
     public static String validateSchemaName(String schemaName) {
