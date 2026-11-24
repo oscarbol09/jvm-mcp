@@ -104,9 +104,13 @@ jobs:
           JAR_NAME=$(basename "$SHADED_JAR")
 
           if [ "$MATRIX_OS" == "windows-latest" ]; then
+            # jpackage copies every entry of --input into the app image, so stage the shaded jar alone
+            # instead of handing it mcp-server/target with its classes/, maven-* and original-*.jar.
+            mkdir -p jpackage-input
+            cp "$SHADED_JAR" "jpackage-input/$JAR_NAME"
             jpackage --type app-image \
                      --name jvm-mcp \
-                     --input mcp-server/target \
+                     --input jpackage-input \
                      --main-jar "$JAR_NAME" \
                      --main-class dev.jvmmcp.JvmMcp \
                      --runtime-image custom-jre \
@@ -245,11 +249,24 @@ jobs:
           cat artifacts/jvm-mcp.rb
 
           sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" scoop/jvm-mcp.json
+          # Rewrite the pinned download URL too. The leading digit keeps this off the autoupdate
+          # template, whose URL carries the "$version" placeholder instead of a literal tag.
+          sed -i "s|/releases/download/v[0-9][^/\"]*/|/releases/download/v${VERSION}/|" scoop/jvm-mcp.json
           [ -n "$WINDOWS_AMD64_SHA" ] && sed -i "s/\"hash\": \".*\"/\"hash\": \"${WINDOWS_AMD64_SHA}\"/" scoop/jvm-mcp.json
 
           cp scoop/jvm-mcp.json artifacts/jvm-mcp.json
           echo "Generated artifacts/jvm-mcp.json:"
           cat artifacts/jvm-mcp.json
+
+          # A manifest that still points at the previous tag fails checksum verification on install.
+          if ! grep -q "/releases/download/v${VERSION}/" artifacts/jvm-mcp.json; then
+            echo "Error: Scoop manifest does not point at v${VERSION}" >&2
+            exit 1
+          fi
+          if grep -q "REPLACE_WITH_" artifacts/jvm-mcp.json; then
+            echo "Error: Scoop manifest still contains REPLACE_WITH_ placeholders" >&2
+            exit 1
+          fi
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
