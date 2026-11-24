@@ -27,6 +27,32 @@ public class HeapHistogramReader {
     public static final int MAX_TOP_N = 1000;
     private static final int MAX_PARSED_LINES = 100_000;
 
+    /** Reads a live-only histogram using Attach first, with a JMX fallback. */
+    public HeapHistogram readHistogram(
+            VirtualMachine vm, MBeanServerConnection mbsc, long pid, int topN) throws Exception {
+        return readHistogram(vm, mbsc, pid, topN, true);
+    }
+
+    /**
+     * Reads through Attach when available, falling back to JMX if executeJCmd is missing or
+     * inaccessible. A null VM uses JMX directly for self-inspection. Command execution and parsing
+     * failures propagate without retrying. The caller retains ownership of both connections.
+     */
+    public HeapHistogram readHistogram(
+            VirtualMachine vm, MBeanServerConnection mbsc, long pid, int topN, boolean liveOnly)
+            throws Exception {
+        if (vm != null) {
+            try {
+                return readHistogram(vm, pid, topN, liveOnly);
+            } catch (NoSuchMethodException
+                    | IllegalAccessException
+                    | java.lang.reflect.InaccessibleObjectException e) {
+                // HotSpot-specific executeJCmd may be unavailable or blocked by module access.
+            }
+        }
+        return readHistogram(mbsc, pid, topN, liveOnly);
+    }
+
     public HeapHistogram readHistogram(VirtualMachine vm, long pid, int topN) throws Exception {
         return readHistogram(vm, pid, topN, true);
     }

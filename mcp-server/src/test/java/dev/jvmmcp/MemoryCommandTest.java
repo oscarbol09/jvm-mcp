@@ -40,6 +40,32 @@ import picocli.CommandLine;
 @ExtendWith(MockitoExtension.class)
 class MemoryCommandTest {
 
+    @Test
+    void shouldFallBackToJmxWhenAttachedVmHasNoExecuteJCmd() throws Exception {
+        long pid = ProcessHandle.current().pid();
+        VirtualMachine vm = org.mockito.Mockito.mock(VirtualMachine.class);
+        when(mockAttachService.attach(String.valueOf(pid)))
+                .thenReturn(AttachResult.success(String.valueOf(pid), vm));
+        MemoryCommand command = new MemoryCommand(mockAttachService);
+        command.pid = pid;
+        command.histogram = true;
+        command.allObjects = true;
+        command.json = true;
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        PrintStream original = System.out;
+        try {
+            System.setOut(new PrintStream(out));
+            assertThat(command.call()).isZero();
+            assertThat(out.toString())
+                    .contains("\"histogram\":")
+                    .contains("\"liveOnly\":false")
+                    .doesNotContain("histogramError");
+        } finally {
+            System.setOut(original);
+        }
+        org.mockito.Mockito.verify(vm).detach();
+    }
+
     @Mock private JvmAttachService mockAttachService;
 
     public static class DummyAttachProvider extends AttachProvider {

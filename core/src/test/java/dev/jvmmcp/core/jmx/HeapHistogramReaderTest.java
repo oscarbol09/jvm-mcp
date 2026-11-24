@@ -2,17 +2,127 @@ package dev.jvmmcp.core.jmx;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import dev.jvmmcp.core.model.HeapHistogram;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import javax.management.MBeanServerConnection;
+import javax.management.ObjectName;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class HeapHistogramReaderTest {
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void shouldPreferAttachWithoutInvokingJmx(boolean liveOnly) throws Exception {
+        FakeVirtualMachine vm = new FakeVirtualMachine();
+        MBeanServerConnection mbsc = mock(MBeanServerConnection.class);
+        HeapHistogram histogram =
+                new HeapHistogramReader().readHistogram(vm, mbsc, 123L, 2, liveOnly);
+        assertThat(histogram.topClasses()).hasSize(2);
+        assertThat(histogram.pid()).isEqualTo(123L);
+        assertThat(histogram.liveOnly()).isEqualTo(liveOnly);
+        assertThat(vm.lastCommand)
+                .isEqualTo(liveOnly ? "GC.class_histogram" : "GC.class_histogram -all");
+        verifyNoInteractions(mbsc);
+    }
+
+    @Test
+    void shouldDefaultCombinedReaderToLiveOnly() throws Exception {
+        FakeVirtualMachine vm = new FakeVirtualMachine();
+        assertThat(new HeapHistogramReader().readHistogram(vm, null, 123L, 2).liveOnly()).isTrue();
+        assertThat(vm.lastCommand).isEqualTo("GC.class_histogram");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void shouldUseJmxWhenVmIsAbsentOrHasNoExecuteJCmd(boolean liveOnly) throws Exception {
+        for (com.sun.tools.attach.VirtualMachine vm :
+                new com.sun.tools.attach.VirtualMachine[] {
+                    null, new NoExecuteJCmdVirtualMachine()
+                }) {
+            MBeanServerConnection mbsc = mock(MBeanServerConnection.class);
+            when(mbsc.invoke(any(ObjectName.class), eq("gcClassHistogram"), any(), any()))
+                    .thenReturn(SAMPLE_HISTOGRAM);
+            HeapHistogram histogram =
+                    new HeapHistogramReader().readHistogram(vm, mbsc, 123L, 2, liveOnly);
+            assertThat(histogram.topClasses()).hasSize(2);
+            assertThat(histogram.liveOnly()).isEqualTo(liveOnly);
+            org.mockito.ArgumentCaptor<Object[]> arguments =
+                    org.mockito.ArgumentCaptor.forClass(Object[].class);
+            verify(mbsc)
+                    .invoke(
+                            eq(new ObjectName("com.sun.management:type=DiagnosticCommand")),
+                            eq("gcClassHistogram"),
+                            arguments.capture(),
+                            eq(new String[] {String[].class.getName()}));
+            assertThat((String[]) arguments.getValue()[0])
+                    .containsExactly(liveOnly ? new String[0] : new String[] {"-all"});
+        }
+    }
+
+    @Test
+    void shouldFallBackOnReflectiveAccessFailures() throws Exception {
+        for (Exception failure :
+                new Exception[] {
+                    new IllegalAccessException("blocked"),
+                    new java.lang.reflect.InaccessibleObjectException("blocked")
+                }) {
+            HeapHistogramReader reader = spy(new HeapHistogramReader());
+            FakeVirtualMachine vm = new FakeVirtualMachine();
+            MBeanServerConnection mbsc = mock(MBeanServerConnection.class);
+            doThrow(failure).when(reader).readHistogram(vm, 123L, 2, false);
+            when(mbsc.invoke(any(ObjectName.class), eq("gcClassHistogram"), any(), any()))
+                    .thenReturn(SAMPLE_HISTOGRAM);
+            assertThat(reader.readHistogram(vm, mbsc, 123L, 2, false).topClasses()).hasSize(2);
+        }
+    }
+
+    @Test
+    void shouldPropagateCommandAndParsingFailuresWithoutRetrying() throws Exception {
+        for (Exception failure :
+                new Exception[] {
+                    new java.lang.reflect.InvocationTargetException(
+                            new java.io.IOException("command failed")),
+                    new InterruptedException("cancelled")
+                }) {
+            HeapHistogramReader reader = spy(new HeapHistogramReader());
+            FakeVirtualMachine vm = new FakeVirtualMachine();
+            MBeanServerConnection mbsc = mock(MBeanServerConnection.class);
+            doThrow(failure).when(reader).readHistogram(vm, 123L, 2, false);
+            assertThatThrownBy(() -> reader.readHistogram(vm, mbsc, 123L, 2, false))
+                    .isSameAs(failure);
+            verifyNoInteractions(mbsc);
+        }
+    }
+
+    @Test
+    void shouldPropagateJmxFailureWhenAttachIsUnavailable() throws Exception {
+        MBeanServerConnection mbsc = mock(MBeanServerConnection.class);
+        Exception failure =
+                new javax.management.InstanceNotFoundException("DiagnosticCommand missing");
+        when(mbsc.invoke(any(ObjectName.class), eq("gcClassHistogram"), any(), any()))
+                .thenThrow(failure);
+        assertThatThrownBy(
+                        () ->
+                                new HeapHistogramReader()
+                                        .readHistogram(
+                                                new NoExecuteJCmdVirtualMachine(), mbsc, 123L, 2))
+                .isSameAs(failure);
+    }
 
     private static final String SAMPLE_HISTOGRAM =
             """
