@@ -343,7 +343,27 @@ public class PostgresSchemaReader implements AutoCloseable {
             SELECT
                 t.table_name,
                 c.reltuples::bigint AS estimated_row_count,
-                pg_relation_size(c.oid) AS size_bytes,
+                CASE
+                    WHEN c.relkind = 'p' THEN
+                        COALESCE((
+                            WITH RECURSIVE partition_tree(relid) AS (
+                                SELECT c.oid
+                                UNION ALL
+                                SELECT inheritance.inhrelid
+                                FROM pg_inherits AS inheritance
+                                JOIN partition_tree AS parent
+                                    ON inheritance.inhparent = parent.relid
+                            )
+                            SELECT SUM(pg_table_size(partition_tree.relid))::bigint
+                            FROM partition_tree
+                            WHERE NOT EXISTS (
+                                SELECT 1
+                                FROM pg_inherits AS child
+                                WHERE child.inhparent = partition_tree.relid
+                            )
+                        ), 0)
+                    ELSE pg_table_size(c.oid)
+                END AS size_bytes,
                 (SELECT count(*) FROM information_schema.columns col WHERE col.table_schema = t.table_schema AND col.table_name = t.table_name) AS column_count
             FROM
                 information_schema.tables t

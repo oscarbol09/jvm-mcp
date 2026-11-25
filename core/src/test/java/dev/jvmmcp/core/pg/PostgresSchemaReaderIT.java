@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.jvmmcp.core.pg.PostgresModels.*;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.Statement;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -88,6 +89,101 @@ class PostgresSchemaReaderIT {
         assertThat(schemaInfo.foreignKeys().getFirst().foreignTableName()).isEqualTo("users");
         assertThat(schemaInfo.foreignKeys().getFirst().sourceColumn()).isEqualTo("user_id");
         assertThat(schemaInfo.foreignKeys().getFirst().foreignColumn()).isEqualTo("id");
+    }
+
+    @Test
+    void testTableSizeIncludesToastStorage() throws Exception {
+        long mainForkSize;
+        long expectedTableSize;
+        try (Connection conn =
+                        DriverManager.getConnection(
+                                postgres.getJdbcUrl(),
+                                postgres.getUsername(),
+                                postgres.getPassword());
+                Statement stmt = conn.createStatement()) {
+            stmt.execute("CREATE TABLE toast_table (id SERIAL PRIMARY KEY, payload TEXT NOT NULL)");
+            stmt.execute(
+                    """
+                    INSERT INTO toast_table (payload)
+                    SELECT string_agg(md5(random()::text), '')
+                    FROM generate_series(1, 10) AS row_values(row_number)
+                    CROSS JOIN generate_series(1, 4096) AS chunks(chunk_number)
+                    GROUP BY row_values.row_number
+                    """);
+
+            try (ResultSet rs =
+                    stmt.executeQuery(
+                            "SELECT pg_relation_size('public.toast_table'::regclass), "
+                                    + "pg_table_size('public.toast_table'::regclass)")) {
+                rs.next();
+                mainForkSize = rs.getLong(1);
+                expectedTableSize = rs.getLong(2);
+            }
+        }
+
+        TableInfo table =
+                reader.inspectSchema("public").tables().stream()
+                        .filter(candidate -> candidate.tableName().equals("toast_table"))
+                        .findFirst()
+                        .orElseThrow();
+
+        assertThat(expectedTableSize).isGreaterThan(mainForkSize);
+        assertThat(table.sizeBytes()).isEqualTo(expectedTableSize);
+    }
+
+    @Test
+    void testPartitionedTableSizeIncludesLeafPartitions() throws Exception {
+        long expectedTableSize;
+        try (Connection conn =
+                        DriverManager.getConnection(
+                                postgres.getJdbcUrl(),
+                                postgres.getUsername(),
+                                postgres.getPassword());
+                Statement stmt = conn.createStatement()) {
+            stmt.execute(
+                    """
+                    CREATE TABLE partitioned_events (
+                        id INTEGER NOT NULL,
+                        payload TEXT NOT NULL
+                    ) PARTITION BY RANGE (id)
+                    """);
+            stmt.execute(
+                    """
+                    CREATE TABLE partitioned_events_0_100
+                    PARTITION OF partitioned_events
+                    FOR VALUES FROM (0) TO (100)
+                    """);
+            stmt.execute(
+                    """
+                    CREATE TABLE partitioned_events_100_200
+                    PARTITION OF partitioned_events
+                    FOR VALUES FROM (100) TO (200)
+                    """);
+            stmt.execute(
+                    "INSERT INTO partitioned_events (id, payload) "
+                            + "SELECT i, md5(i::text) FROM generate_series(0, 199) AS i");
+            stmt.execute(
+                    "CREATE INDEX idx_partitioned_events_payload ON partitioned_events(payload)");
+
+            try (ResultSet rs =
+                    stmt.executeQuery(
+                            """
+                            SELECT pg_table_size('public.partitioned_events_0_100'::regclass)
+                                    + pg_table_size('public.partitioned_events_100_200'::regclass)
+                            """)) {
+                rs.next();
+                expectedTableSize = rs.getLong(1);
+            }
+        }
+
+        TableInfo table =
+                reader.inspectSchema("public").tables().stream()
+                        .filter(candidate -> candidate.tableName().equals("partitioned_events"))
+                        .findFirst()
+                        .orElseThrow();
+
+        assertThat(expectedTableSize).isPositive();
+        assertThat(table.sizeBytes()).isEqualTo(expectedTableSize);
     }
 
     @Test
