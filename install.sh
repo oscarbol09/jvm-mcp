@@ -10,9 +10,23 @@ VERSION="latest"
 UNINSTALL=false
 
 # Parse CLI Options
+require_option_value() {
+    if [ "$#" -lt 2 ]; then
+        echo "Error: Missing value for $1. Use --help for usage." >&2
+        exit 1
+    fi
+    case "$2" in
+        ""|-*)
+            echo "Error: Missing value for $1. Use --help for usage." >&2
+            exit 1
+            ;;
+    esac
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --version|-v)
+            require_option_value "$@"
             VERSION="$2"
             shift 2
             ;;
@@ -21,10 +35,12 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --install-dir)
+            require_option_value "$@"
             INSTALL_DIR="$2"
             shift 2
             ;;
         --bin-dir)
+            require_option_value "$@"
             BIN_DIR="$2"
             shift 2
             ;;
@@ -128,7 +144,10 @@ SHA_FILE="${TMP_DIR}/${RELEASE_ASSET}.sha256"
 if curl -fsSL "${SHA_URL}" -o "${SHA_FILE}" 2>/dev/null; then
     : # Successfully fetched asset-specific .sha256 file
 elif curl -fsSL "${CHECKSUMS_URL}" -o "${TMP_DIR}/checksums.txt" 2>/dev/null; then
-    grep "${RELEASE_ASSET}" "${TMP_DIR}/checksums.txt" > "${SHA_FILE}" || {
+    awk -v asset="${RELEASE_ASSET}" '
+        $2 == asset || $2 == "*" asset { print $1; found = 1; exit }
+        END { if (!found) exit 1 }
+    ' "${TMP_DIR}/checksums.txt" > "${SHA_FILE}" || {
         echo "Error: ${RELEASE_ASSET} entry not found in checksums.txt" >&2
         exit 1
     }
@@ -155,7 +174,8 @@ else
     exit 1
 fi
 
-ACTUAL_HASH="$(echo "${ACTUAL_HASH}" | tr -d '\r\n ')"
+EXPECTED_HASH="$(printf '%s' "${EXPECTED_HASH}" | tr '[:upper:]' '[:lower:]')"
+ACTUAL_HASH="$(printf '%s' "${ACTUAL_HASH}" | tr -d '\r\n ' | tr '[:upper:]' '[:lower:]')"
 
 if [ "${EXPECTED_HASH}" != "${ACTUAL_HASH}" ]; then
     echo "Error: SHA-256 verification failed!" >&2
@@ -167,20 +187,24 @@ fi
 echo "SHA-256 checksum verified successfully."
 
 # 6. Extract into target directory with path traversal protection
-echo "Extracting JVM-MCP to ${INSTALL_DIR}..."
-mkdir -p "${INSTALL_DIR}"
-# Clean existing contents safely for idempotent upgrade
-rm -rf "${INSTALL_DIR:?}"/*
-
+# Validate the complete archive listing before changing an existing installation.
+if ! tar -tzf "${TMP_DIR}/${RELEASE_ASSET}" > "${TMP_DIR}/archive-entries.txt"; then
+    echo "Error: Could not list archive entries." >&2
+    exit 1
+fi
 while IFS= read -r entry; do
     case "$entry" in
-        /*|../*|*/../*)
+        /*|..|../*|*/../*|*/..)
             echo "Error: Unsafe archive path detected: ${entry}" >&2
             exit 1
             ;;
     esac
-done < <(tar -tzf "${TMP_DIR}/${RELEASE_ASSET}")
+done < "${TMP_DIR}/archive-entries.txt"
 
+echo "Extracting JVM-MCP to ${INSTALL_DIR}..."
+mkdir -p "${INSTALL_DIR}"
+# Clean existing contents safely for idempotent upgrade
+rm -rf "${INSTALL_DIR:?}"/*
 tar -xzf "${TMP_DIR}/${RELEASE_ASSET}" -C "${INSTALL_DIR}"
 
 if [ -f "${INSTALL_DIR}/${EXECUTABLE_NAME}" ]; then
