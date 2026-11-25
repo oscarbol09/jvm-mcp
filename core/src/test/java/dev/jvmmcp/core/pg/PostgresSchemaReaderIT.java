@@ -101,8 +101,7 @@ class PostgresSchemaReaderIT {
                                 postgres.getUsername(),
                                 postgres.getPassword());
                 Statement stmt = conn.createStatement()) {
-            stmt.execute(
-                    "CREATE TABLE toast_table (id SERIAL PRIMARY KEY, payload TEXT NOT NULL)");
+            stmt.execute("CREATE TABLE toast_table (id SERIAL PRIMARY KEY, payload TEXT NOT NULL)");
             stmt.execute(
                     """
                     INSERT INTO toast_table (payload)
