@@ -92,6 +92,31 @@ class PostgresSchemaReaderIT {
     }
 
     @Test
+    void testForeignKeyNamesAcrossSchemasWithQuotedTables() throws Exception {
+        try (Connection conn =
+                        DriverManager.getConnection(
+                                postgres.getJdbcUrl(),
+                                postgres.getUsername(),
+                                postgres.getPassword());
+                Statement stmt = conn.createStatement()) {
+            stmt.execute("CREATE SCHEMA issue_72_source");
+            stmt.execute("CREATE SCHEMA issue_72_target");
+            stmt.execute("CREATE TABLE issue_72_target.\"Account\" (id INT PRIMARY KEY)");
+            stmt.execute(
+                    "CREATE TABLE issue_72_source.\"Order Items\" (id INT PRIMARY KEY, account_id INT REFERENCES issue_72_target.\"Account\"(id))");
+        }
+
+        SchemaInfo schemaInfo = reader.inspectSchema("issue_72_source");
+        assertThat(schemaInfo.tables()).extracting(TableInfo::tableName).contains("Order Items");
+        assertThat(schemaInfo.foreignKeys()).hasSize(1);
+        ForeignKeyInfo foreignKey = schemaInfo.foreignKeys().getFirst();
+        assertThat(foreignKey.tableName()).isEqualTo("Order Items");
+        assertThat(foreignKey.foreignTableName()).isEqualTo("Account");
+        assertThat(foreignKey.sourceColumn()).isEqualTo("account_id");
+        assertThat(foreignKey.foreignColumn()).isEqualTo("id");
+    }
+
+    @Test
     void testTableSizeIncludesToastStorage() throws Exception {
         long mainForkSize;
         long expectedTableSize;
