@@ -270,6 +270,7 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
                                     "text",
                                     SimpleJson.toJson(
                                             histoReader.readHistogram(
+                                                    vm,
                                                     jmxManager.getMBeanServerConnection(),
                                                     pid,
                                                     limit,

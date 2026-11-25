@@ -25,6 +25,42 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class JvmDiagnosticToolHandlerTest {
 
+    public abstract static class HistogramVm extends VirtualMachine {
+        protected HistogramVm() {
+            super(org.mockito.Mockito.mock(com.sun.tools.attach.spi.AttachProvider.class), "100");
+        }
+
+        public abstract java.io.InputStream executeJCmd(String command);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    void shouldReadHistogramThroughAttachedVmWithoutDiagnosticMBean(boolean liveOnly)
+            throws Exception {
+        HistogramVm vm = org.mockito.Mockito.mock(HistogramVm.class);
+        String command = liveOnly ? "GC.class_histogram" : "GC.class_histogram -all";
+        when(vm.executeJCmd(command))
+                .thenReturn(
+                        new java.io.ByteArrayInputStream(
+                                "num #instances #bytes class name\n1: 2 32 example.Marker\nTotal 2 32\n"
+                                        .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        when(mockAttachService.attach("100")).thenReturn(AttachResult.success("100", vm));
+        JmxConnectionManager manager = org.mockito.Mockito.mock(JmxConnectionManager.class);
+        javax.management.MBeanServerConnection mbsc =
+                org.mockito.Mockito.mock(javax.management.MBeanServerConnection.class);
+        when(manager.getMBeanServerConnection()).thenReturn(mbsc);
+        JvmDiagnosticToolHandler handler =
+                new JvmDiagnosticToolHandler(mockAttachService, (attached, pid) -> manager);
+        Map<String, Object> result =
+                handler.execute("get_heap_histogram", Map.of("pid", 100, "liveOnly", liveOnly));
+        assertThat(result.toString())
+                .contains("example.Marker")
+                .contains("\"liveOnly\":" + liveOnly);
+        verify(vm).executeJCmd(command);
+        org.mockito.Mockito.verifyNoInteractions(mbsc);
+        verify(manager).close();
+    }
+
     @Mock private JvmAttachService mockAttachService;
 
     @Mock private VirtualMachine mockVm;

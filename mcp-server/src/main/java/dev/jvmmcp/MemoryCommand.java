@@ -112,36 +112,13 @@ public class MemoryCommand implements Callable<Integer> {
                     if (histogram) {
                         try {
                             HeapHistogramReader reader = new HeapHistogramReader();
-                            if (attachResult.virtualMachine().isPresent()) {
-                                try {
-                                    hist =
-                                            reader.readHistogram(
-                                                    attachResult.virtualMachine().get(),
-                                                    pid,
-                                                    topN,
-                                                    !allObjects);
-                                } catch (NoSuchMethodException
-                                        | IllegalAccessException
-                                        | java.lang.reflect.InaccessibleObjectException e) {
-                                    // executeJCmd is HotSpot-specific and needs --add-opens on
-                                    // modular runtimes; fall back to the DiagnosticCommand MBean
-                                    // over JMX
-                                    hist =
-                                            reader.readHistogram(
-                                                    jmxManager.getMBeanServerConnection(),
-                                                    pid,
-                                                    topN,
-                                                    !allObjects);
-                                }
-                            } else {
-                                // Self-inspection has no VM handle; read the histogram over JMX
-                                hist =
-                                        reader.readHistogram(
-                                                jmxManager.getMBeanServerConnection(),
-                                                pid,
-                                                topN,
-                                                !allObjects);
-                            }
+                            hist =
+                                    reader.readHistogram(
+                                            vm,
+                                            jmxManager.getMBeanServerConnection(),
+                                            pid,
+                                            topN,
+                                            !allObjects);
                         } catch (Exception e) {
                             histogramError = e.getMessage();
                         }
