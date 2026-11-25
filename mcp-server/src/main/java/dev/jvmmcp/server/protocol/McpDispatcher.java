@@ -180,6 +180,11 @@ public class McpDispatcher {
         return errResp;
     }
 
+    /** Maximum time allowed for a tool request before its timeout response is produced. */
+    public java.time.Duration getRequestTimeout() {
+        return toolRegistry.getToolTimeout();
+    }
+
     public Map<String, Object> formatInvalidRequest(Object id, String message) {
         Map<String, Object> errResp = new LinkedHashMap<>();
         errResp.put("jsonrpc", "2.0");

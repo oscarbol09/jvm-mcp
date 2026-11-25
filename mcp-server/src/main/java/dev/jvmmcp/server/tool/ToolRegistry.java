@@ -41,6 +41,11 @@ public class ToolRegistry implements AutoCloseable {
         this.executorService = Executors.newVirtualThreadPerTaskExecutor();
     }
 
+    /** Configured execution timeout, also used to bound transport shutdown. */
+    public Duration getToolTimeout() {
+        return toolTimeout;
+    }
+
     public void register(ToolHandler handler) {
         if (handler == null) {
             return;

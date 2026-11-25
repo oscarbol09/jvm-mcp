@@ -77,7 +77,9 @@ class McpTransportTest {
 
         int exitCode = transport.start(in, (java.io.OutputStream) out);
         assertThat(exitCode).isZero();
-        assertThat(out.toString().trim()).contains("-32700");
+        assertThat(out.toString().trim())
+                .contains("-32603", "\"id\":1")
+                .doesNotContain("Unexpected dispatcher fault");
     }
 
     @Test
