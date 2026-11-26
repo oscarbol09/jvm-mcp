@@ -338,10 +338,27 @@ public class PostgresSchemaReader implements AutoCloseable {
     }
 
     private List<TableInfo> getTables(Connection conn, String schemaName) throws SQLException {
+        // Match information_schema.columns visibility when counting catalog attributes directly.
         String sql =
                 """
+            WITH schema_tables AS (
+                SELECT t.table_name, c.oid, c.relkind, c.relowner, c.reltuples
+                FROM information_schema.tables t
+                JOIN pg_class c ON c.relname = t.table_name
+                JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = t.table_schema
+                WHERE t.table_schema = ? AND t.table_type = 'BASE TABLE'
+            ), column_counts AS (
+                SELECT a.attrelid, count(*) AS column_count
+                FROM pg_catalog.pg_attribute a
+                JOIN schema_tables t ON t.oid = a.attrelid
+                WHERE a.attnum > 0 AND NOT a.attisdropped
+                    AND (pg_catalog.pg_has_role(t.relowner, 'USAGE')
+                        OR pg_catalog.has_column_privilege(
+                            a.attrelid, a.attnum, 'SELECT, INSERT, UPDATE, REFERENCES'))
+                GROUP BY a.attrelid
+            )
             SELECT
-                t.table_name,
+                c.table_name,
                 GREATEST(0, c.reltuples::bigint) AS estimated_row_count,
                 CASE
                     WHEN c.relkind = 'p' THEN
@@ -364,13 +381,9 @@ public class PostgresSchemaReader implements AutoCloseable {
                         ), 0)
                     ELSE pg_table_size(c.oid)
                 END AS size_bytes,
-                (SELECT count(*) FROM information_schema.columns col WHERE col.table_schema = t.table_schema AND col.table_name = t.table_name) AS column_count
-            FROM
-                information_schema.tables t
-            JOIN pg_class c ON c.relname = t.table_name
-            JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = t.table_schema
-            WHERE
-                t.table_schema = ? AND t.table_type = 'BASE TABLE'
+                COALESCE(cols.column_count, 0) AS column_count
+            FROM schema_tables c
+            LEFT JOIN column_counts cols ON cols.attrelid = c.oid
             """;
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setQueryTimeout(QUERY_TIMEOUT_SECONDS);

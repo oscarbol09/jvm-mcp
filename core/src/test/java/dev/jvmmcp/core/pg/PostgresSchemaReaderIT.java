@@ -1,13 +1,16 @@
 package dev.jvmmcp.core.pg;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 import dev.jvmmcp.core.pg.PostgresModels.*;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
+import org.assertj.core.groups.Tuple;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -117,6 +120,64 @@ class PostgresSchemaReaderIT {
         assertThat(foreignKey.foreignTableName()).isEqualTo("Account");
         assertThat(foreignKey.sourceColumn()).isEqualTo("account_id");
         assertThat(foreignKey.foreignColumn()).isEqualTo("id");
+    }
+
+    @Test
+    void testColumnCountsAcrossLargeSchema() throws Exception {
+        List<Tuple> expectedCounts = new ArrayList<>();
+        try (Connection conn =
+                        DriverManager.getConnection(
+                                postgres.getJdbcUrl(),
+                                postgres.getUsername(),
+                                postgres.getPassword());
+                Statement stmt = conn.createStatement()) {
+            stmt.execute("CREATE SCHEMA column_counts");
+            for (int i = 0; i < 128; i++) {
+                String table = "sample_" + i;
+                stmt.addBatch("CREATE TABLE column_counts." + table + " (id INT, label TEXT)");
+                expectedCounts.add(tuple(table, 2));
+            }
+            stmt.executeBatch();
+            stmt.execute("CREATE SCHEMA other_column_counts");
+            stmt.execute("CREATE TABLE other_column_counts.sample_0 (id INT)");
+            stmt.execute("CREATE TABLE column_counts.dropped_column (id INT, discarded TEXT)");
+            stmt.execute("ALTER TABLE column_counts.dropped_column DROP COLUMN discarded");
+            stmt.execute("CREATE TABLE column_counts.zero_columns ()");
+        }
+        expectedCounts.add(tuple("dropped_column", 1));
+        expectedCounts.add(tuple("zero_columns", 0));
+
+        assertThat(reader.inspectSchema("column_counts").tables())
+                .extracting(TableInfo::tableName, TableInfo::columnCount)
+                .containsExactlyInAnyOrderElementsOf(expectedCounts);
+    }
+
+    @Test
+    void testColumnCountsRespectColumnPrivileges() throws Exception {
+        String password = "local-test-password";
+        try (Connection conn =
+                        DriverManager.getConnection(
+                                postgres.getJdbcUrl(),
+                                postgres.getUsername(),
+                                postgres.getPassword());
+                Statement stmt = conn.createStatement()) {
+            stmt.execute("CREATE ROLE column_counts_reader LOGIN PASSWORD '" + password + "'");
+            stmt.execute("CREATE SCHEMA restricted_counts");
+            stmt.execute("CREATE TABLE restricted_counts.partial_access (id INT, note TEXT)");
+            stmt.execute("CREATE TABLE restricted_counts.delete_only (id INT)");
+            stmt.execute("CREATE TABLE restricted_counts.hidden (id INT)");
+            stmt.execute("GRANT USAGE ON SCHEMA restricted_counts TO column_counts_reader");
+            stmt.execute(
+                    "GRANT SELECT (id) ON restricted_counts.partial_access TO column_counts_reader");
+            stmt.execute("GRANT DELETE ON restricted_counts.delete_only TO column_counts_reader");
+        }
+
+        try (PostgresSchemaReader restrictedReader =
+                new PostgresSchemaReader(cleanJdbcUrl, "column_counts_reader", password)) {
+            assertThat(restrictedReader.inspectSchema("restricted_counts").tables())
+                    .extracting(TableInfo::tableName, TableInfo::columnCount)
+                    .containsExactlyInAnyOrder(tuple("partial_access", 1), tuple("delete_only", 0));
+        }
     }
 
     @Test
