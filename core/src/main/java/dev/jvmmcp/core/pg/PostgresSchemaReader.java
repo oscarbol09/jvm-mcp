@@ -342,7 +342,7 @@ public class PostgresSchemaReader implements AutoCloseable {
                 """
             SELECT
                 t.table_name,
-                c.reltuples::bigint AS estimated_row_count,
+                GREATEST(0, c.reltuples::bigint) AS estimated_row_count,
                 CASE
                     WHEN c.relkind = 'p' THEN
                         COALESCE((
@@ -384,7 +384,8 @@ public class PostgresSchemaReader implements AutoCloseable {
                                 result.add(
                                         new TableInfo(
                                                 rs.getString("table_name"),
-                                                rs.getLong("estimated_row_count"),
+                                                nonNegativeRowEstimate(
+                                                        rs.getLong("estimated_row_count")),
                                                 rs.getInt("column_count"),
                                                 rs.getLong("size_bytes")));
                             }
@@ -652,6 +653,11 @@ public class PostgresSchemaReader implements AutoCloseable {
 
     static int slowQueryLimit(int limit) {
         return Math.clamp(limit, 1, MAX_SLOW_QUERY_LIMIT);
+    }
+
+    // pg_class.reltuples is -1 until ANALYZE or VACUUM. Callers treat the value as a count.
+    static long nonNegativeRowEstimate(long estimate) {
+        return Math.max(0L, estimate);
     }
 
     static String sanitizeQuery(String query) {
