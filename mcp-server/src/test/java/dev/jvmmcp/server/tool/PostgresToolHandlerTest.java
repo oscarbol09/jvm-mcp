@@ -406,8 +406,9 @@ class PostgresToolHandlerTest {
                                         new PostgresModels.SlowQueryInfo(
                                                 "SELECT * FROM big_table",
                                                 10L,
+                                                5000.0,
                                                 500.0,
-                                                50.0,
+                                                750.0,
                                                 1000L))));
 
         PostgresToolHandler handler = new PostgresToolHandler((url, user, pass) -> mockReader);
@@ -419,7 +420,11 @@ class PostgresToolHandlerTest {
         assertThat(result.get("isError")).isNull();
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
-        assertThat(content.get(0).get("text").toString()).contains("SELECT * FROM big_table");
+        assertThat(content.get(0).get("text").toString())
+                .contains("SELECT * FROM big_table")
+                .contains("\"totalTimeMs\":5000.0")
+                .contains("\"meanTimeMs\":500.0")
+                .contains("\"maxTimeMs\":750.0");
         verify(mockReader).findSlowQueries(20);
     }
 
