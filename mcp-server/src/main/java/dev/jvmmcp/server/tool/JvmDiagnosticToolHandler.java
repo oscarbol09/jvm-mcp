@@ -15,7 +15,7 @@ import java.util.Map;
 
 /**
  * Handles JVM diagnostic tools: list_jvms, get_memory_summary, get_heap_histogram,
- * get_thread_diagnostics, get_thread_dump, list_hikari_pools.
+ * get_thread_diagnostics, get_thread_dump, get_blocked_threads, list_hikari_pools.
  */
 public class JvmDiagnosticToolHandler implements ToolHandler {
 
@@ -83,6 +83,7 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
                 "get_thread_diagnostics",
                 "get_heap_histogram",
                 "get_thread_dump",
+                "get_blocked_threads",
                 "list_hikari_pools");
     }
 
@@ -205,6 +206,28 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
                                                                 "Include virtual-thread details (Java 21+); may create a large diagnostic dump")),
                                         "required", requiredPidArguments())),
                 Map.of(
+                        "name", "get_blocked_threads",
+                        "description",
+                                "Finds all threads currently BLOCKED on intrinsic monitor locks, optionally filtering by blocked duration threshold.",
+                        "inputSchema",
+                                Map.of(
+                                        "type", "object",
+                                        "properties",
+                                                Map.of(
+                                                        "pid",
+                                                        Map.of(
+                                                                "type",
+                                                                "number",
+                                                                "description",
+                                                                "Target JVM Process ID"),
+                                                        "threshold_ms",
+                                                        Map.of(
+                                                                "type",
+                                                                "number",
+                                                                "description",
+                                                                "Only return threads blocked longer than this duration in milliseconds (default: 0, returns all blocked threads)")),
+                                        "required", requiredPidArguments())),
+                Map.of(
                         "name", "list_hikari_pools",
                         "description",
                                 "Lists active HikariCP connection pools, their metrics, and heuristically analyzes their health for starvation or Clock Leaps. Returns a note when no HikariCP MBeans are registered.",
@@ -325,6 +348,18 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
                                                                 javaSpecificationVersion)
                                                         : threadClient.getThreadDump(
                                                                 pid, false, false))));
+                    }
+                } else if ("get_blocked_threads".equals(toolName)) {
+                    long thresholdMs = ToolArgs.getLongArg(args, "threshold_ms", false);
+                    try (ThreadMXBeanClient threadClient =
+                            new ThreadMXBeanClient(jmxManager.getMBeanServerConnection())) {
+                        content.add(
+                                Map.of(
+                                        "type",
+                                        "text",
+                                        "text",
+                                        SimpleJson.toJson(
+                                                threadClient.findBlockedThreads(thresholdMs))));
                     }
                 } else if ("list_hikari_pools".equals(toolName)) {
                     try (HikariMXBeanClient hikariClient =
