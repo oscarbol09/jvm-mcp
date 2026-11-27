@@ -443,12 +443,14 @@ public class PostgresSchemaReader implements AutoCloseable {
                 """
             SELECT
                 c.conname AS constraint_name,
-                c.conrelid::regclass::text AS source_table,
+                c_src.relname AS source_table,
                 a_src.attname AS source_column,
-                c.confrelid::regclass::text AS foreign_table,
+                c_tgt.relname AS foreign_table,
                 a_tgt.attname AS foreign_column
             FROM pg_constraint c
             JOIN pg_namespace n ON n.oid = c.connamespace
+            JOIN pg_class c_src ON c_src.oid = c.conrelid
+            JOIN pg_class c_tgt ON c_tgt.oid = c.confrelid
             CROSS JOIN LATERAL unnest(c.conkey, c.confkey) AS u(src_attnum, tgt_attnum)
             JOIN pg_attribute a_src ON a_src.attrelid = c.conrelid AND a_src.attnum = u.src_attnum
             JOIN pg_attribute a_tgt ON a_tgt.attrelid = c.confrelid AND a_tgt.attnum = u.tgt_attnum
@@ -464,32 +466,18 @@ public class PostgresSchemaReader implements AutoCloseable {
                         List<ForeignKeyInfo> result = new ArrayList<>();
                         try (ResultSet rs = ps.executeQuery()) {
                             while (rs.next()) {
-                                // Extract just the table name without schema prefix if it exists
-                                String srcTable =
-                                        stripSchemaPrefix(rs.getString("source_table"), schemaName);
-                                String tgtTable =
-                                        stripSchemaPrefix(
-                                                rs.getString("foreign_table"), schemaName);
-
                                 result.add(
                                         new ForeignKeyInfo(
-                                                srcTable,
+                                                rs.getString("source_table"),
                                                 rs.getString("constraint_name"),
                                                 rs.getString("source_column"),
-                                                tgtTable,
+                                                rs.getString("foreign_table"),
                                                 rs.getString("foreign_column")));
                             }
                         }
                         return result;
                     });
         }
-    }
-
-    private String stripSchemaPrefix(String tableName, String currentSchema) {
-        if (tableName != null && tableName.startsWith(currentSchema + ".")) {
-            return tableName.substring(currentSchema.length() + 1);
-        }
-        return tableName;
     }
 
     public MissingIndexAnalysis findMissingIndexes(String schemaName) throws SQLException {
