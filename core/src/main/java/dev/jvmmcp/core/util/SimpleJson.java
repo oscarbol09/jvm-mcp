@@ -154,18 +154,17 @@ public final class SimpleJson {
                     obj.getClass().getRecordComponents()) {
                 if (!first) sb.append(",");
                 sb.append(toJson(component.getName(), depth + 1)).append(":");
+                Object value;
                 try {
                     java.lang.reflect.Method accessor = component.getAccessor();
                     if (!accessor.canAccess(obj)) {
-                        try {
-                            accessor.setAccessible(true);
-                        } catch (Exception ignored) {
-                        }
+                        accessor.trySetAccessible();
                     }
-                    sb.append(toJson(accessor.invoke(obj), depth + 1));
-                } catch (Exception e) {
-                    sb.append("null");
+                    value = accessor.invoke(obj);
+                } catch (ReflectiveOperationException e) {
+                    value = null;
                 }
+                sb.append(toJson(value, depth + 1));
                 first = false;
             }
             return sb.append("}").toString();
