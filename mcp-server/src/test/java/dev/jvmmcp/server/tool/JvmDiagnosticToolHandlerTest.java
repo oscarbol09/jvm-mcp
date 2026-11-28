@@ -187,7 +187,7 @@ class JvmDiagnosticToolHandlerTest {
     }
 
     @Test
-    @DisplayName("toolNames and toolDefinitions return all 6 JVM diagnostic tools")
+    @DisplayName("toolNames and toolDefinitions return all 7 JVM diagnostic tools")
     void testToolNamesAndDefinitions() {
         JvmDiagnosticToolHandler handler = new JvmDiagnosticToolHandler(mockAttachService);
 
@@ -198,8 +198,9 @@ class JvmDiagnosticToolHandlerTest {
                         "get_thread_diagnostics",
                         "get_heap_histogram",
                         "get_thread_dump",
+                        "get_blocked_threads",
                         "list_hikari_pools");
-        assertThat(handler.toolDefinitions()).hasSize(6);
+        assertThat(handler.toolDefinitions()).hasSize(7);
     }
 
     @Test
@@ -353,6 +354,59 @@ class JvmDiagnosticToolHandlerTest {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
         assertThat(content.get(0).get("text").toString()).contains("threads");
+    }
+
+    @Test
+    @DisplayName("get_blocked_threads returns all blocked threads with no threshold")
+    void testGetBlockedThreadsNoThreshold() throws Exception {
+        when(mockAttachService.attach("100")).thenReturn(AttachResult.success("100", null));
+
+        JvmDiagnosticToolHandler handler =
+                new JvmDiagnosticToolHandler(
+                        mockAttachService, (vm, p) -> JmxConnectionManager.connectLocal());
+
+        Map<String, Object> result = handler.execute("get_blocked_threads", Map.of("pid", 100));
+        assertThat(result.get("isError")).isNull();
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
+        assertThat(content).hasSize(1);
+        assertThat(content.get(0).get("text").toString()).startsWith("[");
+    }
+
+    @Test
+    @DisplayName("get_blocked_threads respects threshold_ms argument")
+    void testGetBlockedThreadsWithThreshold() throws Exception {
+        when(mockAttachService.attach("100")).thenReturn(AttachResult.success("100", null));
+
+        JvmDiagnosticToolHandler handler =
+                new JvmDiagnosticToolHandler(
+                        mockAttachService, (vm, p) -> JmxConnectionManager.connectLocal());
+
+        Map<String, Object> result =
+                handler.execute("get_blocked_threads", Map.of("pid", 100, "threshold_ms", 5000));
+        assertThat(result.get("isError")).isNull();
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
+        assertThat(content).hasSize(1);
+        assertThat(content.get(0).get("text").toString()).startsWith("[");
+    }
+
+    @Test
+    @DisplayName("get_blocked_threads rejects negative threshold_ms before attaching")
+    void testGetBlockedThreadsRejectsNegativeThreshold() {
+        JvmDiagnosticToolHandler handler =
+                new JvmDiagnosticToolHandler(
+                        mockAttachService, (vm, p) -> JmxConnectionManager.connectLocal());
+
+        assertThatThrownBy(
+                        () ->
+                                handler.execute(
+                                        "get_blocked_threads",
+                                        Map.of("pid", 100, "threshold_ms", -1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("threshold_ms must be >= 0");
+        verify(mockAttachService, org.mockito.Mockito.never())
+                .attach(org.mockito.Mockito.anyString());
     }
 
     @Test
