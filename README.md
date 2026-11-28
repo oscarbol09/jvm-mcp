@@ -313,7 +313,7 @@ including when `--json` is specified.
 
 ## Exposed MCP Tools
 
-The server exposes 14 diagnostic tools to AI assistants:
+The server exposes 15 diagnostic tools to AI assistants:
 
 | Tool Name | Description | Arguments |
 | :--- | :--- | :--- |
@@ -322,6 +322,7 @@ The server exposes 14 diagnostic tools to AI assistants:
 | `get_heap_histogram` | Top class instance counts and memory consumption. Live-only mode triggers a full stop-the-world GC on HotSpot; set `liveOnly=false` to avoid that GC and include unreachable objects. | `pid` (number), `limit` (number, optional), `liveOnly` (boolean, optional, default `true`) |
 | `get_thread_diagnostics` | Thread states breakdown, deadlock detection, top CPU consumer ranking, and opt-in virtual threads summary (Java 21+). | `pid` (number), `includeVirtualThreads` (boolean, optional, default `false`), `topCpuLimit` (integer, optional, default 5, max 100) |
 | `get_thread_dump` | Thread dump with lock stack traces; platform-only by default, opt-in virtual-thread details on Java 21+. | `pid` (number), `includeVirtualThreads` (boolean, optional, default `false`) |
+| `get_blocked_threads` | Finds threads currently `BLOCKED` on intrinsic monitor locks, optionally filtering by a non-negative blocked duration threshold. | `pid` (number), `threshold_ms` (number, optional, default `0`) |
 | `list_spring_beans` | Paginated Spring beans by context via JMX/Actuator, with `totalBeans` and `truncated`; `summary` returns per-context counts and top 10 packages instead. | `pid` (number), `filter` (string, optional), `limit` (integer, optional, default 200, max 2000), `offset` (integer, optional, default 0), `summary` (boolean, optional) |
 | `get_bean_detail` | Detailed metadata, autowired dependencies, and scope of a bean. | `pid` (number), `beanName` (string) |
 | `list_hikari_pools` | HikariCP pool metrics, active/idle connections, and leak warnings. Returns a note when no HikariCP MBeans are registered. | `pid` (number) |
