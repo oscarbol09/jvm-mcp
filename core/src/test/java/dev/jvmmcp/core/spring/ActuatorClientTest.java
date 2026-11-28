@@ -44,8 +44,11 @@ class ActuatorClientTest {
     private ActuatorClient client;
 
     @ParameterizedTest
-    @ValueSource(strings = {"", "/", "//", "////", "/app", "/app/", "/app///"})
-    void testBatchMetricsNormalizesTrailingSlashes(String suffix) {
+    @ValueSource(
+            strings = {
+                "", "/", "//", "////", "/app", "/app/", "/app///", "/actuator", "/app/actuator/"
+            })
+    void testBatchMetricsResolvesMetricsPath(String suffix) {
         String expectedPath =
                 (suffix.startsWith("/app") ? "/app" : "") + "/actuator/metrics/jvm.memory.used";
         List<String> paths = new CopyOnWriteArrayList<>();
