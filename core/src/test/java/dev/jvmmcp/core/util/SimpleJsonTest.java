@@ -535,6 +535,21 @@ class SimpleJsonTest {
 
     public record SampleRecord(String title, int count) {}
 
+    public record NestedRecord(Object child) {}
+
+    @Test
+    @DisplayName("toJson enforces the depth limit through record fields")
+    void shouldRejectExcessiveRecordDepth() {
+        Object state = "leaf";
+        for (int depth = 0; depth < 110; depth++) {
+            state = new NestedRecord(state);
+        }
+        Object nested = state;
+        assertThatThrownBy(() -> SimpleJson.toJson(nested))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("depth");
+    }
+
     @Test
     @DisplayName("toJson should serialize public Java records cleanly")
     void shouldSerializeRecordWithoutRequiringAccessibleOverride() {
