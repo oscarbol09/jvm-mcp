@@ -6,6 +6,9 @@
 [![CI](https://github.com/oscarbol09/jvm-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/oscarbol09/jvm-mcp/actions/workflows/ci.yml)
 [![Java Version](https://img.shields.io/badge/Java-21+-007396?logo=openjdk&logoColor=white)](https://jdk.java.net/21/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Interactive Playground](https://img.shields.io/badge/Interactive_Playground-Live_Simulator-blue?logo=googlechrome&logoColor=white)](https://oscarbol09.github.io/jvm-mcp/)
+
+> 🎮 **Try the Interactive Playground:** Experience JVM-MCP directly in your browser without installing anything at [oscarbol09.github.io/jvm-mcp](https://oscarbol09.github.io/jvm-mcp/). Inspect live JSON-RPC 2.0 stdio traffic, deadlocks, Old Gen memory pressure, and HikariCP connection pools.
 
 ---
 

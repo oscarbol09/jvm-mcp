@@ -1,0 +1,1436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JVM-MCP Interactive Playground | Model Context Protocol for Java</title>
+  <meta name="description" content="Interactive simulator and live diagnostic playground for JVM-MCP - Zero-overhead Java 21 Model Context Protocol server for Claude, Cursor, and AI coding assistants.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☕</text></svg>">
+  <style>
+    :root {
+      --bg-darker: #070a11;
+      --bg-dark: #0d121f;
+      --bg-panel: #131a2b;
+      --bg-card: #182238;
+      --bg-card-hover: #1f2c48;
+      --border: #23314e;
+      --border-focus: #3b82f6;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --accent-mcp: #38bdf8;
+      --accent-jvm: #f59e0b;
+      --accent-spring: #10b981;
+      --accent-danger: #ef4444;
+      --accent-purple: #a855f7;
+      --font-mono: "JetBrains Mono", "SF Mono", Consolas, Menlo, Monaco, "Courier New", monospace;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background-color: var(--bg-darker);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    /* Top Navigation Bar */
+    header {
+      background: var(--bg-dark);
+      border-bottom: 1px solid var(--border);
+      padding: 0.75rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .brand-logo {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, #f59e0b, #ef4444);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 1.1rem;
+      color: #fff;
+      box-shadow: 0 0 15px rgba(245, 158, 11, 0.4);
+    }
+
+    .brand-title {
+      font-weight: 700;
+      font-size: 1.15rem;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-badge {
+      font-size: 0.7rem;
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent-mcp);
+      padding: 0.15rem 0.5rem;
+      border-radius: 9999px;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      font-family: var(--font-mono);
+      font-weight: 600;
+    }
+
+    .header-status {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-spring);
+      box-shadow: 0 0 8px var(--accent-spring);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 0.4; }
+      50% { opacity: 1; }
+      100% { opacity: 0.4; }
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.825rem;
+      font-weight: 600;
+      padding: 0.45rem 0.85rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text-main);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      text-decoration: none;
+    }
+
+    .btn:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-focus);
+    }
+
+    .btn-primary {
+      background: #2563eb;
+      border-color: #3b82f6;
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      background: #1d4ed8;
+      box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
+    }
+
+    .btn-amber {
+      background: rgba(245, 158, 11, 0.15);
+      border-color: rgba(245, 158, 11, 0.4);
+      color: #fbbf24;
+    }
+
+    .btn-amber:hover {
+      background: rgba(245, 158, 11, 0.25);
+    }
+
+    /* Scenario Quick Selector Banner */
+    .scenario-banner {
+      background: var(--bg-dark);
+      border-bottom: 1px solid var(--border);
+      padding: 0.65rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+
+    .scenario-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .scenario-pill {
+      font-size: 0.75rem;
+      padding: 0.3rem 0.65rem;
+      border-radius: 9999px;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .scenario-pill:hover, .scenario-pill.active {
+      background: rgba(56, 189, 248, 0.12);
+      border-color: var(--accent-mcp);
+      color: #fff;
+    }
+
+    .scenario-pill.danger:hover, .scenario-pill.danger.active {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: var(--accent-danger);
+      color: #fca5a5;
+    }
+
+    .scenario-pill.warning:hover, .scenario-pill.warning.active {
+      background: rgba(245, 158, 11, 0.15);
+      border-color: var(--accent-jvm);
+      color: #fde047;
+    }
+
+    /* Main Workspace Layout */
+    .workspace {
+      display: grid;
+      grid-template-columns: 360px 1fr 340px;
+      flex: 1;
+      height: calc(100vh - 105px);
+      overflow: hidden;
+    }
+
+    @media (max-width: 1200px) {
+      .workspace {
+        grid-template-columns: 340px 1fr;
+      }
+      .panel-telemetry {
+        display: none;
+      }
+    }
+
+    @media (max-width: 800px) {
+      .workspace {
+        grid-template-columns: 1fr;
+        height: auto;
+        overflow: visible;
+      }
+    }
+
+    .panel {
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--border);
+      background: var(--bg-panel);
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .panel:last-child {
+      border-right: none;
+    }
+
+    .panel-header {
+      padding: 0.65rem 1rem;
+      background: var(--bg-dark);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--text-muted);
+    }
+
+    .panel-header-title {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      color: var(--text-main);
+    }
+
+    .panel-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    /* Panel A: Claude / AI Client Chat */
+    .chat-messages {
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .message {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      font-size: 0.85rem;
+      line-height: 1.45;
+      animation: fadeIn 0.2s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .message-user {
+      align-self: flex-end;
+      background: #1e3a8a;
+      color: #eff6ff;
+      padding: 0.65rem 0.9rem;
+      border-radius: 12px 12px 2px 12px;
+      max-width: 90%;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    }
+
+    .message-assistant {
+      align-self: flex-start;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      padding: 0.75rem 0.95rem;
+      border-radius: 12px 12px 12px 2px;
+      max-width: 95%;
+      color: var(--text-main);
+    }
+
+    .tool-call-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: var(--accent-mcp);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 6px;
+      margin: 0.35rem 0;
+    }
+
+    .diagnostic-finding {
+      border-left: 3px solid var(--accent-danger);
+      background: rgba(239, 68, 68, 0.08);
+      padding: 0.5rem 0.75rem;
+      border-radius: 0 6px 6px 0;
+      margin-top: 0.4rem;
+      font-size: 0.8rem;
+    }
+
+    .diagnostic-finding.warning {
+      border-left-color: var(--accent-jvm);
+      background: rgba(245, 158, 11, 0.08);
+    }
+
+    .diagnostic-finding.success {
+      border-left-color: var(--accent-spring);
+      background: rgba(16, 185, 129, 0.08);
+    }
+
+    .chat-input-wrapper {
+      margin-top: auto;
+      border-top: 1px solid var(--border);
+      padding-top: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .quick-prompts {
+      display: flex;
+      gap: 0.4rem;
+      overflow-x: auto;
+      padding-bottom: 0.25rem;
+    }
+
+    .quick-prompt-chip {
+      font-size: 0.72rem;
+      padding: 0.25rem 0.5rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-muted);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.1s ease;
+    }
+
+    .quick-prompt-chip:hover {
+      background: var(--bg-card-hover);
+      color: var(--text-main);
+    }
+
+    .input-row {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .chat-input {
+      flex: 1;
+      background: var(--bg-dark);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.85rem;
+      color: var(--text-main);
+      outline: none;
+      font-family: inherit;
+    }
+
+    .chat-input:focus {
+      border-color: var(--border-focus);
+    }
+
+    /* Panel B: Stdio Protocol Inspector & Terminal */
+    .traffic-terminal {
+      background: #06090e;
+      border-radius: 8px;
+      border: 1px solid #1a2336;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      line-height: 1.5;
+      padding: 0.85rem;
+      height: 100%;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+    }
+
+    .traffic-entry {
+      border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+      padding-bottom: 0.5rem;
+    }
+
+    .traffic-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.25rem;
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+
+    .traffic-dir-req {
+      color: #38bdf8;
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    .traffic-dir-res {
+      color: #4ade80;
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    .traffic-time {
+      color: var(--text-dim);
+    }
+
+    .traffic-json {
+      white-space: pre-wrap;
+      word-break: break-all;
+      color: #cbd5e1;
+    }
+
+    .json-key { color: #93c5fd; }
+    .json-string { color: #fde047; }
+    .json-number { color: #f472b6; }
+    .json-bool { color: #a78bfa; }
+    .redacted-tag {
+      background: rgba(239, 68, 68, 0.25);
+      color: #f87171;
+      padding: 0 4px;
+      border-radius: 3px;
+      font-weight: bold;
+    }
+
+    /* Panel C: Telemetry & Live MBean Visuals */
+    .target-jvm-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .jvm-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .jvm-pid {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--accent-jvm);
+      background: rgba(245, 158, 11, 0.1);
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+    }
+
+    .metric-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .metric-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .progress-bar-bg {
+      height: 8px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 4px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.4s ease, background 0.3s ease;
+    }
+
+    .fill-eden { background: #38bdf8; }
+    .fill-old { background: #f59e0b; }
+    .fill-old.critical { background: #ef4444; box-shadow: 0 0 10px #ef4444; }
+    .fill-threads { background: #10b981; }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+    }
+
+    .stat-box {
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 6px;
+      padding: 0.5rem;
+      text-align: center;
+    }
+
+    .stat-val {
+      font-family: var(--font-mono);
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .stat-lbl {
+      font-size: 0.68rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      margin-top: 0.15rem;
+    }
+
+    .pool-status-alert {
+      font-size: 0.75rem;
+      padding: 0.4rem 0.6rem;
+      border-radius: 6px;
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    /* Modal Styling */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(4px);
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+
+    .modal-overlay.active {
+      display: flex;
+    }
+
+    .modal {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      width: 100%;
+      max-width: 580px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      animation: modalSlide 0.2s ease-out;
+    }
+
+    @keyframes modalSlide {
+      from { transform: scale(0.95); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+
+    .modal-header {
+      padding: 1rem 1.25rem;
+      background: var(--bg-dark);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .modal-body {
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .code-block {
+      background: #080c14;
+      border: 1px solid #1a2336;
+      border-radius: 6px;
+      padding: 0.85rem;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: #93c5fd;
+      position: relative;
+      overflow-x: auto;
+    }
+
+    .copy-btn-inner {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      padding: 0.25rem 0.5rem;
+      font-size: 0.7rem;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 4px;
+      color: #fff;
+      cursor: pointer;
+    }
+
+    .copy-btn-inner:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Toast Notification */
+    .toast {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      background: #10b981;
+      color: #fff;
+      padding: 0.65rem 1.25rem;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+      z-index: 200;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: all 0.25s ease;
+      pointer-events: none;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navigation Header -->
+  <header>
+    <a href="https://github.com/oscarbol09/jvm-mcp" target="_blank" class="brand">
+      <div class="brand-logo">☕</div>
+      <div>
+        <div class="brand-title">JVM-MCP</div>
+        <div style="font-size: 0.72rem; color: var(--text-dim);">Live Runtime Inspector</div>
+      </div>
+      <span class="brand-badge">v1.2.0</span>
+    </a>
+
+    <div class="header-status">
+      <div class="status-dot"></div>
+      <span>MCP stdio connected</span>
+      <span style="color: var(--text-dim);">|</span>
+      <span>Java 21+ Virtual Threads</span>
+    </div>
+
+    <div class="header-actions">
+      <button class="btn btn-amber" onclick="openConfigModal('claude')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
+        Claude Config
+      </button>
+      <button class="btn" onclick="openConfigModal('cursor')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+        Cursor Config
+      </button>
+      <a href="https://github.com/oscarbol09/jvm-mcp" target="_blank" class="btn btn-primary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+        GitHub v1.2.0
+      </a>
+    </div>
+  </header>
+
+  <!-- Interactive Scenario Quick Bar -->
+  <div class="scenario-banner">
+    <div class="scenario-label">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+      Playground Scenarios:
+    </div>
+    <div class="scenario-pill danger" onclick="loadScenario('deadlock')">
+      💥 Deadlock & Contention
+    </div>
+    <div class="scenario-pill warning" onclick="loadScenario('memory_leak')">
+      🚨 Old Gen Leak & GC
+    </div>
+    <div class="scenario-pill warning" onclick="loadScenario('hikari_exhaust')">
+      🗄️ HikariCP Saturation
+    </div>
+    <div class="scenario-pill" onclick="loadScenario('pg_indexes')">
+      🐘 PostgreSQL Missing Indexes
+    </div>
+    <div class="scenario-pill" onclick="loadScenario('spring_beans')">
+      🍃 Spring ApplicationContext
+    </div>
+    <div class="scenario-pill" onclick="loadScenario('virtual_threads')">
+      ⚡ Project Loom Virtual Threads
+    </div>
+    <div class="scenario-pill" onclick="resetJvmState()">
+      🔄 Reset Healthy JVM
+    </div>
+  </div>
+
+  <!-- Workspace Panels -->
+  <main class="workspace">
+
+    <!-- Panel 1: Claude Desktop / AI Chat View -->
+    <section class="panel">
+      <div class="panel-header">
+        <div class="panel-header-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+          Claude Desktop Client
+        </div>
+        <span style="font-size: 0.7rem; color: var(--text-dim);">stdio transport</span>
+      </div>
+
+      <div class="panel-body">
+        <div class="chat-messages" id="chatMessages">
+          <div class="message message-assistant">
+            Hello! I am connected to your Java applications via <strong>JVM-MCP</strong>. I have access to live memory regions, thread contention diagnostics, Spring beans, and database pools without modifying your application code.
+            <div style="margin-top: 0.4rem; font-size: 0.78rem; color: var(--text-muted);">
+              Try one of the scenarios above or ask me to inspect your running Java services.
+            </div>
+          </div>
+        </div>
+
+        <div class="chat-input-wrapper">
+          <div class="quick-prompts">
+            <span class="quick-prompt-chip" onclick="sendPrompt('Check running JVM processes and frameworks')">list_jvms</span>
+            <span class="quick-prompt-chip" onclick="sendPrompt('Analyze memory allocation and GC pauses for PID 45231')">memory</span>
+            <span class="quick-prompt-chip" onclick="sendPrompt('Check for thread deadlocks and top CPU consumers in PID 45231')">deadlocks</span>
+            <span class="quick-prompt-chip" onclick="sendPrompt('Inspect HikariCP connection pool health')">hikaricp</span>
+          </div>
+          <div class="input-row">
+            <input type="text" id="chatInput" class="chat-input" placeholder="Ask AI assistant about your JVM runtime..." onkeydown="if(event.key==='Enter') handleUserSend()">
+            <button class="btn btn-primary" onclick="handleUserSend()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Panel 2: Stdio JSON-RPC 2.0 Bus & Tool Engine -->
+    <section class="panel">
+      <div class="panel-header">
+        <div class="panel-header-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+          JVM-MCP Stdio Engine (JSON-RPC 2.0)
+        </div>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <span style="font-size: 0.7rem; color: var(--accent-spring); font-family: var(--font-mono);">SensitiveDataRedactor: ACTIVE</span>
+          <button class="btn" style="padding: 0.15rem 0.4rem; font-size: 0.7rem;" onclick="clearTrafficLog()">Clear</button>
+        </div>
+      </div>
+
+      <div class="panel-body" style="padding: 0.5rem;">
+        <div class="traffic-terminal" id="trafficLog">
+          <div class="traffic-entry">
+            <div class="traffic-header">
+              <span class="traffic-dir-req">● INITIALIZE</span>
+              <span class="traffic-time">14:24:00</span>
+            </div>
+            <div class="traffic-json"><span class="json-key">"clientInfo"</span>: { <span class="json-key">"name"</span>: <span class="json-string">"claude-desktop"</span>, <span class="json-key">"version"</span>: <span class="json-string">"1.0"</span> }, <span class="json-key">"protocolVersion"</span>: <span class="json-string">"2024-11-05"</span></div>
+          </div>
+          <div class="traffic-entry">
+            <div class="traffic-header">
+              <span class="traffic-dir-res">● INITIALIZE RESPONSE</span>
+              <span class="traffic-time">14:24:00</span>
+            </div>
+            <div class="traffic-json"><span class="json-key">"serverInfo"</span>: { <span class="json-key">"name"</span>: <span class="json-string">"jvm-mcp"</span>, <span class="json-key">"version"</span>: <span class="json-string">"1.2.0"</span> }, <span class="json-key">"capabilities"</span>: { <span class="json-key">"tools"</span>: { <span class="json-key">"count"</span>: <span class="json-number">15</span> } }</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Panel 3: Simulated Target JVM Runtime Telemetry -->
+    <section class="panel panel-telemetry">
+      <div class="panel-header">
+        <div class="panel-header-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+          Target JVM Process
+        </div>
+        <span class="jvm-pid" id="targetPidBadge">PID 45231</span>
+      </div>
+
+      <div class="panel-body">
+        <!-- Target Info Card -->
+        <div class="target-jvm-card">
+          <div class="jvm-header">
+            <div>
+              <div style="font-weight: 700; font-size: 0.85rem;" id="targetAppName">OrderServiceApplication</div>
+              <div style="font-size: 0.72rem; color: var(--text-dim);" id="targetAppMeta">Spring Boot 3.3.4 · Eclipse Temurin 21.0.12</div>
+            </div>
+            <span style="font-size: 0.7rem; background: rgba(16, 185, 129, 0.15); color: #34d399; padding: 0.2rem 0.4rem; border-radius: 4px; font-weight: 600;">Attach API OK</span>
+          </div>
+        </div>
+
+        <!-- Memory Breakdown -->
+        <div class="metric-group">
+          <div class="metric-title">
+            <span>Eden Space</span>
+            <span id="edenText">840 MB / 1.5 GB</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill fill-eden" id="edenBar" style="width: 56%;"></div>
+          </div>
+        </div>
+
+        <div class="metric-group">
+          <div class="metric-title">
+            <span>Old Generation</span>
+            <span id="oldText" style="color: var(--accent-jvm);">450 MB / 2.0 GB (22%)</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill fill-old" id="oldBar" style="width: 22%;"></div>
+          </div>
+        </div>
+
+        <!-- Thread & Concurrency Stats -->
+        <div class="stat-grid">
+          <div class="stat-box">
+            <div class="stat-val" id="threadCountStat">148</div>
+            <div class="stat-lbl">Platform Threads</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-val" id="virtualThreadStat" style="color: var(--accent-purple);">12,450</div>
+            <div class="stat-lbl">Virtual Threads (Loom)</div>
+          </div>
+        </div>
+
+        <div class="stat-grid">
+          <div class="stat-box">
+            <div class="stat-val" id="deadlockStat" style="color: var(--accent-spring);">0</div>
+            <div class="stat-lbl">Deadlocks Detected</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-val" id="gcPausesStat">38 ms</div>
+            <div class="stat-lbl">Avg GC Pause (G1)</div>
+          </div>
+        </div>
+
+        <!-- HikariCP Pool Card -->
+        <div class="target-jvm-card" id="hikariCard">
+          <div class="metric-title">
+            <span>HikariCP Pool (primaryDS)</span>
+            <span id="hikariRatio">3 / 10 active</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" id="hikariBar" style="width: 30%; background: #38bdf8;"></div>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-dim); margin-top: 0.2rem;">
+            <span>Idle: <strong id="hikariIdle" style="color: var(--text-main);">7</strong></span>
+            <span>Waiting Threads: <strong id="hikariWaiting" style="color: var(--text-main);">0</strong></span>
+            <span>Acquire Latency: <strong id="hikariLatency" style="color: var(--text-main);">1.2ms</strong></span>
+          </div>
+          <div id="hikariAlertBox" style="display: none;" class="pool-status-alert">
+            ⚠️ Pool exhausted! Acquisition queue saturated.
+          </div>
+        </div>
+
+        <!-- Spring Beans Summary -->
+        <div class="target-jvm-card">
+          <div class="metric-title">
+            <span>Spring ApplicationContext</span>
+            <span>342 beans</span>
+          </div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); line-height: 1.4;">
+            <div>• <code style="color: #93c5fd;">OrderService</code> (@Service, singleton)</div>
+            <div>• <code style="color: #93c5fd;">PaymentGateway</code> (@Component, singleton)</div>
+            <div>• <code style="color: #93c5fd;">HikariDataSource</code> (primaryDS)</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Client Config Modal -->
+  <div class="modal-overlay" id="configModal" onclick="if(event.target===this) closeConfigModal()">
+    <div class="modal">
+      <div class="modal-header">
+        <div style="font-weight: 700; display: flex; align-items: center; gap: 0.5rem;" id="modalTitle">
+          Claude Desktop Configuration
+        </div>
+        <button class="btn" style="padding: 0.2rem 0.5rem;" onclick="closeConfigModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 0.85rem; color: var(--text-muted);" id="modalDesc">
+          Add JVM-MCP to your <code style="color: #93c5fd;">claude_desktop_config.json</code>:
+        </p>
+        <div class="code-block">
+          <button class="copy-btn-inner" onclick="copyConfigCode()">Copy</button>
+          <pre id="configCodeBlock">Loading...</pre>
+        </div>
+        <p style="font-size: 0.78rem; color: var(--text-dim);">
+          💡 <strong>Zero JRE Required:</strong> The standalone pre-built distribution of JVM-MCP bundles its own minimal stripped Java 21 runtime.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast">Configuration copied to clipboard!</div>
+
+  <script>
+    // State of the Simulated JVM Target (PID 45231)
+    let jvmState = {
+      pid: 45231,
+      name: "OrderServiceApplication",
+      framework: "Spring Boot 3.3.4",
+      javaVersion: "21.0.12 (Eclipse Temurin)",
+      edenUsed: 840,
+      edenMax: 1500,
+      oldUsed: 450,
+      oldMax: 2000,
+      threadsTotal: 148,
+      virtualThreads: 12450,
+      deadlocks: 0,
+      blockedThreads: 0,
+      avgGcPause: 38,
+      hikariActive: 3,
+      hikariMax: 10,
+      hikariWaiting: 0,
+      hikariLatency: 1.2
+    };
+
+    let requestId = 1;
+
+    // Scenarios logic
+    function resetJvmState() {
+      jvmState = {
+        pid: 45231,
+        name: "OrderServiceApplication",
+        framework: "Spring Boot 3.3.4",
+        javaVersion: "21.0.12 (Eclipse Temurin)",
+        edenUsed: 840,
+        edenMax: 1500,
+        oldUsed: 450,
+        oldMax: 2000,
+        threadsTotal: 148,
+        virtualThreads: 12450,
+        deadlocks: 0,
+        blockedThreads: 0,
+        avgGcPause: 38,
+        hikariActive: 3,
+        hikariMax: 10,
+        hikariWaiting: 0,
+        hikariLatency: 1.2
+      };
+      updateTelemetryUI();
+      addAssistantMessage("Target JVM (PID 45231) has been reset to a healthy operational baseline. All pools and threads are normal.");
+      showToast("JVM State Reset to Normal");
+    }
+
+    function loadScenario(type) {
+      if (type === 'deadlock') {
+        jvmState.deadlocks = 2;
+        jvmState.blockedThreads = 6;
+        jvmState.threadsTotal = 154;
+        updateTelemetryUI();
+
+        sendPrompt("Analyze thread states and detect if there are any deadlocks in PID 45231");
+
+        setTimeout(() => {
+          simulateToolCall("get_thread_diagnostics", { pid: 45231, topCpuLimit: 5 }, {
+            threadCount: 154,
+            states: { RUNNABLE: 82, WAITING: 62, TIMED_WAITING: 4, BLOCKED: 6 },
+            deadlocks: [
+              {
+                thread1: "order-worker-3 (id=42)",
+                waitingOnLock: "java.util.concurrent.locks.ReentrantLock@7f8a12",
+                heldBy: "inventory-sync-1 (id=88)"
+              },
+              {
+                thread2: "inventory-sync-1 (id=88)",
+                waitingOnLock: "java.util.concurrent.locks.ReentrantLock@3b4c91",
+                heldBy: "order-worker-3 (id=42)"
+              }
+            ],
+            topCpuThreads: [
+              { id: 42, name: "order-worker-3", cpuTimeMs: 14205, state: "BLOCKED" },
+              { id: 88, name: "inventory-sync-1", cpuTimeMs: 12840, state: "BLOCKED" }
+            ]
+          });
+
+          simulateToolCall("get_blocked_threads", { pid: 45231, threshold_ms: 1000 }, [
+            { threadId: 42, threadName: "order-worker-3", blockedDurationMs: 45200, lockOwner: "inventory-sync-1" },
+            { threadId: 88, threadName: "inventory-sync-1", blockedDurationMs: 45180, lockOwner: "order-worker-3" }
+          ]);
+
+          addAssistantMessage(`
+            🚨 <strong>Critical Circular Deadlock Detected!</strong>
+            <div class="diagnostic-finding">
+              Two threads are permanently blocked in a circular wait dependency:
+              <br>• <code>order-worker-3 (id=42)</code> is waiting on lock <code>0x7f8a12</code> held by <code>inventory-sync-1</code>.
+              <br>• <code>inventory-sync-1 (id=88)</code> is waiting on lock <code>0x3b4c91</code> held by <code>order-worker-3</code>.
+              <br>• Blocked duration: <strong>> 45 seconds</strong>.
+            </div>
+            <strong>Actionable Recommendation:</strong> Re-order lock acquisition sequence in <code>OrderProcessingService#processOrder()</code> or replace dual synchronization locks with transactional saga orchestration.
+          `);
+        }, 600);
+
+      } else if (type === 'memory_leak') {
+        jvmState.oldUsed = 1880; // 94%
+        jvmState.avgGcPause = 340; // 340ms pause
+        updateTelemetryUI();
+
+        sendPrompt("Analyze memory pressure and generate a heap histogram for PID 45231");
+
+        setTimeout(() => {
+          simulateToolCall("get_memory_summary", { pid: 45231 }, {
+            heap: { initMb: 512, usedMb: 2420, committedMb: 2500, maxMb: 2500 },
+            nonHeap: { usedMb: 112 },
+            pressure: { ratio: 0.94, level: "CRITICAL", recommendation: "Old Generation above 90%. Potential memory leak or undersized heap." },
+            gcPauses: [ { gcName: "G1 Old Generation", count: 18, totalTimeMs: 6120, avgPauseMs: 340 } ]
+          });
+
+          simulateToolCall("get_heap_histogram", { pid: 45231, limit: 5, liveOnly: false }, {
+            totalInstances: 8420194,
+            totalBytesMb: 1840,
+            liveOnly: false,
+            histogram: [
+              { rank: 1, className: "byte[]", instances: 124500, bytesMb: 940 },
+              { rank: 2, className: "java.util.concurrent.ConcurrentHashMap$Node", instances: 3410000, bytesMb: 512 },
+              { rank: 3, className: "dev.jvmmcp.demo.model.OrderAuditRecord", instances: 2100000, bytesMb: 280 },
+              { rank: 4, className: "java.lang.String", instances: 840000, bytesMb: 68 }
+            ]
+          });
+
+          addAssistantMessage(`
+            ⚠️ <strong>Old Generation Saturation (94%) Detected:</strong>
+            <div class="diagnostic-finding warning">
+              Stop-The-World GC pauses have spiked to <strong>340ms</strong>. The heap histogram reveals that <code>OrderAuditRecord</code> instances accumulating inside an unbounded <code>ConcurrentHashMap</code> account for over <strong>792 MB</strong> of uncollected memory.
+            </div>
+            <strong>Remediation:</strong> Check <code>AuditBufferService</code> for missing eviction policies. Evict records via caffeine/guava cache with <code>expireAfterWrite</code>.
+          `);
+        }, 600);
+
+      } else if (type === 'hikari_exhaust') {
+        jvmState.hikariActive = 10;
+        jvmState.hikariWaiting = 42;
+        jvmState.hikariLatency = 4850;
+        updateTelemetryUI();
+
+        sendPrompt("Check database connection pool metrics for PID 45231");
+
+        setTimeout(() => {
+          simulateToolCall("list_hikari_pools", { pid: 45231 }, {
+            pools: [
+              {
+                poolName: "primaryDS",
+                activeConnections: 10,
+                idleConnections: 0,
+                totalConnections: 10,
+                threadsAwaitingConnection: 42,
+                acquireLatencyMs: 4850
+              }
+            ],
+            note: null
+          });
+
+          addAssistantMessage(`
+            🔴 <strong>HikariCP Pool Saturated (10/10 Connections Active):</strong>
+            <div class="diagnostic-finding">
+              <strong>42 threads</strong> are currently starved awaiting an available database connection. Connection acquire latency has reached <strong>4.85 seconds</strong> (normal: &lt; 2ms).
+            </div>
+            <strong>Recommendations:</strong>
+            <br>1. Check for long-running unindexed transactions holding connection leases.
+            <br>2. Increase <code>maximum-pool-size</code> in <code>application.yml</code> if the PostgreSQL server capacity permits.
+            <br>3. Enable <code>leak-detection-threshold=2000</code> to identify leaked connection borrows.
+          `);
+        }, 600);
+
+      } else if (type === 'pg_indexes') {
+        sendPrompt("Inspect PostgreSQL database for slow queries and missing indexes");
+
+        setTimeout(() => {
+          simulateToolCall("find_missing_indexes", { url: "jdbc:postgresql://localhost:5432/orders_db", user: "app_user", password: "***" }, [
+            {
+              schema: "public",
+              table: "orders",
+              seqScanCount: 420800,
+              idxScanCount: 120,
+              estimatedRows: 4210000,
+              tableSizeMb: 840,
+              recommendation: "High sequential scans (420k+) on large table (840 MB). Missing index likely on foreign key or status filters."
+            }
+          ]);
+
+          simulateToolCall("find_slow_queries", { url: "jdbc:postgresql://localhost:5432/orders_db", limit: 3 }, [
+            {
+              query: "SELECT * FROM orders WHERE customer_id = $1 AND status = 'PENDING'",
+              calls: 84200,
+              totalTimeMs: 1420500,
+              meanTimeMs: 16.8,
+              maxTimeMs: 480.2
+            }
+          ]);
+
+          addAssistantMessage(`
+            🐘 <strong>PostgreSQL Optimization Diagnostic:</strong>
+            <div class="diagnostic-finding warning">
+              Table <code>orders</code> (4.2M rows, 840 MB) is incurring <strong>420,800 sequential table scans</strong> with only 120 index scans. The query filtering by <code>customer_id</code> and <code>status</code> accounts for <strong>1,420 seconds</strong> of cumulative database time.
+            </div>
+            <strong>Suggested SQL Migration:</strong>
+            <pre style="background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px; margin-top: 0.3rem; font-family: var(--font-mono); font-size: 0.75rem; color: #93c5fd;">CREATE INDEX idx_orders_customer_status ON orders(customer_id, status);</pre>
+          `);
+        }, 600);
+
+      } else if (type === 'spring_beans') {
+        sendPrompt("Inspect Spring ApplicationContext bean hierarchy for OrderService");
+
+        setTimeout(() => {
+          simulateToolCall("get_bean_detail", { pid: 45231, beanName: "orderService" }, {
+            beanName: "orderService",
+            type: "dev.jvmmcp.demo.service.OrderServiceImpl",
+            scope: "singleton",
+            dependencies: [
+              "orderRepository",
+              "paymentGateway",
+              "inventoryClient",
+              "transactionManager"
+            ],
+            aliases: ["orderServicePrimary"]
+          });
+
+          addAssistantMessage(`
+            🍃 <strong>Spring Bean Details: <code>orderService</code></strong>
+            <br>• <strong>Implementation:</strong> <code>dev.jvmmcp.demo.service.OrderServiceImpl</code>
+            <br>• <strong>Scope:</strong> <code>singleton</code>
+            <br>• <strong>Autowired Dependencies:</strong>
+            <br>&nbsp;&nbsp;→ <code>orderRepository</code> (Spring Data JPA)
+            <br>&nbsp;&nbsp;→ <code>paymentGateway</code> (StripeClientAdapter)
+            <br>&nbsp;&nbsp;→ <code>inventoryClient</code> (Feign/HTTP Client)
+            <br>&nbsp;&nbsp;→ <code>transactionManager</code> (JpaTransactionManager)
+          `);
+        }, 600);
+
+      } else if (type === 'virtual_threads') {
+        sendPrompt("Enumerate Project Loom virtual threads for target PID 45231");
+
+        setTimeout(() => {
+          simulateToolCall("get_thread_diagnostics", { pid: 45231, includeVirtualThreads: true, topCpuLimit: 3 }, {
+            javaSpecificationVersion: "21",
+            platformThreads: 148,
+            virtualThreads: {
+              active: 12450,
+              mounted: 18,
+              unmounted: 12432,
+              scheduler: "ForkJoinPool.commonPool-worker"
+            },
+            status: "Virtual thread unbounded dispatcher running smoothly with 18 carrier threads."
+          });
+
+          addAssistantMessage(`
+            ⚡ <strong>Project Loom Virtual Thread Diagnostics:</strong>
+            <div class="diagnostic-finding success">
+              Java 21 Virtual Threads confirmed active. Total of <strong>12,450 lightweight threads</strong> multiplexed over 18 carrier platform threads. Zero carrier thread starvation detected.
+            </div>
+          `);
+        }, 600);
+      }
+    }
+
+    // UI Updates
+    function updateTelemetryUI() {
+      // Memory
+      const edenPercent = Math.round((jvmState.edenUsed / jvmState.edenMax) * 100);
+      document.getElementById('edenText').innerText = `${jvmState.edenUsed} MB / ${jvmState.edenMax} MB`;
+      document.getElementById('edenBar').style.width = `${edenPercent}%`;
+
+      const oldPercent = Math.round((jvmState.oldUsed / jvmState.oldMax) * 100);
+      document.getElementById('oldText').innerText = `${jvmState.oldUsed} MB / ${jvmState.oldMax} MB (${oldPercent}%)`;
+      const oldBar = document.getElementById('oldBar');
+      oldBar.style.width = `${oldPercent}%`;
+      if (oldPercent > 80) {
+        oldBar.classList.add('critical');
+      } else {
+        oldBar.classList.remove('critical');
+      }
+
+      // Threads
+      document.getElementById('threadCountStat').innerText = jvmState.threadsTotal;
+      document.getElementById('virtualThreadStat').innerText = jvmState.virtualThreads.toLocaleString();
+      const deadlockEl = document.getElementById('deadlockStat');
+      deadlockEl.innerText = jvmState.deadlocks;
+      deadlockEl.style.color = jvmState.deadlocks > 0 ? 'var(--accent-danger)' : 'var(--accent-spring)';
+      document.getElementById('gcPausesStat').innerText = `${jvmState.avgGcPause} ms`;
+
+      // Hikari
+      document.getElementById('hikariRatio').innerText = `${jvmState.hikariActive} / ${jvmState.hikariMax} active`;
+      const hikariPercent = Math.round((jvmState.hikariActive / jvmState.hikariMax) * 100);
+      const hikariBar = document.getElementById('hikariBar');
+      hikariBar.style.width = `${hikariPercent}%`;
+      hikariBar.style.background = jvmState.hikariActive >= jvmState.hikariMax ? 'var(--accent-danger)' : '#38bdf8';
+
+      document.getElementById('hikariIdle').innerText = jvmState.hikariMax - jvmState.hikariActive;
+      document.getElementById('hikariWaiting').innerText = jvmState.hikariWaiting;
+      document.getElementById('hikariLatency').innerText = `${jvmState.hikariLatency}ms`;
+
+      const alertBox = document.getElementById('hikariAlertBox');
+      alertBox.style.display = jvmState.hikariActive >= jvmState.hikariMax ? 'flex' : 'none';
+    }
+
+    // Chat handling
+    function sendPrompt(text) {
+      document.getElementById('chatInput').value = text;
+      handleUserSend();
+    }
+
+    function handleUserSend() {
+      const input = document.getElementById('chatInput');
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+
+      addUserMessage(text);
+
+      const lower = text.toLowerCase();
+      if (lower.includes('deadlock') || lower.includes('block') || lower.includes('contention')) {
+        loadScenario('deadlock');
+      } else if (lower.includes('memory') || lower.includes('leak') || lower.includes('heap') || lower.includes('gc')) {
+        loadScenario('memory_leak');
+      } else if (lower.includes('hikari') || lower.includes('pool') || lower.includes('database connection')) {
+        loadScenario('hikari_exhaust');
+      } else if (lower.includes('postgres') || lower.includes('index') || lower.includes('slow')) {
+        loadScenario('pg_indexes');
+      } else if (lower.includes('bean') || lower.includes('spring')) {
+        loadScenario('spring_beans');
+      } else if (lower.includes('virtual') || lower.includes('loom')) {
+        loadScenario('virtual_threads');
+      } else if (lower.includes('list') || lower.includes('process')) {
+        simulateToolCall("list_jvms", {}, [
+          { pid: 45231, name: "OrderServiceApplication", framework: "Spring Boot 3.3.4", attachable: true },
+          { pid: 88210, name: "PaymentGatewayService", framework: "Quarkus 3.8", attachable: true },
+          { pid: 14205, name: "KafkaStreamProcessor", framework: "Plain Java 21", attachable: true }
+        ]);
+        addAssistantMessage(`
+          Found <strong>3 running Java processes</strong> on your host machine:
+          <br>• <strong>PID 45231</strong>: <code>OrderServiceApplication</code> (Spring Boot 3.3.4)
+          <br>• <strong>PID 88210</strong>: <code>PaymentGatewayService</code> (Quarkus 3.8)
+          <br>• <strong>PID 14205</strong>: <code>KafkaStreamProcessor</code> (Java 21)
+          <br><br>All processes are attachable via Dynamic JDK Attach API. Which one would you like to inspect?
+        `);
+      } else {
+        setTimeout(() => {
+          simulateToolCall("get_memory_summary", { pid: 45231 }, {
+            heap: { initMb: 512, usedMb: 1290, committedMb: 2500, maxMb: 2500 },
+            nonHeap: { usedMb: 112 },
+            pressure: { ratio: 0.51, level: "NORMAL", recommendation: "Heap operating within normal parameters." }
+          });
+          addAssistantMessage(`I've analyzed PID 45231. Memory and threads are running normally. Select one of the quick scenario buttons above to simulate real-world diagnostic incidents (e.g. Deadlocks, Old Gen Leaks, or Hikari pool exhaustion).`);
+        }, 500);
+      }
+    }
+
+    function addUserMessage(text) {
+      const container = document.getElementById('chatMessages');
+      const div = document.createElement('div');
+      div.className = 'message message-user';
+      div.innerText = text;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function addAssistantMessage(html) {
+      const container = document.getElementById('chatMessages');
+      const div = document.createElement('div');
+      div.className = 'message message-assistant';
+      div.innerHTML = html;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    // Traffic JSON-RPC Simulator
+    function simulateToolCall(toolName, args, result) {
+      const id = requestId++;
+      const time = new Date().toTimeString().split(' ')[0];
+
+      // Request
+      const reqEntry = document.createElement('div');
+      reqEntry.className = 'traffic-entry';
+      reqEntry.innerHTML = `
+        <div class="traffic-header">
+          <span class="traffic-dir-req">→ JSON-RPC REQUEST #${id}</span>
+          <span class="traffic-time">${time}</span>
+        </div>
+        <div class="traffic-json">{ <span class="json-key">"jsonrpc"</span>: <span class="json-string">"2.0"</span>, <span class="json-key">"id"</span>: <span class="json-number">${id}</span>, <span class="json-key">"method"</span>: <span class="json-string">"tools/call"</span>, <span class="json-key">"params"</span>: { <span class="json-key">"name"</span>: <span class="json-string">"${toolName}"</span>, <span class="json-key">"arguments"</span>: ${syntaxHighlight(JSON.stringify(args))} } }</div>
+      `;
+
+      // Response
+      const resEntry = document.createElement('div');
+      resEntry.className = 'traffic-entry';
+      resEntry.innerHTML = `
+        <div class="traffic-header">
+          <span class="traffic-dir-res">← JSON-RPC RESPONSE #${id}</span>
+          <span class="traffic-time">${time}</span>
+        </div>
+        <div class="traffic-json">{ <span class="json-key">"jsonrpc"</span>: <span class="json-string">"2.0"</span>, <span class="json-key">"id"</span>: <span class="json-number">${id}</span>, <span class="json-key">"result"</span>: { <span class="json-key">"content"</span>: [{ <span class="json-key">"type"</span>: <span class="json-string">"text"</span>, <span class="json-key">"text"</span>: ${syntaxHighlight(JSON.stringify(result))} }] } }</div>
+      `;
+
+      const log = document.getElementById('trafficLog');
+      log.appendChild(reqEntry);
+      log.appendChild(resEntry);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function clearTrafficLog() {
+      document.getElementById('trafficLog').innerHTML = '';
+    }
+
+    function syntaxHighlight(jsonStr) {
+      if (!jsonStr) return "";
+      return jsonStr
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"(\w+)":/g, '<span class="json-key">"$1"</span>:')
+        .replace(/: "([^"]*)"/g, ': <span class="json-string">"$1"</span>')
+        .replace(/: (\d+)/g, ': <span class="json-number">$1</span>')
+        .replace(/: (true|false)/g, ': <span class="json-bool">$1</span>');
+    }
+
+    // Config Modals
+    const claudeJson = `{
+  "mcpServers": {
+    "jvm-mcp": {
+      "command": "jvm-mcp",
+      "args": ["serve"]
+    }
+  }
+}`;
+
+    const cursorJson = `{
+  "mcpServers": {
+    "jvm-mcp": {
+      "command": "jvm-mcp",
+      "args": ["serve"]
+    }
+  }
+}`;
+
+    function openConfigModal(client) {
+      const modal = document.getElementById('configModal');
+      const title = document.getElementById('modalTitle');
+      const desc = document.getElementById('modalDesc');
+      const code = document.getElementById('configCodeBlock');
+
+      if (client === 'claude') {
+        title.innerHTML = 'Claude Desktop Configuration';
+        desc.innerHTML = 'Paste into your <code>claude_desktop_config.json</code>:';
+        code.innerText = claudeJson;
+      } else {
+        title.innerHTML = 'Cursor / Windsurf Configuration';
+        desc.innerHTML = 'Configure in <strong>Settings &gt; Features &gt; MCP</strong>:';
+        code.innerText = cursorJson;
+      }
+      modal.classList.add('active');
+    }
+
+    function closeConfigModal() {
+      document.getElementById('configModal').classList.remove('active');
+    }
+
+    function copyConfigCode() {
+      const code = document.getElementById('configCodeBlock').innerText;
+      navigator.clipboard.writeText(code).then(() => {
+        showToast("Copied to clipboard!");
+      });
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.innerText = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2500);
+    }
+
+    // Initialize telemetry
+    updateTelemetryUI();
+  </script>
+</body>
+</html>
