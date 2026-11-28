@@ -228,10 +228,14 @@
     }
 
     .scenario-chip.active {
-      background: #22222c;
-      color: #fff;
-      border-color: var(--cyan);
-      box-shadow: 0 0 10px rgba(6, 182, 212, 0.2);
+      background: #1e293b;
+      color: #38bdf8;
+      border-color: #38bdf8;
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.35);
+      transform: translateY(-1px);
+    }
+    .scenario-chip:active {
+      transform: scale(0.97);
     }
 
     .chip-tag {
@@ -355,6 +359,34 @@
       padding: 0.7rem 0.85rem;
       border-radius: 10px 10px 10px 2px;
       font-size: 0.82rem;
+    }
+
+    .chat-entry.typing-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      background: #12121a;
+      border: 1px dashed var(--border-strong);
+      padding: 0.45rem 0.75rem;
+      border-radius: 8px;
+    }
+    .typing-dots {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+    .typing-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #38bdf8;
+      animation: pulseDot 1s infinite ease-in-out;
+    }
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes pulseDot {
+      0%, 100% { opacity: 0.3; transform: scale(0.8); }
+      50% { opacity: 1; transform: scale(1.2); }
     }
 
     .tool-invocation-pill {
@@ -990,228 +1022,34 @@
   }
 
   function resetJvmRuntime() {
-    appState.edenUsed = 840;
-    appState.oldUsed = 450;
-    appState.platformThreads = 148;
-    appState.deadlocks = 0;
-    appState.avgGcPause = 38;
-    appState.hikariActive = 3;
-    appState.hikariWaiting = 0;
-    appState.hikariLatency = 1.2;
-    updateVisualTelemetry();
-
-    pushAssistantReply("Target process PID 45231 reset to normal baseline. All thread locks, heap pools, and HikariCP connections are healthy.");
-    showToast("JVM Runtime Reset to Baseline");
+    runBaselineScenario();
   }
 
-  function triggerScenario(type) {
-    if (type === 'deadlock') {
-      appState.deadlocks = 2;
-      appState.platformThreads = 154;
-      updateVisualTelemetry();
+  // Visual typing indicator in Claude Chat
+  function showTypingIndicator(label) {
+    const stream = document.getElementById('chatStream');
+    const existing = document.getElementById('activeTypingIndicator');
+    if (existing) existing.remove();
 
-      submitPrompt("Detect deadlocks and thread contention in PID 45231");
-
-      setTimeout(() => {
-        dispatchRpc("get_thread_diagnostics", { pid: 45231, topCpuLimit: 5 }, {
-          threadCount: 154,
-          states: { RUNNABLE: 82, WAITING: 62, TIMED_WAITING: 4, BLOCKED: 6 },
-          deadlocks: [
-            {
-              thread: "order-worker-3 (id=42)",
-              blockedOn: "ReentrantLock@0x7f8a12",
-              heldBy: "inventory-sync-1 (id=88)"
-            },
-            {
-              thread: "inventory-sync-1 (id=88)",
-              blockedOn: "ReentrantLock@0x3b4c91",
-              heldBy: "order-worker-3 (id=42)"
-            }
-          ]
-        });
-
-        dispatchRpc("get_blocked_threads", { pid: 45231, threshold_ms: 5000 }, [
-          { threadId: 42, threadName: "order-worker-3", blockedDurationMs: 48200 },
-          { threadId: 88, threadName: "inventory-sync-1", blockedDurationMs: 48190 }
-        ]);
-
-        pushAssistantReply(`
-          <strong>Deadlock Cycle Confirmed in PID 45231:</strong>
-          <div class="callout-box critical">
-            • <code>order-worker-3</code> (id 42) holds lock <code>0x3b4c91</code>, waiting on <code>0x7f8a12</code>.<br>
-            • <code>inventory-sync-1</code> (id 88) holds lock <code>0x7f8a12</code>, waiting on <code>0x3b4c91</code>.<br>
-            • Both threads have been blocked for over <strong>48 seconds</strong>.
-          </div>
-          <strong>Remediation:</strong> Enforce strict lock acquisition order in <code>OrderProcessingService</code> or decouple inventory reservation via asynchronous events.
-        `);
-      }, 500);
-
-    } else if (type === 'leak') {
-      appState.oldUsed = 1880;
-      appState.avgGcPause = 340;
-      updateVisualTelemetry();
-
-      submitPrompt("Inspect memory pools and generate class histogram for PID 45231");
-
-      setTimeout(() => {
-        dispatchRpc("get_memory_summary", { pid: 45231 }, {
-          heap: { usedMb: 2420, maxMb: 2500, oldGenPressureRatio: 0.94 },
-          pressureRecommendation: "CRITICAL: Old Generation memory exceeds 90% threshold."
-        });
-
-        dispatchRpc("get_heap_histogram", { pid: 45231, limit: 4, liveOnly: false }, {
-          totalInstances: 8420194,
-          histogram: [
-            { rank: 1, class: "byte[]", instances: 124500, sizeMb: 940 },
-            { rank: 2, class: "java.util.concurrent.ConcurrentHashMap$Node", instances: 3410000, sizeMb: 512 },
-            { rank: 3, class: "dev.jvmmcp.demo.model.OrderAuditRecord", instances: 2100000, sizeMb: 280 }
-          ]
-        });
-
-        pushAssistantReply(`
-          <strong>Old Generation Memory Leak Diagnostic:</strong>
-          <div class="callout-box warning">
-            Old Gen reached <strong>94% capacity</strong> (1.88 GB). G1 Stop-The-World pause times spiked to <strong>340 ms</strong>. Histogram inspection pinpoints 2.1 million retained <code>OrderAuditRecord</code> instances inside an unbounded <code>ConcurrentHashMap</code>.
-          </div>
-          <strong>Fix:</strong> Evict stale audit entries via a bounded Caffeine cache with <code>expireAfterWrite(10, MINUTES)</code>.
-        `);
-      }, 500);
-
-    } else if (type === 'hikari') {
-      appState.hikariActive = 10;
-      appState.hikariWaiting = 42;
-      appState.hikariLatency = 4850;
-      updateVisualTelemetry();
-
-      submitPrompt("Check database pool metrics in PID 45231");
-
-      setTimeout(() => {
-        dispatchRpc("list_hikari_pools", { pid: 45231 }, {
-          pools: [
-            {
-              poolName: "primaryDS",
-              activeConnections: 10,
-              totalConnections: 10,
-              threadsAwaitingConnection: 42,
-              acquireLatencyMs: 4850
-            }
-          ]
-        });
-
-        pushAssistantReply(`
-          <strong>HikariCP Connection Starvation Detected:</strong>
-          <div class="callout-box critical">
-            Pool <code>primaryDS</code> is fully saturated (<strong>10/10 active connections</strong>). 42 worker threads are starved awaiting connections with acquire latency spiking to <strong>4.85 seconds</strong>.
-          </div>
-          <strong>Remediation:</strong> Audit long-running transactions holding connections open and tune <code>spring.datasource.hikari.maximum-pool-size</code>.
-        `);
-      }, 500);
-
-    } else if (type === 'postgres') {
-      submitPrompt("Inspect PostgreSQL slow queries and missing indexes");
-
-      setTimeout(() => {
-        dispatchRpc("find_missing_indexes", { url: "jdbc:postgresql://localhost:5432/orders_db", user: "app_user", password: "***" }, [
-          {
-            table: "orders",
-            seqScanCount: 420800,
-            estimatedRows: 4210000,
-            tableSizeMb: 840,
-            recommendation: "High sequential scan count on 840MB table."
-          }
-        ]);
-
-        dispatchRpc("find_slow_queries", { url: "jdbc:postgresql://localhost:5432/orders_db", limit: 1 }, [
-          {
-            query: "SELECT * FROM orders WHERE customer_id = $1 AND status = 'PENDING'",
-            calls: 84200,
-            totalTimeMs: 1420500
-          }
-        ]);
-
-        pushAssistantReply(`
-          <strong>PostgreSQL Optimization Opportunities:</strong>
-          <div class="callout-box warning">
-            Table <code>orders</code> (4.2M rows) has accumulated <strong>420,800 sequential scans</strong>. Adding an index resolves 1,420 seconds of cumulative query time:
-          </div>
-          <code style="display:block; padding: 0.35rem; background: #0b0f19; border-radius: 4px; font-family: var(--font-mono); font-size: 0.72rem; margin-top: 0.3rem; color: #93c5fd;">CREATE INDEX idx_orders_customer_status ON orders(customer_id, status);</code>
-        `);
-      }, 500);
-
-    } else if (type === 'beans') {
-      submitPrompt("Inspect Spring Bean OrderService");
-
-      setTimeout(() => {
-        dispatchRpc("get_bean_detail", { pid: 45231, beanName: "orderService" }, {
-          beanName: "orderService",
-          type: "dev.jvmmcp.demo.service.OrderServiceImpl",
-          scope: "singleton",
-          dependencies: ["orderRepository", "paymentGateway", "inventoryClient"]
-        });
-
-        pushAssistantReply(`
-          <strong>Spring Bean Details: <code>orderService</code></strong><br>
-          • <strong>Type:</strong> <code>OrderServiceImpl</code><br>
-          • <strong>Scope:</strong> <code>singleton</code><br>
-          • <strong>Injected Dependencies:</strong> <code>orderRepository</code>, <code>paymentGateway</code>, <code>inventoryClient</code>.
-        `);
-      }, 500);
-
-    } else if (type === 'loom') {
-      submitPrompt("Check Java 21 Project Loom virtual threads in PID 45231");
-
-      setTimeout(() => {
-        dispatchRpc("get_thread_diagnostics", { pid: 45231, includeVirtualThreads: true }, {
-          platformThreads: 148,
-          virtualThreads: { active: 12450, mounted: 18, unmounted: 12432 }
-        });
-
-        pushAssistantReply(`
-          <strong>Project Loom Virtual Thread Metrics:</strong>
-          <div class="callout-box success">
-            Java 21 Project Loom confirmed active. <strong>12,450 lightweight virtual threads</strong> are multiplexed across 18 platform carrier threads with zero thread exhaustion.
-          </div>
-        `);
-      }, 500);
-    }
+    const el = document.createElement('div');
+    el.className = 'chat-entry assistant typing-row';
+    el.id = 'activeTypingIndicator';
+    el.innerHTML = `
+      <div class="typing-dots">
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+      </div>
+      <span style="font-size: 0.73rem; color: var(--text-dim);">${label || 'JVM-MCP tool call in flight...'}</span>
+    `;
+    stream.appendChild(el);
+    stream.scrollTop = stream.scrollHeight;
+    return el;
   }
 
-  // Chat handling
-  function submitPrompt(text) {
-    document.getElementById('userInput').value = text;
-    executeUserPrompt();
-  }
-
-  function executeUserPrompt() {
-    const input = document.getElementById('userInput');
-    const text = input.value.trim();
-    if (!text) return;
-    input.value = '';
-
-    pushUserMessage(text);
-
-    const lower = text.toLowerCase();
-    if (lower.includes('deadlock') || lower.includes('contention')) {
-      triggerScenario('deadlock');
-    } else if (lower.includes('memory') || lower.includes('heap') || lower.includes('leak')) {
-      triggerScenario('leak');
-    } else if (lower.includes('hikari') || lower.includes('pool')) {
-      triggerScenario('hikari');
-    } else if (lower.includes('postgres') || lower.includes('index')) {
-      triggerScenario('postgres');
-    } else if (lower.includes('bean') || lower.includes('spring')) {
-      triggerScenario('beans');
-    } else if (lower.includes('loom') || lower.includes('virtual')) {
-      triggerScenario('loom');
-    } else {
-      setTimeout(() => {
-        dispatchRpc("get_memory_summary", { pid: 45231 }, {
-          heap: { usedMb: 1290, maxMb: 2500, oldGenPressureRatio: 0.51 },
-          pressureRecommendation: "NORMAL: Heap operating within standard parameters."
-        });
-        pushAssistantReply("Inspected target process PID 45231. Memory and threads are running smoothly. Try one of the incident scenarios at the top to simulate real-world deadlocks or leaks.");
-      }, 400);
-    }
+  function removeTypingIndicator() {
+    const el = document.getElementById('activeTypingIndicator');
+    if (el) el.remove();
   }
 
   function pushUserMessage(msg) {
@@ -1224,6 +1062,7 @@
   }
 
   function pushAssistantReply(html) {
+    removeTypingIndicator();
     const stream = document.getElementById('chatStream');
     const el = document.createElement('div');
     el.className = 'chat-entry assistant';
@@ -1232,11 +1071,9 @@
     stream.scrollTop = stream.scrollHeight;
   }
 
-  // Stdio RPC Traffic Rendering
-  function dispatchRpc(toolName, args, result) {
-    const id = rpcId++;
+  // Stdio RPC Traffic Rendering (Request & Response)
+  function dispatchRpcRequest(id, toolName, args) {
     const now = new Date().toTimeString().split(' ')[0];
-
     const reqCard = document.createElement('div');
     reqCard.className = 'frame-card';
     reqCard.innerHTML = `
@@ -1246,7 +1083,13 @@
       </div>
       <div class="frame-json">{ <span class="json-k">"jsonrpc"</span>: <span class="json-s">"2.0"</span>, <span class="json-k">"id"</span>: <span class="json-n">${id}</span>, <span class="json-k">"method"</span>: <span class="json-s">"tools/call"</span>, <span class="json-k">"params"</span>: { <span class="json-k">"name"</span>: <span class="json-s">"${toolName}"</span>, <span class="json-k">"arguments"</span>: ${colorizeJson(JSON.stringify(args))} } }</div>
     `;
+    const feed = document.getElementById('terminalFeed');
+    feed.appendChild(reqCard);
+    feed.scrollTop = feed.scrollHeight;
+  }
 
+  function dispatchRpcResponse(id, result) {
+    const now = new Date().toTimeString().split(' ')[0];
     const resCard = document.createElement('div');
     resCard.className = 'frame-card';
     resCard.innerHTML = `
@@ -1256,11 +1099,395 @@
       </div>
       <div class="frame-json">{ <span class="json-k">"jsonrpc"</span>: <span class="json-s">"2.0"</span>, <span class="json-k">"id"</span>: <span class="json-n">${id}</span>, <span class="json-k">"result"</span>: { <span class="json-k">"content"</span>: [{ <span class="json-k">"type"</span>: <span class="json-s">"text"</span>, <span class="json-k">"text"</span>: ${colorizeJson(JSON.stringify(result))} }] } }</div>
     `;
-
     const feed = document.getElementById('terminalFeed');
-    feed.appendChild(reqCard);
     feed.appendChild(resCard);
     feed.scrollTop = feed.scrollHeight;
+  }
+
+  // Central Non-Recursive Workflow Orchestrator
+  let isExecuting = false;
+
+  function runScenarioWorkflow(cfg) {
+    if (isExecuting) return;
+    isExecuting = true;
+
+    // 1. Highlight ribbon button
+    document.querySelectorAll('.scenario-chip').forEach((btn, idx) => {
+      btn.classList.toggle('active', idx === cfg.chipIndex);
+    });
+
+    // 2. Immediate user message in chat (0ms)
+    if (cfg.prompt) {
+      pushUserMessage(cfg.prompt);
+    }
+
+    // 3. Immediate telemetry update (0ms)
+    if (cfg.stateMutation) {
+      cfg.stateMutation();
+      updateVisualTelemetry();
+    }
+
+    // 4. Immediate typing indicator (0ms)
+    showTypingIndicator("Claude invoking JVM-MCP tools via stdio...");
+
+    // 5. Streaming JSON-RPC frames with snappy, realistic delays
+    let timeline = 80;
+    const steps = cfg.rpcSteps || [];
+
+    steps.forEach((step) => {
+      const curId = rpcId++;
+      setTimeout(() => {
+        dispatchRpcRequest(curId, step.tool, step.args);
+      }, timeline);
+      timeline += 110;
+
+      setTimeout(() => {
+        dispatchRpcResponse(curId, step.result);
+      }, timeline);
+      timeline += 110;
+    });
+
+    // 6. Complete assistant reply
+    setTimeout(() => {
+      pushAssistantReply(cfg.assistantHtml);
+      isExecuting = false;
+    }, timeline + 40);
+  }
+
+  // Concrete Scenario Implementations (Decoupled from Event Triggers)
+  function runDeadlockScenario(promptText) {
+    runScenarioWorkflow({
+      chipIndex: 0,
+      prompt: promptText || "Detect deadlocks and thread contention in PID 45231",
+      stateMutation: () => {
+        appState.deadlocks = 2;
+        appState.platformThreads = 154;
+      },
+      rpcSteps: [
+        {
+          tool: "get_thread_diagnostics",
+          args: { pid: 45231, topCpuLimit: 5 },
+          result: {
+            threadCount: 154,
+            states: { RUNNABLE: 82, WAITING: 62, TIMED_WAITING: 4, BLOCKED: 6 },
+            deadlocks: [
+              {
+                thread: "order-worker-3 (id=42)",
+                blockedOn: "ReentrantLock@0x7f8a12",
+                heldBy: "inventory-sync-1 (id=88)"
+              },
+              {
+                thread: "inventory-sync-1 (id=88)",
+                blockedOn: "ReentrantLock@0x3b4c91",
+                heldBy: "order-worker-3 (id=42)"
+              }
+            ]
+          }
+        },
+        {
+          tool: "get_blocked_threads",
+          args: { pid: 45231, threshold_ms: 5000 },
+          result: [
+            { threadId: 42, threadName: "order-worker-3", blockedDurationMs: 48200 },
+            { threadId: 88, threadName: "inventory-sync-1", blockedDurationMs: 48190 }
+          ]
+        }
+      ],
+      assistantHtml: `
+        <strong>Deadlock Cycle Confirmed in PID 45231:</strong>
+        <div class="callout-box critical">
+          • <code>order-worker-3</code> (id 42) holds lock <code>0x3b4c91</code>, waiting on <code>0x7f8a12</code>.<br>
+          • <code>inventory-sync-1</code> (id 88) holds lock <code>0x7f8a12</code>, waiting on <code>0x3b4c91</code>.<br>
+          • Both threads have been blocked for over <strong>48 seconds</strong>.
+        </div>
+        <strong>Remediation:</strong> Enforce strict lock acquisition order in <code>OrderProcessingService</code> or decouple inventory reservation via asynchronous events.
+      `
+    });
+  }
+
+  function runLeakScenario(promptText) {
+    runScenarioWorkflow({
+      chipIndex: 1,
+      prompt: promptText || "Inspect memory pools and generate class histogram for PID 45231",
+      stateMutation: () => {
+        appState.oldUsed = 1880;
+        appState.avgGcPause = 340;
+      },
+      rpcSteps: [
+        {
+          tool: "get_memory_summary",
+          args: { pid: 45231 },
+          result: {
+            heap: { usedMb: 2420, maxMb: 2500, oldGenPressureRatio: 0.94 },
+            pressureRecommendation: "CRITICAL: Old Generation memory exceeds 90% threshold."
+          }
+        },
+        {
+          tool: "get_heap_histogram",
+          args: { pid: 45231, limit: 4, liveOnly: false },
+          result: {
+            totalInstances: 8420194,
+            histogram: [
+              { rank: 1, class: "byte[]", instances: 124500, sizeMb: 940 },
+              { rank: 2, class: "java.util.concurrent.ConcurrentHashMap$Node", instances: 3410000, sizeMb: 512 },
+              { rank: 3, class: "dev.jvmmcp.demo.model.OrderAuditRecord", instances: 2100000, sizeMb: 280 }
+            ]
+          }
+        }
+      ],
+      assistantHtml: `
+        <strong>Old Generation Memory Leak Diagnostic:</strong>
+        <div class="callout-box warning">
+          Old Gen reached <strong>94% capacity</strong> (1.88 GB). G1 Stop-The-World pause times spiked to <strong>340 ms</strong>. Histogram inspection pinpoints 2.1 million retained <code>OrderAuditRecord</code> instances inside an unbounded <code>ConcurrentHashMap</code>.
+        </div>
+        <strong>Fix:</strong> Evict stale audit entries via a bounded Caffeine cache with <code>expireAfterWrite(10, MINUTES)</code>.
+      `
+    });
+  }
+
+  function runHikariScenario(promptText) {
+    runScenarioWorkflow({
+      chipIndex: 2,
+      prompt: promptText || "Check database connection pool metrics in PID 45231",
+      stateMutation: () => {
+        appState.hikariActive = 10;
+        appState.hikariWaiting = 42;
+        appState.hikariLatency = 4850;
+      },
+      rpcSteps: [
+        {
+          tool: "list_hikari_pools",
+          args: { pid: 45231 },
+          result: {
+            pools: [
+              {
+                poolName: "primaryDS",
+                activeConnections: 10,
+                totalConnections: 10,
+                threadsAwaitingConnection: 42,
+                acquireLatencyMs: 4850
+              }
+            ]
+          }
+        }
+      ],
+      assistantHtml: `
+        <strong>HikariCP Connection Starvation Detected:</strong>
+        <div class="callout-box critical">
+          Pool <code>primaryDS</code> is fully saturated (<strong>10/10 active connections</strong>). 42 worker threads are starved awaiting connections with acquire latency spiking to <strong>4.85 seconds</strong>.
+        </div>
+        <strong>Remediation:</strong> Audit long-running transactions holding connections open and tune <code>spring.datasource.hikari.maximum-pool-size</code>.
+      `
+    });
+  }
+
+  function runPostgresScenario(promptText) {
+    runScenarioWorkflow({
+      chipIndex: 3,
+      prompt: promptText || "Inspect PostgreSQL slow queries and missing indexes",
+      rpcSteps: [
+        {
+          tool: "find_missing_indexes",
+          args: { url: "jdbc:postgresql://localhost:5432/orders_db", user: "app_user", password: "***" },
+          result: [
+            {
+              table: "orders",
+              seqScanCount: 420800,
+              estimatedRows: 4210000,
+              tableSizeMb: 840,
+              recommendation: "High sequential scan count on 840MB table."
+            }
+          ]
+        },
+        {
+          tool: "find_slow_queries",
+          args: { url: "jdbc:postgresql://localhost:5432/orders_db", limit: 1 },
+          result: [
+            {
+              query: "SELECT * FROM orders WHERE customer_id = $1 AND status = 'PENDING'",
+              calls: 84200,
+              totalTimeMs: 1420500
+            }
+          ]
+        }
+      ],
+      assistantHtml: `
+        <strong>PostgreSQL Optimization Opportunities:</strong>
+        <div class="callout-box warning">
+          Table <code>orders</code> (4.2M rows) has accumulated <strong>420,800 sequential scans</strong>. Adding an index resolves 1,420 seconds of cumulative query time:
+        </div>
+        <code style="display:block; padding: 0.35rem; background: #0b0f19; border-radius: 4px; font-family: var(--font-mono); font-size: 0.72rem; margin-top: 0.3rem; color: #93c5fd;">CREATE INDEX idx_orders_customer_status ON orders(customer_id, status);</code>
+      `
+    });
+  }
+
+  function runBeansScenario(promptText) {
+    runScenarioWorkflow({
+      chipIndex: 4,
+      prompt: promptText || "Inspect Spring Bean OrderService",
+      rpcSteps: [
+        {
+          tool: "get_bean_detail",
+          args: { pid: 45231, beanName: "orderService" },
+          result: {
+            beanName: "orderService",
+            type: "dev.jvmmcp.demo.service.OrderServiceImpl",
+            scope: "singleton",
+            dependencies: ["orderRepository", "paymentGateway", "inventoryClient"]
+          }
+        }
+      ],
+      assistantHtml: `
+        <strong>Spring Bean Details: <code>orderService</code></strong><br>
+        • <strong>Type:</strong> <code>OrderServiceImpl</code><br>
+        • <strong>Scope:</strong> <code>singleton</code><br>
+        • <strong>Injected Dependencies:</strong> <code>orderRepository</code>, <code>paymentGateway</code>, <code>inventoryClient</code>.
+      `
+    });
+  }
+
+  function runLoomScenario(promptText) {
+    runScenarioWorkflow({
+      chipIndex: 5,
+      prompt: promptText || "Check Java 21 Project Loom virtual threads in PID 45231",
+      rpcSteps: [
+        {
+          tool: "get_thread_diagnostics",
+          args: { pid: 45231, includeVirtualThreads: true },
+          result: {
+            platformThreads: 148,
+            virtualThreads: { active: 12450, mounted: 18, unmounted: 12432 }
+          }
+        }
+      ],
+      assistantHtml: `
+        <strong>Project Loom Virtual Thread Metrics:</strong>
+        <div class="callout-box success">
+          Java 21 Project Loom confirmed active. <strong>12,450 lightweight virtual threads</strong> are multiplexed across 18 platform carrier threads with zero thread exhaustion.
+        </div>
+      `
+    });
+  }
+
+  function runBaselineScenario() {
+    runScenarioWorkflow({
+      chipIndex: 6,
+      prompt: "Restore PID 45231 to normal baseline health",
+      stateMutation: () => {
+        appState.edenUsed = 840;
+        appState.oldUsed = 450;
+        appState.platformThreads = 148;
+        appState.deadlocks = 0;
+        appState.avgGcPause = 38;
+        appState.hikariActive = 3;
+        appState.hikariWaiting = 0;
+        appState.hikariLatency = 1.2;
+      },
+      rpcSteps: [
+        {
+          tool: "get_memory_summary",
+          args: { pid: 45231 },
+          result: {
+            heap: { usedMb: 1290, maxMb: 2500, oldGenPressureRatio: 0.22 },
+            pressureRecommendation: "NORMAL: All memory pools and GC metrics healthy."
+          }
+        }
+      ],
+      assistantHtml: `
+        <strong>Target Process PID 45231 Baseline Restored:</strong>
+        <div class="callout-box success">
+          All thread deadlocks cleared, heap utilization returned to 22%, and HikariCP connection pool latency restored to 1.2ms.
+        </div>
+      `
+    });
+    showToast("JVM Runtime Reset to Baseline");
+  }
+
+  function runListJvmsScenario(promptText) {
+    runScenarioWorkflow({
+      chipIndex: -1,
+      prompt: promptText || "List running Java Virtual Machines",
+      rpcSteps: [
+        {
+          tool: "list_jvms",
+          args: {},
+          result: [
+            { pid: 45231, mainClass: "dev.jvmmcp.demo.OrderServiceApplication", jvmVersion: "21.0.12+7-LTS", isManageable: true }
+          ]
+        }
+      ],
+      assistantHtml: `
+        <strong>Discovered Running JVMs:</strong><br>
+        Found <strong>1 manageable Java process</strong> on local host:<br>
+        • <strong>PID 45231:</strong> <code>dev.jvmmcp.demo.OrderServiceApplication</code> (Java 21.0.12 LTS, Spring Boot 3.3.4).
+      `
+    });
+  }
+
+  function runGenericHealthScenario(promptText) {
+    runScenarioWorkflow({
+      chipIndex: -1,
+      prompt: promptText,
+      rpcSteps: [
+        {
+          tool: "get_memory_summary",
+          args: { pid: 45231 },
+          result: {
+            heap: { usedMb: 1290, maxMb: 2500, oldGenPressureRatio: 0.51 },
+            pressureRecommendation: "NORMAL: Heap operating within standard parameters."
+          }
+        }
+      ],
+      assistantHtml: `
+        Inspected target process <strong>PID 45231</strong>. Memory pools, thread states, and database connections are within normal operating bounds. Click any incident scenario in the top bar to simulate real-world JVM edge cases.
+      `
+    });
+  }
+
+  // Ribbon Dispatcher (Never calls submitPrompt)
+  function triggerScenario(type) {
+    if (type === 'deadlock') runDeadlockScenario();
+    else if (type === 'leak') runLeakScenario();
+    else if (type === 'hikari') runHikariScenario();
+    else if (type === 'postgres') runPostgresScenario();
+    else if (type === 'beans') runBeansScenario();
+    else if (type === 'loom') runLoomScenario();
+  }
+
+  // Chat handling (User Input & Prompt Chips)
+  function submitPrompt(text) {
+    const input = document.getElementById('userInput');
+    if (input) input.value = text;
+    executeUserPrompt();
+  }
+
+  function executeUserPrompt() {
+    const input = document.getElementById('userInput');
+    if (!input) return;
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+
+    const lower = text.toLowerCase();
+    if (lower.includes('deadlock') || lower.includes('contention') || lower.includes('lock')) {
+      runDeadlockScenario(text);
+    } else if (lower.includes('memory') || lower.includes('heap') || lower.includes('leak') || lower.includes('gc')) {
+      runLeakScenario(text);
+    } else if (lower.includes('hikari') || lower.includes('pool') || lower.includes('connection')) {
+      runHikariScenario(text);
+    } else if (lower.includes('postgres') || lower.includes('index') || lower.includes('sql') || lower.includes('query')) {
+      runPostgresScenario(text);
+    } else if (lower.includes('bean') || lower.includes('spring') || lower.includes('context')) {
+      runBeansScenario(text);
+    } else if (lower.includes('loom') || lower.includes('virtual') || lower.includes('carrier')) {
+      runLoomScenario(text);
+    } else if (lower.includes('reset') || lower.includes('baseline') || lower.includes('clear')) {
+      runBaselineScenario();
+    } else if (lower.includes('list') || lower.includes('jvm')) {
+      runListJvmsScenario(text);
+    } else {
+      runGenericHealthScenario(text);
+    }
   }
 
   function clearTerminal() {
