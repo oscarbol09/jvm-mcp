@@ -243,4 +243,12 @@ class PostgresSchemaReaderValidationTest {
         org.assertj.core.api.Assertions.assertThat(PostgresSchemaReader.slowQueryLimit(requested))
                 .isEqualTo(expected);
     }
+
+    @ParameterizedTest
+    @CsvSource({"-1, 0", "-5, 0", "0, 0", "1, 1", "42, 42"})
+    @DisplayName("Unanalyzed tables report a zero row estimate instead of a negative count")
+    void negativeRowEstimatesBecomeZero(long raw, long expected) {
+        org.assertj.core.api.Assertions.assertThat(PostgresSchemaReader.nonNegativeRowEstimate(raw))
+                .isEqualTo(expected);
+    }
 }
