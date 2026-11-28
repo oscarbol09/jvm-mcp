@@ -166,7 +166,11 @@ public class HikariMXBeanClient implements HikariDiagnosticPort {
             // JMX 2.0 format: type=Pool,name=MyPoolName
             // If the name is quoted, unquote it
             if (nameValue.startsWith("\"") && nameValue.endsWith("\"")) {
-                return nameValue.substring(1, nameValue.length() - 1);
+                try {
+                    return ObjectName.unquote(nameValue);
+                } catch (IllegalArgumentException e) {
+                    return nameValue.substring(1, nameValue.length() - 1);
+                }
             }
             return nameValue;
         }
