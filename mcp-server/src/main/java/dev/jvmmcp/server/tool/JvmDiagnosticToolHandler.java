@@ -262,6 +262,14 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
         boolean liveOnly =
                 "get_heap_histogram".equals(toolName)
                         && ToolArgs.getBooleanArg(args, "liveOnly", true);
+        long thresholdMs = 0;
+        if ("get_blocked_threads".equals(toolName)) {
+            thresholdMs = ToolArgs.getLongArg(args, "threshold_ms", false);
+            if (thresholdMs < 0) {
+                throw new IllegalArgumentException(
+                        "threshold_ms must be >= 0, got: " + thresholdMs);
+            }
+        }
         AttachResult attachResult = attachService.attach(String.valueOf(pid));
         if (!attachResult.isSuccessful()) {
             throw new IllegalStateException(attachResult.message());
@@ -350,7 +358,6 @@ public class JvmDiagnosticToolHandler implements ToolHandler {
                                                                 pid, false, false))));
                     }
                 } else if ("get_blocked_threads".equals(toolName)) {
-                    long thresholdMs = ToolArgs.getLongArg(args, "threshold_ms", false);
                     try (ThreadMXBeanClient threadClient =
                             new ThreadMXBeanClient(jmxManager.getMBeanServerConnection())) {
                         content.add(

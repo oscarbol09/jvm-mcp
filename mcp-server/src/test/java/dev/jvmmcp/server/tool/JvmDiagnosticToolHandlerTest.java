@@ -392,6 +392,24 @@ class JvmDiagnosticToolHandlerTest {
     }
 
     @Test
+    @DisplayName("get_blocked_threads rejects negative threshold_ms before attaching")
+    void testGetBlockedThreadsRejectsNegativeThreshold() {
+        JvmDiagnosticToolHandler handler =
+                new JvmDiagnosticToolHandler(
+                        mockAttachService, (vm, p) -> JmxConnectionManager.connectLocal());
+
+        assertThatThrownBy(
+                        () ->
+                                handler.execute(
+                                        "get_blocked_threads",
+                                        Map.of("pid", 100, "threshold_ms", -1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("threshold_ms must be >= 0");
+        verify(mockAttachService, org.mockito.Mockito.never())
+                .attach(org.mockito.Mockito.anyString());
+    }
+
+    @Test
     @DisplayName("list_hikari_pools returns a note when no HikariCP MBeans are registered")
     void testListHikariPools() throws Exception {
         when(mockAttachService.attach("100")).thenReturn(AttachResult.success("100", null));
