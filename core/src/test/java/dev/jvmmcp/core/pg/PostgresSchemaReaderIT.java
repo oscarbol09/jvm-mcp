@@ -7,6 +7,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.List;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -20,9 +21,11 @@ class PostgresSchemaReaderIT {
     @Container
     private static final PostgreSQLContainer<?> postgres =
             new PostgreSQLContainer<>(
-                    org.testcontainers.utility.DockerImageName.parse(
-                                    System.getProperty("tc.postgres.image", "postgres:15-alpine"))
-                            .asCompatibleSubstituteFor("postgres"));
+                            org.testcontainers.utility.DockerImageName.parse(
+                                            System.getProperty(
+                                                    "tc.postgres.image", "postgres:15-alpine"))
+                                    .asCompatibleSubstituteFor("postgres"))
+                    .withCommand("postgres", "-c", "shared_preload_libraries=pg_stat_statements");
 
     private static PostgresSchemaReader reader;
     private static String cleanJdbcUrl;
@@ -258,5 +261,54 @@ class PostgresSchemaReaderIT {
         SlowQueryAnalysis analysis = reader.findSlowQueries();
         assertThat(analysis).isNotNull();
         assertThat(analysis.pgStatStatementsAvailable()).isFalse();
+        assertThat(analysis.slowQueries()).isEmpty();
+    }
+
+    @Test
+    void testFindSlowQueriesWithExtension() throws Exception {
+        try (Connection conn =
+                        DriverManager.getConnection(
+                                cleanJdbcUrl, postgres.getUsername(), postgres.getPassword());
+                Statement stmt = conn.createStatement()) {
+            stmt.execute("CREATE DATABASE slow_queries");
+        }
+        String url = cleanJdbcUrl.substring(0, cleanJdbcUrl.lastIndexOf('/') + 1) + "slow_queries";
+        try (Connection conn =
+                        DriverManager.getConnection(
+                                url, postgres.getUsername(), postgres.getPassword());
+                Statement stmt = conn.createStatement();
+                PostgresSchemaReader slowReader =
+                        new PostgresSchemaReader(
+                                url, postgres.getUsername(), postgres.getPassword())) {
+            stmt.execute("CREATE EXTENSION pg_stat_statements");
+            for (int i = 0; i < 40; i++) {
+                stmt.execute("SELECT pg_sleep(0.005) FROM generate_series(1, 1)");
+            }
+            stmt.execute("SELECT pg_sleep(0.02)");
+
+            SlowQueryAnalysis analysis = slowReader.findSlowQueries(100);
+            assertThat(analysis.pgStatStatementsAvailable()).isTrue();
+            assertThat(analysis.slowQueries())
+                    .extracting(SlowQueryInfo::totalTimeMs)
+                    .isSortedAccordingTo(java.util.Comparator.reverseOrder());
+            List<SlowQueryInfo> workloads =
+                    analysis.slowQueries().stream()
+                            .filter(query -> query.query().startsWith("SELECT pg_sleep"))
+                            .toList();
+            assertThat(workloads).hasSize(2);
+            SlowQueryInfo frequent =
+                    workloads.stream()
+                            .filter(query -> query.calls() == 40)
+                            .findFirst()
+                            .orElseThrow();
+            assertThat(frequent.totalTimeMs()).isPositive();
+            assertThat(frequent.meanTimeMs()).isPositive();
+            assertThat(frequent.maxTimeMs()).isPositive();
+            assertThat(frequent.totalTimeMs()).isGreaterThanOrEqualTo(frequent.maxTimeMs());
+            assertThat(frequent.totalTimeMs())
+                    .isCloseTo(
+                            frequent.meanTimeMs() * frequent.calls(),
+                            org.assertj.core.data.Offset.offset(0.001));
+        }
     }
 }

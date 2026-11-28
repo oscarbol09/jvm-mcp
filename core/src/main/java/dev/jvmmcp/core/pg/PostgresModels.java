@@ -42,7 +42,12 @@ public final class PostgresModels {
     public record MissingIndexAnalysis(List<MissingIndexCandidate> candidates) {}
 
     public record SlowQueryInfo(
-            String query, long calls, double meanTimeMs, double maxTimeMs, long rows) {}
+            String query,
+            long calls,
+            double totalTimeMs,
+            double meanTimeMs,
+            double maxTimeMs,
+            long rows) {}
 
     public record SlowQueryAnalysis(
             boolean pgStatStatementsAvailable, List<SlowQueryInfo> slowQueries) {}

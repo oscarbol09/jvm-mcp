@@ -545,7 +545,7 @@ public class PostgresSchemaReader implements AutoCloseable {
     }
 
     /**
-     * Finds the slowest statements by mean execution time, returning at most {@code limit} of them.
+     * Finds statements by descending cumulative execution time, returning at most {@code limit}.
      * The limit is clamped to between 1 and {@link #MAX_SLOW_QUERY_LIMIT}.
      */
     public SlowQueryAnalysis findSlowQueries(int limit) throws SQLException {
@@ -586,6 +586,11 @@ public class PostgresSchemaReader implements AutoCloseable {
                     query,
                     calls,
                     COALESCE(
+                        (row_to_json(pss)->>'total_exec_time')::numeric,
+                        (row_to_json(pss)->>'total_time')::numeric,
+                        0.0
+                    ) AS compatible_total_time,
+                    COALESCE(
                         (row_to_json(pss)->>'mean_exec_time')::numeric,
                         (row_to_json(pss)->>'mean_time')::numeric,
                         0.0
@@ -601,7 +606,7 @@ public class PostgresSchemaReader implements AutoCloseable {
                 WHERE
                     dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
                 ORDER BY
-                    compatible_mean_time DESC
+                    compatible_total_time DESC
                 LIMIT ?
                 """;
             List<SlowQueryInfo> slowQueries;
@@ -621,6 +626,7 @@ public class PostgresSchemaReader implements AutoCloseable {
                                                     new SlowQueryInfo(
                                                             sanitizedQuery,
                                                             rs.getLong("calls"),
+                                                            rs.getDouble("compatible_total_time"),
                                                             rs.getDouble("compatible_mean_time"),
                                                             rs.getDouble("compatible_max_time"),
                                                             rs.getLong("rows")));
