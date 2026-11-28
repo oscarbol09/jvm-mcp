@@ -1,11 +1,11 @@
 {
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Native Java Model Context Protocol (MCP) server for live Spring Boot inspection",
   "homepage": "https://github.com/oscarbol09/jvm-mcp",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/oscarbol09/jvm-mcp/releases/download/v1.1.1/jvm-mcp-windows-amd64.zip",
+      "url": "https://github.com/oscarbol09/jvm-mcp/releases/download/v1.2.0/jvm-mcp-windows-amd64.zip",
       "hash": "REPLACE_WITH_WINDOWS_AMD64_SHA256",
       "extract_dir": "jvm-mcp"
     }

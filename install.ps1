@@ -6,7 +6,7 @@
     verifies SHA-256 cryptographic integrity, unpacks into local app data,
     configures user PATH, and verifies installation.
 .PARAMETER Version
-    Specific release version to install (e.g. "1.1.1" or "v1.1.1"). Defaults to "latest".
+    Specific release version to install (e.g. "1.2.0" or "v1.2.0"). Defaults to "latest".
 .PARAMETER InstallDir
     Target directory for installation. Defaults to "$env:LOCALAPPDATA\jvm-mcp".
 .PARAMETER Uninstall

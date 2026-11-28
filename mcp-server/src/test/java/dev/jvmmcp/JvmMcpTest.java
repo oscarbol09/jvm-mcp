@@ -40,7 +40,7 @@ class JvmMcpTest {
 
         assertThat(exitCode).isZero();
         assertThat(out.toString()).contains(JvmMcp.getVersion());
-        assertThat(out.toString()).contains("1.1.1");
+        assertThat(out.toString()).contains("1.2.0");
     }
 
     @Test
@@ -91,14 +91,14 @@ class JvmMcpTest {
                 new java.io.ByteArrayInputStream(
                         "version=${project.version}\n"
                                 .getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        assertThat(JvmMcp.resolveVersion(null, inWithPlaceholder)).isEqualTo("1.1.1");
+        assertThat(JvmMcp.resolveVersion(null, inWithPlaceholder)).isEqualTo("1.2.0");
 
         java.io.ByteArrayInputStream emptyIn =
                 new java.io.ByteArrayInputStream(
                         "".getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        assertThat(JvmMcp.resolveVersion(null, emptyIn)).isEqualTo("1.1.1");
+        assertThat(JvmMcp.resolveVersion(null, emptyIn)).isEqualTo("1.2.0");
 
-        assertThat(JvmMcp.resolveVersion(null, null)).isEqualTo("1.1.1");
+        assertThat(JvmMcp.resolveVersion(null, null)).isEqualTo("1.2.0");
     }
 
     @Test

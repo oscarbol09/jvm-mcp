@@ -81,7 +81,7 @@ irm https://raw.githubusercontent.com/oscarbol09/jvm-mcp/main/install.ps1 | iex
 
 Custom installation with arguments (specific version or custom directory):
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/oscarbol09/jvm-mcp/main/install.ps1))) -Version 1.1.1 -InstallDir "$env:LOCALAPPDATA\jvm-mcp"
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/oscarbol09/jvm-mcp/main/install.ps1))) -Version 1.2.0 -InstallDir "$env:LOCALAPPDATA\jvm-mcp"
 ```
 
 ---
@@ -170,7 +170,7 @@ Your system is ready to use JVM-MCP.
 The official container image is optimized for remote diagnostic workflows (inspecting PostgreSQL schemas and Spring Boot Actuator endpoints over network):
 
 ```bash
-docker run -i --rm ghcr.io/oscarbol09/jvm-mcp:1.1.1 serve
+docker run -i --rm ghcr.io/oscarbol09/jvm-mcp:1.2.0 serve
 ```
 
 > **Note on Local Attach API**: The container runs under an unprivileged user (`jvmuser`, UID 10001) with a minimal JRE. Dynamic Attach API inspection of host processes from inside Docker requires host PID namespace sharing (`--pid=host`), `CAP_SYS_PTRACE`, and matching user boundaries. For local JVM introspection, pre-compiled standalone archives or native installers are recommended.
@@ -204,7 +204,7 @@ cd jvm-mcp
 ./mvnw clean package -DskipTests
 
 # Run the packaged fat JAR directly:
-java -jar mcp-server/target/jvm-mcp-server-1.1.1.jar --version
+java -jar mcp-server/target/jvm-mcp-server-1.2.0.jar --version
 ```
 
 ---
@@ -226,7 +226,7 @@ Add `jvm-mcp` to your `claude_desktop_config.json`:
 }
 ```
 
-*(If running from the repository fat JAR directly: `"command": "java", "args": ["-jar", "/path/to/jvm-mcp-server-1.1.1.jar", "serve"]`)*
+*(If running from the repository fat JAR directly: `"command": "java", "args": ["-jar", "/path/to/jvm-mcp-server-1.2.0.jar", "serve"]`)*
 
 > [!TIP]
 > **Single-Target Mode (`--attach` and `--actuator`)**: If your AI pair-programming workflow focuses on a specific local application or remote service, pass defaults directly in `args`:

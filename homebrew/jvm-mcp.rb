@@ -8,7 +8,7 @@
 class JvmMcp < Formula
   desc "Native Java Model Context Protocol (MCP) server for live Spring Boot inspection"
   homepage "https://github.com/oscarbol09/jvm-mcp"
-  version "1.1.1"
+  version "1.2.0"
 
   on_macos do
     on_arm do

@@ -45,7 +45,7 @@ Before writing code, please review these foundational design decisions:
 ./mvnw clean verify
 
 # Run CLI locally
-java -jar mcp-server/target/jvm-mcp-server-1.1.1.jar list
+java -jar mcp-server/target/jvm-mcp-server-1.2.0.jar list
 ```
 
 ### Code Formatting

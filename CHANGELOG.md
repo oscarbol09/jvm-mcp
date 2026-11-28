@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-28
+
 ### Added
 - **Selectable heap histogram GC mode** (#205): Added `liveOnly` (default `true`) to `get_heap_histogram` and `--all` to `jvm-mcp memory --histogram`. Live-only HotSpot histograms can trigger a full stop-the-world GC; all-object mode passes `-all`, includes unreachable objects, and avoids that collection. The selected mode is included in `HeapHistogram.liveOnly`.
 - **Thread CPU time diagnostics and top CPU consumer reporting** (#69, #245): Extended `ThreadDetail` with `cpuTimeNs` and `userTimeNs`. Added `ThreadMXBeanClient.getTopCpuThreads(pid, limit)` using monotonic sampling and shallow stack capture (depth 10). Added CLI `--top-cpu` flag in `ThreadsCommand` and exposed `topCpuLimit` argument (bounded 1–100, default 5) in `get_thread_diagnostics` MCP tool.
