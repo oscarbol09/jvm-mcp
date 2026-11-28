@@ -329,12 +329,18 @@ public class ActuatorClient {
         return fetchEndpoint("/actuator/health");
     }
 
+    private String metricsPath() {
+        return URI.create(baseUrl).getRawPath().endsWith("/actuator")
+                ? "/metrics"
+                : "/actuator/metrics";
+    }
+
     public String getMetrics() {
-        return fetchEndpoint("/actuator/metrics");
+        return fetchEndpoint(metricsPath());
     }
 
     public String getMetric(String metricName) {
-        return fetchEndpoint("/actuator/metrics/" + encodeMetricName(metricName));
+        return fetchEndpoint(metricsPath() + "/" + encodeMetricName(metricName));
     }
 
     private static String encodeMetricName(String metricName) {
@@ -387,7 +393,7 @@ public class ActuatorClient {
                                 metric -> {
                                     String name = metric.name();
                                     String encodedName = metric.encodedName();
-                                    String targetUrl = baseUrl + "/actuator/metrics/" + encodedName;
+                                    String targetUrl = baseUrl + metricsPath() + "/" + encodedName;
                                     HttpRequest request = newRequest(targetUrl).GET().build();
 
                                     CompletableFuture<HttpResponse<String>> httpFuture =
