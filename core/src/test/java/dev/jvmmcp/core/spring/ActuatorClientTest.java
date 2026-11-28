@@ -46,7 +46,15 @@ class ActuatorClientTest {
     @ParameterizedTest
     @ValueSource(
             strings = {
-                "", "/", "//", "////", "/app", "/app/", "/app///", "/actuator", "/app/actuator/"
+                "",
+                "/",
+                "//",
+                "////",
+                "/app",
+                "/app/",
+                "/app///",
+                "/actuator",
+                "/app/actuator/"
             })
     void testBatchMetricsResolvesMetricsPath(String suffix) {
         String expectedPath =
