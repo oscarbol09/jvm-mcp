@@ -267,6 +267,15 @@ class HikariMXBeanClientTest {
     }
 
     @Test
+    @DisplayName("extractPoolName decodes escaped quotes, backslashes and separators")
+    void shouldUnquoteEscapedPoolName() throws Exception {
+        String poolName = "app\"pool,shard\\east";
+        ObjectName name =
+                new ObjectName("com.zaxxer.hikari:type=Pool,name=" + ObjectName.quote(poolName));
+        assertThat(hikariClient.extractPoolName(name)).isEqualTo(poolName);
+    }
+
+    @Test
     @DisplayName("extractPoolName strips prefix/suffix or returns raw name when not formatted")
     void shouldExtractPoolNames() throws Exception {
         assertThat(
